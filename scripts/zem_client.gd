@@ -224,14 +224,18 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 	var count := payload.decode_u32(9)
 	var off := 13
 	for i in range(count):
-		if off + 16 > payload.size():
+		if off + 26 > payload.size():
 			break
 		var start_bp := payload.decode_u32(off)
 		var end_bp := payload.decode_u32(off + 4)
 		var mapq := payload[off + 8]
+		var reverse := payload[off + 9] == 1
 		var flags := payload.decode_u16(off + 10)
-		var name_len := payload.decode_u16(off + 12)
-		off += 14
+		var mate_start_u := payload.decode_u32(off + 12)
+		var mate_end_u := payload.decode_u32(off + 16)
+		var fragment_len := int(payload.decode_u32(off + 20))
+		var name_len := payload.decode_u16(off + 24)
+		off += 26
 		if off + name_len > payload.size():
 			break
 		var read_name := payload.slice(off, off + name_len).get_string_from_utf8()
@@ -259,10 +263,14 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 			"start": int(start_bp),
 			"end": int(end_bp),
 			"mapq": int(mapq),
+			"reverse": reverse,
 			"flags": int(flags),
 			"name": read_name,
 			"cigar": cigar,
 			"snps": snps,
+			"mate_start": -1 if mate_start_u == 0xFFFFFFFF else int(mate_start_u),
+			"mate_end": -1 if mate_end_u == 0xFFFFFFFF else int(mate_end_u),
+			"fragment_len": fragment_len,
 			"row": i % 12
 		})
 	return out

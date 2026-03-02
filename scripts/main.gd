@@ -35,6 +35,7 @@ const READ_DETAIL_MAX_ZOOM := 7
 @onready var play_speed_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PlaySpeedSlider
 @onready var play_speed_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PlaySpeedValue
 @onready var theme_option: OptionButton = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ThemeOption
+@onready var settings_content: VBoxContainer = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent
 @onready var file_list: ItemList = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FileList
 @onready var host_edit: LineEdit = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/HostEdit
 @onready var port_edit: LineEdit = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortEdit
@@ -61,14 +62,20 @@ var _has_bam_loaded := false
 var _has_fasta_loaded := false
 var _cache_start := -1
 var _cache_end := -1
+var _cache_zoom := -1
+var _cache_mode := -1
 var _theme_text_color: Color = Color.BLACK
 var _auto_play_enabled := false
 var _auto_play_direction := 1.0
+var _read_view_label: Label
+var _read_view_option: OptionButton
+var _fragment_log_checkbox: CheckBox
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
 	_disable_button_focus()
 	_setup_theme_selector()
+	_setup_read_view_controls()
 	_connect_ui()
 	_load_or_init_config()
 	_apply_theme(theme_option.get_item_text(theme_option.selected))
@@ -121,6 +128,8 @@ func _connect_ui() -> void:
 	play_speed_slider.value_changed.connect(_on_play_speed_changed)
 	theme_option.item_selected.connect(_on_theme_selected)
 	feature_close_button.pressed.connect(_close_feature_panel)
+	_read_view_option.item_selected.connect(_on_read_view_selected)
+	_fragment_log_checkbox.toggled.connect(_on_fragment_log_toggled)
 
 func _disable_button_focus() -> void:
 	var buttons := [
@@ -159,7 +168,9 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_bp_per_px = bp_per_px
 	viewport_label.text = "%s:%d - %d bp  |  %.2f bp/px" % [_current_chr_name, start_bp, end_bp, bp_per_px]
 	if _current_chr_id >= 0:
-		var needs_fetch := not _is_viewport_cached(start_bp, end_bp)
+		var zoom := _compute_tile_zoom(bp_per_px)
+		var mode := 0 if (_has_bam_loaded and zoom <= READ_DETAIL_MAX_ZOOM) else 1
+		var needs_fetch := not _is_viewport_cached(start_bp, end_bp, zoom, mode)
 		if _auto_play_enabled and _is_near_cache_right_edge(start_bp, end_bp):
 			needs_fetch = true
 		if needs_fetch:
@@ -241,6 +252,32 @@ func _stop_auto_play() -> void:
 
 func _on_theme_selected(index: int) -> void:
 	_apply_theme(theme_option.get_item_text(index))
+
+func _setup_read_view_controls() -> void:
+	_read_view_label = Label.new()
+	_read_view_label.text = "Read View"
+	_read_view_option = OptionButton.new()
+	_read_view_option.add_item("Stack", 0)
+	_read_view_option.add_item("Strand Stack", 1)
+	_read_view_option.add_item("Paired", 2)
+	_read_view_option.add_item("Fragment Size", 3)
+	_read_view_option.select(0)
+	_fragment_log_checkbox = CheckBox.new()
+	_fragment_log_checkbox.text = "Log fragment Y scale"
+	_fragment_log_checkbox.button_pressed = false
+	_fragment_log_checkbox.visible = false
+	settings_content.add_child(_read_view_label)
+	settings_content.add_child(_read_view_option)
+	settings_content.add_child(_fragment_log_checkbox)
+	genome_view.set_read_view_mode(0)
+	genome_view.set_fragment_log_scale(false)
+
+func _on_read_view_selected(index: int) -> void:
+	genome_view.set_read_view_mode(index)
+	_fragment_log_checkbox.visible = index == 3
+
+func _on_fragment_log_toggled(enabled: bool) -> void:
+	genome_view.set_fragment_log_scale(enabled)
 
 func _apply_theme(theme_name: String) -> void:
 	if not ThemePaletteScript.THEMES.has(theme_name):
@@ -337,6 +374,8 @@ func _refresh_chromosomes() -> void:
 	_current_chr_name = str(first.get("name", "chr"))
 	_cache_start = -1
 	_cache_end = -1
+	_cache_zoom = -1
+	_cache_mode = -1
 	genome_view.set_chromosome(_current_chr_name, _current_chr_len)
 	_set_status("Loaded %s (%d bp)" % [_current_chr_name, _current_chr_len])
 
@@ -385,6 +424,8 @@ func _refresh_visible_data() -> void:
 	genome_view.set_reference_slice(int(ref_resp.get("slice_start", _last_start)), str(ref_resp.get("sequence", "")))
 	_cache_start = query_start
 	_cache_end = query_end
+	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)
+	_cache_mode = 0 if (_has_bam_loaded and _cache_zoom <= READ_DETAIL_MAX_ZOOM) else 1
 
 func _schedule_fetch() -> void:
 	if _fetch_in_progress:
@@ -432,6 +473,8 @@ func _reset_loaded_state() -> void:
 	_current_chr_len = 0
 	_cache_start = -1
 	_cache_end = -1
+	_cache_zoom = -1
+	_cache_mode = -1
 	_has_bam_loaded = false
 	_has_fasta_loaded = false
 	_auto_play_enabled = false
@@ -439,8 +482,10 @@ func _reset_loaded_state() -> void:
 	_slide_feature_panel(false, false)
 	genome_view.clear_all_data()
 
-func _is_viewport_cached(start_bp: int, end_bp: int) -> bool:
+func _is_viewport_cached(start_bp: int, end_bp: int, zoom: int, mode: int) -> bool:
 	if _cache_start < 0 || _cache_end < 0:
+		return false
+	if _cache_zoom != zoom or _cache_mode != mode:
 		return false
 	return start_bp >= _cache_start and end_bp <= _cache_end
 
@@ -467,6 +512,8 @@ func _apply_text_theme_recursive(node: Node, color: Color) -> void:
 		(node as LineEdit).add_theme_color_override("font_color", color)
 	elif node is OptionButton:
 		(node as OptionButton).add_theme_color_override("font_color", color)
+	elif node is CheckBox:
+		(node as CheckBox).add_theme_color_override("font_color", color)
 	elif node is ItemList:
 		(node as ItemList).add_theme_color_override("font_color", color)
 
@@ -497,6 +544,13 @@ func _load_or_init_config() -> void:
 
 	var theme_name := str(cfg.get_value("ui", "theme", theme_option.get_item_text(theme_option.selected)))
 	_select_theme_option(theme_name)
+	var read_view := int(cfg.get_value("ui", "read_view_mode", 0))
+	read_view = clampi(read_view, 0, 3)
+	_read_view_option.select(read_view)
+	_on_read_view_selected(read_view)
+	var frag_log := bool(cfg.get_value("ui", "fragment_log_scale", false))
+	_fragment_log_checkbox.button_pressed = frag_log
+	genome_view.set_fragment_log_scale(frag_log)
 
 func _select_theme_option(theme_name: String) -> void:
 	for i in range(theme_option.item_count):
@@ -511,6 +565,8 @@ func _save_config() -> void:
 	cfg.set_value("ui", "scale", ui_scale_slider.value)
 	cfg.set_value("ui", "play_speed_widths_per_sec", play_speed_slider.value)
 	cfg.set_value("ui", "theme", theme_option.get_item_text(theme_option.selected))
+	cfg.set_value("ui", "read_view_mode", _read_view_option.selected)
+	cfg.set_value("ui", "fragment_log_scale", _fragment_log_checkbox.button_pressed)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
 	cfg.set_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value)
 	cfg.save(CONFIG_PATH)

@@ -15,6 +15,12 @@ const BOTTOM_PAD := 12.0
 const READ_ROW_H := 8.0
 const READ_ROW_GAP := 4.0
 const SNP_MARK_MAX_BP_PER_PX := 1.5
+const READ_VIEW_STACK := 0
+const READ_VIEW_STRAND := 1
+const READ_VIEW_PAIRED := 2
+const READ_VIEW_FRAGMENT := 3
+const STRAND_SPLIT_GAP := 8.0
+const STRAND_SPLIT_LINE_WIDTH := 2.5
 const COMPLEMENT_MAP := {
 	"A": "T",
 	"T": "A",
@@ -71,6 +77,10 @@ var _trackpad_pinch_sensitivity := 1.0
 var _reads_scrollbar: VScrollBar
 var _laid_out_reads: Array[Dictionary] = []
 var _read_row_count := 0
+var _strand_forward_rows := 0
+var _strand_reverse_rows := 0
+var _read_view_mode := READ_VIEW_STACK
+var _fragment_log_scale := false
 
 func _ready() -> void:
 	clip_contents = true
@@ -132,6 +142,23 @@ func set_trackpad_pan_sensitivity(value: float) -> void:
 
 func set_trackpad_pinch_sensitivity(value: float) -> void:
 	_trackpad_pinch_sensitivity = clampf(value, 0.5, 20.0)
+
+func set_read_view_mode(mode: int) -> void:
+	_read_view_mode = clampi(mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
+	if _reads_scrollbar != null:
+		_reads_scrollbar.value = 0.0
+	_layout_reads()
+	_layout_read_scrollbar()
+	if _read_view_mode == READ_VIEW_STRAND and _reads_scrollbar != null and _reads_scrollbar.visible:
+		_reads_scrollbar.value = _reads_scrollbar.max_value * 0.5
+	queue_redraw()
+
+func set_fragment_log_scale(enabled: bool) -> void:
+	_fragment_log_scale = enabled
+	if _read_view_mode == READ_VIEW_FRAGMENT:
+		_layout_reads()
+		_layout_read_scrollbar()
+		queue_redraw()
 
 func pan_by_fraction(fraction: float, duration: float = 0.35) -> void:
 	var plot_w := _plot_width()
@@ -232,19 +259,47 @@ func _draw_read_tracks(area: Rect2) -> void:
 
 	var content_top := area.position.y + 30.0
 	var content_bottom := area.position.y + area.size.y - 4.0
-	var scroll_px := _reads_scrollbar.value * (READ_ROW_H + READ_ROW_GAP)
+	var scroll_sign := -1.0 if _read_view_mode == READ_VIEW_STRAND else 1.0
+	var scroll_px := scroll_sign * _reads_scrollbar.value * (READ_ROW_H + READ_ROW_GAP)
+	var strand_split_y := 0.0
+	if _read_view_mode == READ_VIEW_STRAND:
+		var step_px := READ_ROW_H + READ_ROW_GAP
+		var forward_extent := 0.0
+		var reverse_extent := 0.0
+		if _strand_forward_rows > 0:
+			forward_extent = READ_ROW_H + float(_strand_forward_rows - 1) * step_px + STRAND_SPLIT_GAP * 0.5
+		if _strand_reverse_rows > 0:
+			reverse_extent = READ_ROW_H + float(_strand_reverse_rows - 1) * step_px + STRAND_SPLIT_GAP * 0.5
+		var split_at_forward_top := content_top + forward_extent
+		var split_at_reverse_bottom := content_bottom - reverse_extent
+		if split_at_forward_top <= split_at_reverse_bottom:
+			strand_split_y = (split_at_forward_top + split_at_reverse_bottom) * 0.5
+		else:
+			var range_px := split_at_forward_top - split_at_reverse_bottom
+			var off_px := clampf(_reads_scrollbar.value, 0.0, range_px)
+			strand_split_y = split_at_forward_top - off_px
+		draw_line(Vector2(TRACK_LEFT_PAD, strand_split_y), Vector2(size.x - TRACK_RIGHT_PAD, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
+	var drawn_pairs: Dictionary = {}
 	for read in _laid_out_reads:
 		var read_start: int = read["start"]
 		var read_end: int = read["end"]
 		if read_end < int(view_start_bp) || read_start > int(_viewport_end_bp()):
 			continue
-		var row: int = int(read.get("row", 0))
-		var y := content_bottom - READ_ROW_H - row * (READ_ROW_H + READ_ROW_GAP) + scroll_px
+		if _read_view_mode == READ_VIEW_PAIRED or _read_view_mode == READ_VIEW_FRAGMENT:
+			var pair_key := _pair_render_key(read)
+			if not pair_key.is_empty():
+				if drawn_pairs.has(pair_key):
+					continue
+				drawn_pairs[pair_key] = true
+		var y := _read_y_for_area(read, content_top, content_bottom, scroll_px, strand_split_y)
 		if y + READ_ROW_H < content_top or y > area.position.y + area.size.y - 4.0:
 			continue
 		var x0 := TRACK_LEFT_PAD + _bp_to_x(read_start)
 		var x1 := TRACK_LEFT_PAD + _bp_to_x(read_end)
 		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), READ_ROW_H))
+		if _read_view_mode == READ_VIEW_PAIRED or _read_view_mode == READ_VIEW_FRAGMENT:
+			_draw_pair_connector(read, y)
+			_draw_mate_block(read, y)
 		draw_rect(rect, palette["read"], true)
 		if bp_per_px <= SNP_MARK_MAX_BP_PER_PX:
 			var snps: PackedInt32Array = read.get("snps", PackedInt32Array())
@@ -256,6 +311,60 @@ func _draw_read_tracks(area: Rect2) -> void:
 					continue
 				var snp_w := maxf(1.0, 1.0 / bp_per_px)
 				draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, READ_ROW_H), Color(0.86, 0.14, 0.14), true)
+
+func _read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:
+	if _read_view_mode == READ_VIEW_FRAGMENT:
+		var norm := clampf(float(read.get("frag_norm", 0.0)), 0.0, 1.0)
+		var span := maxf(1.0, content_bottom - content_top - READ_ROW_H)
+		return content_bottom - READ_ROW_H - norm * span
+	var row: int = int(read.get("row", 0))
+	if _read_view_mode == READ_VIEW_STRAND:
+		if bool(read.get("reverse", false)):
+			return strand_split_y + STRAND_SPLIT_GAP * 0.5 + row * (READ_ROW_H + READ_ROW_GAP)
+		return strand_split_y - STRAND_SPLIT_GAP * 0.5 - READ_ROW_H - row * (READ_ROW_H + READ_ROW_GAP)
+	return content_bottom - READ_ROW_H - row * (READ_ROW_H + READ_ROW_GAP) + scroll_px
+
+func _draw_pair_connector(read: Dictionary, y: float) -> void:
+	var mate_start := int(read.get("mate_start", -1))
+	var mate_end := int(read.get("mate_end", -1))
+	if mate_start < 0 or mate_end <= mate_start:
+		return
+	var read_center := float(read.get("start", 0) + read.get("end", 0)) * 0.5
+	var mate_center := float(mate_start + mate_end) * 0.5
+	var x0 := TRACK_LEFT_PAD + _bp_to_x(read_center)
+	var x1 := TRACK_LEFT_PAD + _bp_to_x(mate_center)
+	var yc := y + READ_ROW_H * 0.5
+	draw_line(Vector2(x0, yc), Vector2(x1, yc), Color(0.22, 0.42, 0.52, 0.55), 1.0)
+
+func _draw_mate_block(read: Dictionary, y: float) -> void:
+	var mate_start := int(read.get("mate_start", -1))
+	var mate_end := int(read.get("mate_end", -1))
+	if mate_start < 0 or mate_end <= mate_start:
+		return
+	if mate_end < int(view_start_bp) or mate_start > int(_viewport_end_bp()):
+		return
+	var mx0 := TRACK_LEFT_PAD + _bp_to_x(mate_start)
+	var mx1 := TRACK_LEFT_PAD + _bp_to_x(mate_end)
+	var mate_color: Color = Color(0.42, 0.47, 0.5, 0.55)
+	draw_rect(Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), READ_ROW_H)), mate_color, true)
+
+func _pair_render_key(read: Dictionary) -> String:
+	var mate_start := int(read.get("mate_start", -1))
+	var mate_end := int(read.get("mate_end", -1))
+	if mate_start < 0 or mate_end <= mate_start:
+		return ""
+	var a0 := int(read.get("start", 0))
+	var a1 := int(read.get("end", a0 + 1))
+	var b0 := mate_start
+	var b1 := mate_end
+	if b0 < a0 or (b0 == a0 and b1 < a1):
+		var t0 := a0
+		var t1 := a1
+		a0 = b0
+		a1 = b1
+		b0 = t0
+		b1 = t1
+	return "%s|%d|%d|%d|%d" % [str(read.get("name", "")), a0, a1, b0, b1]
 
 func _draw_coverage_tiles(area: Rect2) -> void:
 	if coverage_tiles.is_empty():
@@ -541,22 +650,66 @@ func _read_area(annotation_area: Rect2) -> Rect2:
 
 func _layout_reads() -> void:
 	_laid_out_reads.clear()
+	_strand_forward_rows = 0
+	_strand_reverse_rows = 0
 	if reads.is_empty():
 		_read_row_count = 0
 		return
 
-	var sorted_reads: Array = reads.duplicate(true)
-	sorted_reads.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		if int(a.get("start", 0)) == int(b.get("start", 0)):
-			return int(a.get("end", 0)) < int(b.get("end", 0))
-		return int(a.get("start", 0)) < int(b.get("start", 0))
-	)
+	if _read_view_mode == READ_VIEW_FRAGMENT:
+		_layout_fragment_reads()
+		return
 
+	if _read_view_mode == READ_VIEW_STRAND:
+		var forward_reads: Array = []
+		var reverse_reads: Array = []
+		for read in reads:
+			if bool(read.get("reverse", false)):
+				reverse_reads.append(read)
+			else:
+				forward_reads.append(read)
+		_strand_forward_rows = _pack_reads_into_rows(forward_reads, false)
+		_strand_reverse_rows = _pack_reads_into_rows(reverse_reads, false)
+		_read_row_count = maxi(_strand_forward_rows, _strand_reverse_rows)
+		return
+
+	var use_pair_span := _read_view_mode == READ_VIEW_PAIRED
+	_read_row_count = _pack_reads_into_rows(reads, use_pair_span)
+
+func _layout_fragment_reads() -> void:
+	var max_frag := 1.0
+	for read in reads:
+		var f := float(maxi(1, int(read.get("fragment_len", 0))))
+		if f > max_frag:
+			max_frag = f
+	for read in reads:
+		var laid_out: Dictionary = (read as Dictionary).duplicate(true)
+		var f := float(maxi(1, int(laid_out.get("fragment_len", 0))))
+		var norm := 0.0
+		if _fragment_log_scale:
+			norm = log(f + 1.0) / log(max_frag + 1.0)
+		else:
+			norm = f / max_frag
+		laid_out["frag_norm"] = clampf(norm, 0.0, 1.0)
+		_laid_out_reads.append(laid_out)
+	_read_row_count = 0
+
+func _pack_reads_into_rows(source_reads: Array, use_pair_span: bool) -> int:
+	if source_reads.is_empty():
+		return 0
+	var sorted_reads: Array = source_reads.duplicate(true)
+	sorted_reads.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var sa := _layout_span_start(a, use_pair_span)
+		var sb := _layout_span_start(b, use_pair_span)
+		if sa == sb:
+			return _layout_span_end(a, use_pair_span) < _layout_span_end(b, use_pair_span)
+		return sa < sb
+	)
 	var row_ends: Array[int] = []
 	for read_any in sorted_reads:
 		var read: Dictionary = read_any
-		var s := int(read.get("start", 0))
-		var e := int(read.get("end", s + 1))
+		var s := _layout_span_start(read, use_pair_span)
+		var e := _layout_span_end(read, use_pair_span)
 		var chosen := -1
 		for i in range(row_ends.size()):
 			if s >= row_ends[i]:
@@ -570,7 +723,42 @@ func _layout_reads() -> void:
 		var laid_out := read.duplicate(true)
 		laid_out["row"] = chosen
 		_laid_out_reads.append(laid_out)
-	_read_row_count = row_ends.size()
+	return row_ends.size()
+
+func _layout_span_start(read: Dictionary, use_pair_span: bool) -> int:
+	var s := int(read.get("start", 0))
+	if not use_pair_span or not _should_use_mate_span_for_packing(read):
+		return s
+	var mate_start := int(read.get("mate_start", -1))
+	if mate_start >= 0:
+		return mini(s, mate_start)
+	return s
+
+func _layout_span_end(read: Dictionary, use_pair_span: bool) -> int:
+	var s := int(read.get("start", 0))
+	var e := int(read.get("end", s + 1))
+	if not use_pair_span or not _should_use_mate_span_for_packing(read):
+		return e
+	var mate_end := int(read.get("mate_end", -1))
+	if mate_end > 0:
+		return maxi(e, mate_end)
+	return e
+
+func _should_use_mate_span_for_packing(read: Dictionary) -> bool:
+	var mate_start := int(read.get("mate_start", -1))
+	var mate_end := int(read.get("mate_end", -1))
+	if mate_start < 0 or mate_end <= mate_start:
+		return false
+	var view_start := int(view_start_bp)
+	var view_end := int(_viewport_end_bp())
+	var view_span := maxi(1, view_end - view_start)
+	# Keep packing tight: include mate span only when mate is close enough to current view.
+	var max_distance := view_span * 2
+	var read_start := int(read.get("start", 0))
+	var read_end := int(read.get("end", read_start + 1))
+	var read_center := (read_start + read_end) / 2
+	var mate_center := (mate_start + mate_end) / 2
+	return absi(mate_center - read_center) <= max_distance
 
 func _layout_read_scrollbar() -> void:
 	if _reads_scrollbar == null:
@@ -579,12 +767,38 @@ func _layout_read_scrollbar() -> void:
 	var sb_x := size.x - 16.0
 	_reads_scrollbar.position = Vector2(sb_x, read_area.position.y + 2.0)
 	_reads_scrollbar.size = Vector2(12.0, maxf(12.0, read_area.size.y - 4.0))
-	var visible_rows := maxf(1.0, floor((read_area.size.y - 34.0) / (READ_ROW_H + READ_ROW_GAP)))
+	if _read_view_mode == READ_VIEW_FRAGMENT:
+		_reads_scrollbar.visible = false
+		_reads_scrollbar.value = 0.0
+		return
+	var content_h := maxf(1.0, read_area.size.y - 34.0)
+	var visible_rows := maxf(1.0, floor(content_h / (READ_ROW_H + READ_ROW_GAP)))
 	var max_rows := maxi(_read_row_count, 0)
-	_reads_scrollbar.visible = float(max_rows) > visible_rows
-	_reads_scrollbar.max_value = float(max_rows)
-	_reads_scrollbar.page = visible_rows
-	_reads_scrollbar.value = clampf(_reads_scrollbar.value, 0.0, maxf(0.0, float(max_rows) - visible_rows))
+	if _read_view_mode == READ_VIEW_STRAND:
+		var step_px := READ_ROW_H + READ_ROW_GAP
+		var content_top := read_area.position.y + 30.0
+		var content_bottom := read_area.position.y + read_area.size.y - 4.0
+		var forward_extent := 0.0
+		var reverse_extent := 0.0
+		if _strand_forward_rows > 0:
+			forward_extent = READ_ROW_H + float(_strand_forward_rows - 1) * step_px
+		if _strand_reverse_rows > 0:
+			reverse_extent = READ_ROW_H + float(_strand_reverse_rows - 1) * step_px
+		var split_at_forward_top := content_top + forward_extent
+		var split_at_reverse_bottom := content_bottom - reverse_extent
+		var range_px := maxf(0.0, split_at_forward_top - split_at_reverse_bottom)
+		_reads_scrollbar.visible = range_px > 0.0
+		_reads_scrollbar.max_value = range_px
+		_reads_scrollbar.page = maxf(1.0, minf(range_px, 64.0))
+		_reads_scrollbar.step = 1.0
+		_reads_scrollbar.value = clampf(_reads_scrollbar.value, 0.0, range_px)
+		return
+	var max_offset := maxf(0.0, float(max_rows) - visible_rows)
+	_reads_scrollbar.visible = max_offset > 0.0
+	_reads_scrollbar.max_value = max_offset
+	_reads_scrollbar.page = 1.0
+	_reads_scrollbar.step = 1.0
+	_reads_scrollbar.value = clampf(_reads_scrollbar.value, 0.0, max_offset)
 
 func _on_reads_scroll_changed(_value: float) -> void:
 	queue_redraw()
