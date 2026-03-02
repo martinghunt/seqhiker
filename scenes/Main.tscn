@@ -1,0 +1,319 @@
+[gd_scene load_steps=3 format=3 uid="uid://b8x31srh18cqr"]
+
+[ext_resource type="Script" uid="uid://blioyr3uu4r8n" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" uid="uid://d2jyou0mxekd6" path="res://scripts/genome_view.gd" id="2_view"]
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_main")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.968627, 0.937255, 0.894118, 1)
+
+[node name="Root" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="TopBar" type="HBoxContainer" parent="Root"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="SettingsToggleButton" type="Button" parent="Root/TopBar"]
+layout_mode = 2
+text = "Settings"
+
+[node name="PanLeftButton" type="Button" parent="Root/TopBar"]
+layout_mode = 2
+text = "Pan Left"
+
+[node name="PanRightButton" type="Button" parent="Root/TopBar"]
+layout_mode = 2
+text = "Pan Right"
+
+[node name="ZoomOutButton" type="Button" parent="Root/TopBar"]
+layout_mode = 2
+text = "Zoom -"
+
+[node name="ZoomInButton" type="Button" parent="Root/TopBar"]
+layout_mode = 2
+text = "Zoom +"
+
+[node name="PlayButton" type="Button" parent="Root/TopBar"]
+layout_mode = 2
+text = "Play"
+
+[node name="PlayLeftButton" type="Button" parent="Root/TopBar"]
+layout_mode = 2
+text = "Play Left"
+
+[node name="StopButton" type="Button" parent="Root/TopBar"]
+layout_mode = 2
+text = "Stop"
+
+[node name="Spacer" type="Control" parent="Root/TopBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ViewportLabel" type="Label" parent="Root/TopBar"]
+layout_mode = 2
+text = "0 - 0 bp"
+
+[node name="ServerStatusLabel" type="Label" parent="Root/TopBar"]
+layout_mode = 2
+text = "Disconnected"
+
+[node name="ContentMargin" type="MarginContainer" parent="Root"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 0
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="GenomeView" type="Control" parent="Root/ContentMargin"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("2_view")
+
+[node name="SettingsPanel" type="PanelContainer" parent="."]
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_right = 300.0
+grow_vertical = 2
+
+[node name="SettingsMargin" type="MarginContainer" parent="SettingsPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="SettingsLayout" type="VBoxContainer" parent="SettingsPanel/SettingsMargin"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="SettingsHeader" type="HBoxContainer" parent="SettingsPanel/SettingsMargin/SettingsLayout"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SettingsTitle" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Settings"
+
+[node name="CloseSettingsButton" type="Button" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader"]
+layout_mode = 2
+text = "Close"
+
+[node name="SettingsScroll" type="ScrollContainer" parent="SettingsPanel/SettingsMargin/SettingsLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SettingsContent" type="VBoxContainer" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="TitleSeparator" type="HSeparator" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+
+[node name="ServerLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Server Host"
+
+[node name="HostEdit" type="LineEdit" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "127.0.0.1"
+
+[node name="PortLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Server Port"
+
+[node name="PortEdit" type="LineEdit" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "9000"
+
+[node name="ConnectButton" type="Button" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Connect"
+
+[node name="StatusTitle" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Last Message"
+
+[node name="StatusMessageLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+text = "Disconnected"
+autowrap_mode = 3
+
+[node name="ServerSeparator" type="HSeparator" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+
+[node name="UIScaleLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "UI Scale"
+
+[node name="UIScaleSlider" type="HSlider" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+min_value = 0.75
+max_value = 2.0
+step = 0.05
+value = 1.0
+
+[node name="UIScaleValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "1.00x"
+
+[node name="TrackpadPanLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Trackpad Pan Sensitivity"
+
+[node name="TrackpadPanSlider" type="HSlider" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+min_value = 0.5
+max_value = 20.0
+step = 0.05
+value = 8.0
+
+[node name="TrackpadPanValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "1.00x"
+
+[node name="TrackpadPinchLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Trackpad Pinch Sensitivity"
+
+[node name="TrackpadPinchSlider" type="HSlider" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+min_value = 0.5
+max_value = 20.0
+step = 0.05
+value = 8.0
+
+[node name="TrackpadPinchValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "1.00x"
+
+[node name="PlaySpeedLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Play Speed (screen widths/sec)"
+
+[node name="PlaySpeedSlider" type="HSlider" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+min_value = 0.05
+max_value = 5.0
+step = 0.01
+value = 0.3
+
+[node name="PlaySpeedValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "0.30 widths/s"
+
+[node name="ThemeLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Theme"
+
+[node name="ThemeOption" type="OptionButton" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+
+[node name="FilesLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Loaded Files"
+
+[node name="FileList" type="ItemList" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+custom_minimum_size = Vector2(0, 240)
+layout_mode = 2
+size_flags_vertical = 3
+allow_reselect = true
+
+[node name="FeaturePanel" type="PanelContainer" parent="."]
+custom_minimum_size = Vector2(340, 0)
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -340.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="FeatureMargin" type="MarginContainer" parent="FeaturePanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="FeatureScroll" type="ScrollContainer" parent="FeaturePanel/FeatureMargin"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="FeatureContent" type="VBoxContainer" parent="FeaturePanel/FeatureMargin/FeatureScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="FeatureTitle" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+layout_mode = 2
+text = "Feature Details"
+
+[node name="FeatureCloseButton" type="Button" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+layout_mode = 2
+text = "Close"
+
+[node name="FeatureSeparator" type="HSeparator" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+layout_mode = 2
+
+[node name="FeatureNameLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+layout_mode = 2
+text = "Name: -"
+autowrap_mode = 3
+
+[node name="FeatureTypeLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+layout_mode = 2
+text = "Type: -"
+autowrap_mode = 3
+
+[node name="FeatureRangeLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+layout_mode = 2
+text = "Range: -"
+autowrap_mode = 3
+
+[node name="FeatureStrandLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+layout_mode = 2
+text = "Strand: -"
+autowrap_mode = 3
+
+[node name="FeatureSourceLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+layout_mode = 2
+text = "Source: -"
+autowrap_mode = 3
+
+[node name="FeatureSeqLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+layout_mode = 2
+text = "Sequence: -"
+autowrap_mode = 3
