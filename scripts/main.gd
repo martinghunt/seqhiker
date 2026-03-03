@@ -78,6 +78,11 @@ var _fragment_log_checkbox: CheckBox
 var _read_thickness_label: Label
 var _read_thickness_spin: SpinBox
 var _show_full_region_checkbox: CheckBox
+var _track_order_label: Label
+var _track_order_list: ItemList
+var _track_dragging := false
+var _track_drag_index := -1
+var _track_drop_index := -1
 var _seq_view_label: Label
 var _seq_view_option: OptionButton
 var _seq_option_label: Label
@@ -99,6 +104,7 @@ func _ready() -> void:
 	_setup_theme_selector()
 	_setup_read_view_controls()
 	_setup_sequence_controls()
+	_setup_track_order_controls()
 	_connect_ui()
 	_load_or_init_config()
 	_apply_theme(theme_option.get_item_text(theme_option.selected))
@@ -155,6 +161,7 @@ func _connect_ui() -> void:
 	_fragment_log_checkbox.toggled.connect(_on_fragment_log_toggled)
 	_read_thickness_spin.value_changed.connect(_on_read_thickness_changed)
 	_show_full_region_checkbox.toggled.connect(_on_show_full_region_toggled)
+	_track_order_list.gui_input.connect(_on_track_order_list_gui_input)
 	_seq_view_option.item_selected.connect(_on_seq_view_selected)
 	_seq_option.item_selected.connect(_on_seq_selected)
 	_concat_gap_spin.value_changed.connect(_on_concat_gap_changed)
@@ -343,6 +350,16 @@ func _setup_sequence_controls() -> void:
 	settings_content.add_child(_concat_gap_label)
 	settings_content.add_child(_concat_gap_spin)
 
+func _setup_track_order_controls() -> void:
+	_track_order_label = Label.new()
+	_track_order_label.text = "Track Order"
+	_track_order_list = ItemList.new()
+	_track_order_list.select_mode = ItemList.SELECT_SINGLE
+	_track_order_list.custom_minimum_size = Vector2(0, 84)
+	settings_content.add_child(_track_order_label)
+	settings_content.add_child(_track_order_list)
+	_refresh_track_order_list(genome_view.get_track_order(), 0)
+
 func _on_read_view_selected(index: int) -> void:
 	genome_view.set_read_view_mode(index)
 	_fragment_log_checkbox.visible = index == 3
@@ -357,6 +374,75 @@ func _on_read_thickness_changed(value: float) -> void:
 func _on_show_full_region_toggled(enabled: bool) -> void:
 	_show_full_length_regions = enabled
 	genome_view.set_show_full_length_regions(enabled)
+
+func _on_track_order_list_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		if mb.pressed:
+			var idx := _track_order_list.get_item_at_position(_track_order_list.get_local_mouse_position(), true)
+			if idx >= 0:
+				_track_dragging = true
+				_track_drag_index = idx
+				_track_drop_index = idx
+				_track_order_list.select(idx)
+				_track_order_list.accept_event()
+			return
+		if _track_dragging:
+			_apply_track_drag_drop()
+			_track_order_list.accept_event()
+		_track_dragging = false
+		_track_drag_index = -1
+		_track_drop_index = -1
+	elif event is InputEventMouseMotion and _track_dragging:
+		var idx := _track_order_list.get_item_at_position(_track_order_list.get_local_mouse_position(), true)
+		if idx >= 0:
+			_track_drop_index = idx
+			_track_order_list.select(idx)
+
+func _apply_track_drag_drop() -> void:
+	if _track_drag_index < 0:
+		return
+	var order: PackedStringArray = genome_view.get_track_order()
+	if order.is_empty() or _track_drag_index >= order.size():
+		return
+	var drop_idx := _track_drop_index
+	if drop_idx < 0:
+		var mp := _track_order_list.get_local_mouse_position()
+		drop_idx = 0 if mp.y < 0.0 else _track_order_list.item_count - 1
+	drop_idx = clampi(drop_idx, 0, order.size() - 1)
+	if drop_idx == _track_drag_index:
+		return
+	var moving: String = str(order[_track_drag_index])
+	order.remove_at(_track_drag_index)
+	if drop_idx > _track_drag_index:
+		drop_idx -= 1
+	order.insert(drop_idx, moving)
+	genome_view.set_track_order(order)
+	_refresh_track_order_list(genome_view.get_track_order(), drop_idx)
+
+func _refresh_track_order_list(order: PackedStringArray, select_idx: int = -1) -> void:
+	_track_order_list.clear()
+	for id in order:
+		_track_order_list.add_item(_track_label_for_id(str(id)))
+	if _track_order_list.item_count <= 0:
+		return
+	var idx := select_idx
+	if idx < 0 or idx >= _track_order_list.item_count:
+		idx = 0
+	_track_order_list.select(idx)
+
+func _track_label_for_id(track_id: String) -> String:
+	match track_id:
+		"reads":
+			return "Reads"
+		"aa":
+			return "AA / Annotation"
+		"genome":
+			return "Genome"
+		_:
+			return track_id
 
 func _on_seq_view_selected(index: int) -> void:
 	_seq_view_mode = index
@@ -891,6 +977,13 @@ func _load_or_init_config() -> void:
 	var frag_log := bool(cfg.get_value("ui", "fragment_log_scale", false))
 	_fragment_log_checkbox.button_pressed = frag_log
 	genome_view.set_fragment_log_scale(frag_log)
+	var raw_track_order = cfg.get_value("ui", "track_order", [])
+	var saved_track_order := PackedStringArray()
+	if raw_track_order is Array:
+		for id in raw_track_order:
+			saved_track_order.append(str(id))
+	genome_view.set_track_order(saved_track_order)
+	_refresh_track_order_list(genome_view.get_track_order())
 
 func _select_theme_option(theme_name: String) -> void:
 	for i in range(theme_option.item_count):
@@ -912,6 +1005,10 @@ func _save_config() -> void:
 	cfg.set_value("ui", "read_thickness", _read_thickness)
 	cfg.set_value("ui", "show_full_length_regions", _show_full_length_regions)
 	cfg.set_value("ui", "fragment_log_scale", _fragment_log_checkbox.button_pressed)
+	var track_order_arr: Array[String] = []
+	for id in genome_view.get_track_order():
+		track_order_arr.append(str(id))
+	cfg.set_value("ui", "track_order", track_order_arr)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
 	cfg.set_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value)
 	cfg.save(CONFIG_PATH)

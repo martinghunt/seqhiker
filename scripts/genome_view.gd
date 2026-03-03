@@ -16,6 +16,9 @@ const READ_ROW_H := 8.0
 const READ_ROW_GAP := 4.0
 const SNP_MARK_MAX_BP_PER_PX := 1.5
 const NUC_TEXT_MAX_BASES := 3000
+const TRACK_ID_READS := "reads"
+const TRACK_ID_AA := "aa"
+const TRACK_ID_GENOME := "genome"
 const READ_VIEW_STACK := 0
 const READ_VIEW_STRAND := 1
 const READ_VIEW_PAIRED := 2
@@ -103,6 +106,7 @@ var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
 var _show_full_length_regions := false
+var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GENOME])
 
 func _ready() -> void:
 	clip_contents = true
@@ -200,6 +204,28 @@ func set_show_full_length_regions(enabled: bool) -> void:
 	_show_full_length_regions = enabled
 	queue_redraw()
 
+func get_track_order() -> PackedStringArray:
+	return _track_order.duplicate()
+
+func set_track_order(order: PackedStringArray) -> void:
+	var valid := PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GENOME])
+	var seen: Dictionary = {}
+	var next := PackedStringArray()
+	for id_any in order:
+		var id := str(id_any)
+		if not valid.has(id):
+			continue
+		if seen.get(id, false):
+			continue
+		seen[id] = true
+		next.append(id)
+	for id in valid:
+		if not seen.get(id, false):
+			next.append(id)
+	_track_order = next
+	_layout_read_scrollbar()
+	queue_redraw()
+
 func is_zoom_animating() -> bool:
 	return _zoom_tween != null and _zoom_tween.is_running()
 
@@ -288,12 +314,18 @@ func _notification(what: int) -> void:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), palette["panel"], true)
-	var genome_area := _genome_area()
-	var anno_area := _annotation_area(genome_area)
-	var read_area := _read_area(anno_area)
-	_draw_read_tracks(read_area)
-	_draw_aa_tracks(anno_area)
-	_draw_genome_track(genome_area)
+	var track_rects := _track_layout_rects()
+	for track_id in _track_order:
+		if not track_rects.has(track_id):
+			continue
+		var area: Rect2 = track_rects[track_id]
+		match track_id:
+			TRACK_ID_READS:
+				_draw_read_tracks(area)
+			TRACK_ID_AA:
+				_draw_aa_tracks(area)
+			TRACK_ID_GENOME:
+				_draw_genome_track(area)
 	_draw_file_status()
 
 func _draw_read_tracks(area: Rect2) -> void:
@@ -939,16 +971,54 @@ func _generate_mock_data() -> void:
 		})
 
 func _genome_area() -> Rect2:
-	return Rect2(0.0, size.y - BOTTOM_PAD - GENOME_H, size.x, GENOME_H)
+	return _track_rect(TRACK_ID_GENOME)
 
 func _annotation_area(genome_area: Rect2) -> Rect2:
-	var h := 6.0 * (AA_ROW_H + AA_ROW_GAP)
-	var y := genome_area.position.y - PANEL_GAP - h
-	return Rect2(0.0, y, size.x, h)
+	return _track_rect(TRACK_ID_AA)
 
 func _read_area(annotation_area: Rect2) -> Rect2:
-	var h := annotation_area.position.y - PANEL_GAP - TOP_PAD
-	return Rect2(0.0, TOP_PAD, size.x, maxf(24.0, h))
+	return _track_rect(TRACK_ID_READS)
+
+func _track_layout_rects() -> Dictionary:
+	var out := {}
+	if _track_order.is_empty():
+		return out
+	var fixed_sum := 0.0
+	var flex_count := 0
+	for track_id in _track_order:
+		var h := _track_fixed_height(track_id)
+		if h >= 0.0:
+			fixed_sum += h
+		else:
+			flex_count += 1
+	var gap_total := PANEL_GAP * maxf(0.0, float(_track_order.size() - 1))
+	var available := maxf(0.0, size.y - TOP_PAD - BOTTOM_PAD - gap_total - fixed_sum)
+	var flex_h := 0.0
+	if flex_count > 0:
+		flex_h = available / float(flex_count)
+	var y := TOP_PAD
+	for track_id in _track_order:
+		var h := _track_fixed_height(track_id)
+		if h < 0.0:
+			h = maxf(24.0, flex_h)
+		out[track_id] = Rect2(0.0, y, size.x, maxf(24.0, h))
+		y += h + PANEL_GAP
+	return out
+
+func _track_fixed_height(track_id: String) -> float:
+	match track_id:
+		TRACK_ID_AA:
+			return 6.0 * (AA_ROW_H + AA_ROW_GAP)
+		TRACK_ID_GENOME:
+			return GENOME_H
+		_:
+			return -1.0
+
+func _track_rect(track_id: String) -> Rect2:
+	var rects := _track_layout_rects()
+	if rects.has(track_id):
+		return rects[track_id]
+	return Rect2(0.0, 0.0, size.x, 0.0)
 
 func _layout_reads() -> void:
 	_laid_out_reads.clear()
@@ -1065,7 +1135,11 @@ func _should_use_mate_span_for_packing(read: Dictionary) -> bool:
 func _layout_read_scrollbar() -> void:
 	if _reads_scrollbar == null:
 		return
-	var read_area := _read_area(_annotation_area(_genome_area()))
+	var read_area := _track_rect(TRACK_ID_READS)
+	if read_area.size.y <= 0.0:
+		_reads_scrollbar.visible = false
+		_reads_scrollbar.value = 0.0
+		return
 	var sb_x := size.x - 16.0
 	_reads_scrollbar.position = Vector2(sb_x, read_area.position.y + 2.0)
 	_reads_scrollbar.size = Vector2(12.0, maxf(12.0, read_area.size.y - 4.0))
