@@ -82,6 +82,7 @@ var _strand_forward_rows := 0
 var _strand_reverse_rows := 0
 var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
+var _read_row_h := READ_ROW_H
 
 func _ready() -> void:
 	clip_contents = true
@@ -168,6 +169,12 @@ func set_fragment_log_scale(enabled: bool) -> void:
 		_layout_reads()
 		_layout_read_scrollbar()
 		queue_redraw()
+
+func set_read_thickness(value: float) -> void:
+	_read_row_h = clampf(value, 2.0, 24.0)
+	_layout_reads()
+	_layout_read_scrollbar()
+	queue_redraw()
 
 func pan_by_fraction(fraction: float, duration: float = 0.35) -> void:
 	var plot_w := _plot_width()
@@ -269,16 +276,16 @@ func _draw_read_tracks(area: Rect2) -> void:
 	var content_top := area.position.y + 30.0
 	var content_bottom := area.position.y + area.size.y - 4.0
 	var scroll_sign := -1.0 if _read_view_mode == READ_VIEW_STRAND else 1.0
-	var scroll_px := scroll_sign * _reads_scrollbar.value * (READ_ROW_H + READ_ROW_GAP)
+	var scroll_px := scroll_sign * _reads_scrollbar.value * (_read_row_h + READ_ROW_GAP)
 	var strand_split_y := 0.0
 	if _read_view_mode == READ_VIEW_STRAND:
-		var step_px := READ_ROW_H + READ_ROW_GAP
+		var step_px := _read_row_h + READ_ROW_GAP
 		var forward_extent := 0.0
 		var reverse_extent := 0.0
 		if _strand_forward_rows > 0:
-			forward_extent = READ_ROW_H + float(_strand_forward_rows - 1) * step_px + STRAND_SPLIT_GAP * 0.5
+			forward_extent = _read_row_h + float(_strand_forward_rows - 1) * step_px + STRAND_SPLIT_GAP * 0.5
 		if _strand_reverse_rows > 0:
-			reverse_extent = READ_ROW_H + float(_strand_reverse_rows - 1) * step_px + STRAND_SPLIT_GAP * 0.5
+			reverse_extent = _read_row_h + float(_strand_reverse_rows - 1) * step_px + STRAND_SPLIT_GAP * 0.5
 		var split_at_forward_top := content_top + forward_extent
 		var split_at_reverse_bottom := content_bottom - reverse_extent
 		if split_at_forward_top <= split_at_reverse_bottom:
@@ -301,11 +308,11 @@ func _draw_read_tracks(area: Rect2) -> void:
 					continue
 				drawn_pairs[pair_key] = true
 		var y := _read_y_for_area(read, content_top, content_bottom, scroll_px, strand_split_y)
-		if y + READ_ROW_H < content_top or y > area.position.y + area.size.y - 4.0:
+		if y + _read_row_h < content_top or y > area.position.y + area.size.y - 4.0:
 			continue
 		var x0 := TRACK_LEFT_PAD + _bp_to_x(read_start)
 		var x1 := TRACK_LEFT_PAD + _bp_to_x(read_end)
-		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), READ_ROW_H))
+		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), _read_row_h))
 		if _read_view_mode == READ_VIEW_PAIRED or _read_view_mode == READ_VIEW_FRAGMENT:
 			_draw_pair_connector(read, y)
 			_draw_mate_block(read, y)
@@ -319,19 +326,19 @@ func _draw_read_tracks(area: Rect2) -> void:
 				if sx < TRACK_LEFT_PAD or sx > size.x - TRACK_RIGHT_PAD:
 					continue
 				var snp_w := maxf(1.0, 1.0 / bp_per_px)
-				draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, READ_ROW_H), Color(0.86, 0.14, 0.14), true)
+				draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, _read_row_h), Color(0.86, 0.14, 0.14), true)
 
 func _read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:
 	if _read_view_mode == READ_VIEW_FRAGMENT:
 		var norm := clampf(float(read.get("frag_norm", 0.0)), 0.0, 1.0)
-		var span := maxf(1.0, content_bottom - content_top - READ_ROW_H)
-		return content_bottom - READ_ROW_H - norm * span
+		var span := maxf(1.0, content_bottom - content_top - _read_row_h)
+		return content_bottom - _read_row_h - norm * span
 	var row: int = int(read.get("row", 0))
 	if _read_view_mode == READ_VIEW_STRAND:
 		if bool(read.get("reverse", false)):
-			return strand_split_y + STRAND_SPLIT_GAP * 0.5 + row * (READ_ROW_H + READ_ROW_GAP)
-		return strand_split_y - STRAND_SPLIT_GAP * 0.5 - READ_ROW_H - row * (READ_ROW_H + READ_ROW_GAP)
-	return content_bottom - READ_ROW_H - row * (READ_ROW_H + READ_ROW_GAP) + scroll_px
+			return strand_split_y + STRAND_SPLIT_GAP * 0.5 + row * (_read_row_h + READ_ROW_GAP)
+		return strand_split_y - STRAND_SPLIT_GAP * 0.5 - _read_row_h - row * (_read_row_h + READ_ROW_GAP)
+	return content_bottom - _read_row_h - row * (_read_row_h + READ_ROW_GAP) + scroll_px
 
 func _draw_pair_connector(read: Dictionary, y: float) -> void:
 	var mate_start := int(read.get("mate_start", -1))
@@ -342,8 +349,8 @@ func _draw_pair_connector(read: Dictionary, y: float) -> void:
 	var mate_center := float(mate_start + mate_end) * 0.5
 	var x0 := TRACK_LEFT_PAD + _bp_to_x(read_center)
 	var x1 := TRACK_LEFT_PAD + _bp_to_x(mate_center)
-	var yc := y + READ_ROW_H * 0.5
-	draw_line(Vector2(x0, yc), Vector2(x1, yc), Color(0.22, 0.42, 0.52, 0.55), 1.0)
+	var yc := y + _read_row_h * 0.5
+	draw_line(Vector2(x0, yc), Vector2(x1, yc), Color(0.24, 0.24, 0.24, 0.9), 1.0)
 
 func _draw_mate_block(read: Dictionary, y: float) -> void:
 	var mate_start := int(read.get("mate_start", -1))
@@ -354,8 +361,8 @@ func _draw_mate_block(read: Dictionary, y: float) -> void:
 		return
 	var mx0 := TRACK_LEFT_PAD + _bp_to_x(mate_start)
 	var mx1 := TRACK_LEFT_PAD + _bp_to_x(mate_end)
-	var mate_color: Color = Color(0.42, 0.47, 0.5, 0.55)
-	draw_rect(Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), READ_ROW_H)), mate_color, true)
+	var mate_color: Color = palette["read"]
+	draw_rect(Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), _read_row_h)), mate_color, true)
 
 func _pair_render_key(read: Dictionary) -> String:
 	var mate_start := int(read.get("mate_start", -1))
@@ -930,18 +937,18 @@ func _layout_read_scrollbar() -> void:
 		_reads_scrollbar.value = 0.0
 		return
 	var content_h := maxf(1.0, read_area.size.y - 34.0)
-	var visible_rows := maxf(1.0, floor(content_h / (READ_ROW_H + READ_ROW_GAP)))
+	var visible_rows := maxf(1.0, floor(content_h / (_read_row_h + READ_ROW_GAP)))
 	var max_rows := maxi(_read_row_count, 0)
 	if _read_view_mode == READ_VIEW_STRAND:
-		var step_px := READ_ROW_H + READ_ROW_GAP
+		var step_px := _read_row_h + READ_ROW_GAP
 		var content_top := read_area.position.y + 30.0
 		var content_bottom := read_area.position.y + read_area.size.y - 4.0
 		var forward_extent := 0.0
 		var reverse_extent := 0.0
 		if _strand_forward_rows > 0:
-			forward_extent = READ_ROW_H + float(_strand_forward_rows - 1) * step_px
+			forward_extent = _read_row_h + float(_strand_forward_rows - 1) * step_px
 		if _strand_reverse_rows > 0:
-			reverse_extent = READ_ROW_H + float(_strand_reverse_rows - 1) * step_px
+			reverse_extent = _read_row_h + float(_strand_reverse_rows - 1) * step_px
 		var split_at_forward_top := content_top + forward_extent
 		var split_at_reverse_bottom := content_bottom - reverse_extent
 		var range_px := maxf(0.0, split_at_forward_top - split_at_reverse_bottom)

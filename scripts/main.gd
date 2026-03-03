@@ -5,6 +5,7 @@ const ZemClientScript = preload("res://scripts/zem_client.gd")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const READ_DETAIL_MAX_ZOOM := 7
 const DEFAULT_CONCAT_GAP_BP := 50
+const DEFAULT_READ_THICKNESS := 8.0
 const SEQ_VIEW_CONCAT := 0
 const SEQ_VIEW_SINGLE := 1
 
@@ -74,6 +75,8 @@ var _auto_play_direction := 1.0
 var _read_view_label: Label
 var _read_view_option: OptionButton
 var _fragment_log_checkbox: CheckBox
+var _read_thickness_label: Label
+var _read_thickness_spin: SpinBox
 var _seq_view_label: Label
 var _seq_view_option: OptionButton
 var _seq_option_label: Label
@@ -84,6 +87,7 @@ var _seq_view_mode := SEQ_VIEW_CONCAT
 var _selected_seq_id := -1
 var _selected_seq_name := ""
 var _concat_gap_bp := DEFAULT_CONCAT_GAP_BP
+var _read_thickness := DEFAULT_READ_THICKNESS
 var _chromosomes: Array[Dictionary] = []
 var _concat_segments: Array[Dictionary] = []
 
@@ -147,6 +151,7 @@ func _connect_ui() -> void:
 	feature_close_button.pressed.connect(_close_feature_panel)
 	_read_view_option.item_selected.connect(_on_read_view_selected)
 	_fragment_log_checkbox.toggled.connect(_on_fragment_log_toggled)
+	_read_thickness_spin.value_changed.connect(_on_read_thickness_changed)
 	_seq_view_option.item_selected.connect(_on_seq_view_selected)
 	_seq_option.item_selected.connect(_on_seq_selected)
 	_concat_gap_spin.value_changed.connect(_on_concat_gap_changed)
@@ -286,11 +291,21 @@ func _setup_read_view_controls() -> void:
 	_fragment_log_checkbox.text = "Log fragment Y scale"
 	_fragment_log_checkbox.button_pressed = false
 	_fragment_log_checkbox.visible = false
+	_read_thickness_label = Label.new()
+	_read_thickness_label.text = "Read Thickness"
+	_read_thickness_spin = SpinBox.new()
+	_read_thickness_spin.min_value = 2
+	_read_thickness_spin.max_value = 24
+	_read_thickness_spin.step = 1
+	_read_thickness_spin.value = _read_thickness
 	settings_content.add_child(_read_view_label)
 	settings_content.add_child(_read_view_option)
 	settings_content.add_child(_fragment_log_checkbox)
+	settings_content.add_child(_read_thickness_label)
+	settings_content.add_child(_read_thickness_spin)
 	genome_view.set_read_view_mode(0)
 	genome_view.set_fragment_log_scale(false)
+	genome_view.set_read_thickness(_read_thickness)
 
 func _setup_sequence_controls() -> void:
 	_seq_view_label = Label.new()
@@ -324,6 +339,10 @@ func _on_read_view_selected(index: int) -> void:
 
 func _on_fragment_log_toggled(enabled: bool) -> void:
 	genome_view.set_fragment_log_scale(enabled)
+
+func _on_read_thickness_changed(value: float) -> void:
+	_read_thickness = clampf(value, 2.0, 24.0)
+	genome_view.set_read_thickness(_read_thickness)
 
 func _on_seq_view_selected(index: int) -> void:
 	_seq_view_mode = index
@@ -839,6 +858,10 @@ func _load_or_init_config() -> void:
 	read_view = clampi(read_view, 0, 3)
 	_read_view_option.select(read_view)
 	_on_read_view_selected(read_view)
+	_read_thickness = float(cfg.get_value("ui", "read_thickness", DEFAULT_READ_THICKNESS))
+	_read_thickness = clampf(_read_thickness, 2.0, 24.0)
+	_read_thickness_spin.value = _read_thickness
+	genome_view.set_read_thickness(_read_thickness)
 	var frag_log := bool(cfg.get_value("ui", "fragment_log_scale", false))
 	_fragment_log_checkbox.button_pressed = frag_log
 	genome_view.set_fragment_log_scale(frag_log)
@@ -860,6 +883,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "concat_gap_bp", _concat_gap_bp)
 	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)
 	cfg.set_value("ui", "read_view_mode", _read_view_option.selected)
+	cfg.set_value("ui", "read_thickness", _read_thickness)
 	cfg.set_value("ui", "fragment_log_scale", _fragment_log_checkbox.button_pressed)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
 	cfg.set_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value)
