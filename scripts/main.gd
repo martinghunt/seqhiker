@@ -6,6 +6,10 @@ const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const READ_DETAIL_MAX_ZOOM := 7
 const DEFAULT_CONCAT_GAP_BP := 50
 const DEFAULT_READ_THICKNESS := 8.0
+const ANNOT_CHUNK_TARGET_BP := 120000
+const ANNOT_MAX_CHUNKS := 24
+const ANNOT_MAX_PER_CHUNK := 2500
+const ANNOT_MAX_TOTAL := 12000
 const SEQ_VIEW_CONCAT := 0
 const SEQ_VIEW_SINGLE := 1
 
@@ -771,9 +775,6 @@ func _refresh_visible_data() -> void:
 	var right_span_mult := 3 if _auto_play_enabled else 1
 	var query_start: int = maxi(0, _last_start - span)
 	var query_end: int = mini(_current_chr_len, _last_end + span * right_span_mult)
-	var ann_margin: int = maxi(64, int(span * 0.2))
-	var ann_query_start: int = maxi(0, _last_start - ann_margin)
-	var ann_query_end: int = mini(_current_chr_len, _last_end + ann_margin)
 	var all_reads: Array[Dictionary] = []
 	var all_coverage_tiles: Array[Dictionary] = []
 	var features: Array[Dictionary] = []
@@ -801,7 +802,7 @@ func _refresh_visible_data() -> void:
 						return
 					all_coverage_tiles.append(cov_resp.get("coverage", {}))
 
-		var ann_resp: Dictionary = _zem.get_annotations(_current_chr_id, ann_query_start, ann_query_end, 2500)
+		var ann_resp := _get_annotations_window_paged(_current_chr_id, query_start, query_end)
 		if not ann_resp.get("ok", false):
 			_set_status("Annotation query failed: %s" % ann_resp.get("error", "error"), true)
 			return
@@ -815,7 +816,7 @@ func _refresh_visible_data() -> void:
 		ref_sequence = str(ref_resp.get("sequence", ""))
 	else:
 		var overlaps := _segments_overlapping(query_start, query_end)
-		var ann_overlaps := _segments_overlapping(ann_query_start, ann_query_end)
+		var ann_overlaps := _segments_overlapping(query_start, query_end)
 		var zoom := _compute_tile_zoom(_last_bp_per_px)
 		for ov in overlaps:
 			var chr_id := int(ov["id"])
@@ -850,7 +851,7 @@ func _refresh_visible_data() -> void:
 			var a_offset := int(aov["offset"])
 			var a_local_start := int(aov["local_start"])
 			var a_local_end := int(aov["local_end"])
-			var ann_resp_part: Dictionary = _zem.get_annotations(a_chr_id, a_local_start, a_local_end, 2500)
+			var ann_resp_part := _get_annotations_window_paged(a_chr_id, a_local_start, a_local_end)
 			if not ann_resp_part.get("ok", false):
 				_set_status("Annotation query failed: %s" % ann_resp_part.get("error", "error"), true)
 				return
@@ -868,6 +869,57 @@ func _refresh_visible_data() -> void:
 	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)
 	_cache_mode = 0 if (_has_bam_loaded and _cache_zoom <= READ_DETAIL_MAX_ZOOM) else 1
 	_cache_scope_key = _scope_cache_key()
+
+func _get_annotations_window_paged(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
+	if end_bp <= start_bp:
+		return {"ok": true, "features": []}
+	var span := end_bp - start_bp
+	var chunk_count := clampi(int(ceil(float(span) / float(ANNOT_CHUNK_TARGET_BP))), 1, ANNOT_MAX_CHUNKS)
+	var chunk_span := maxi(1, int(ceil(float(span) / float(chunk_count))))
+	var out: Array[Dictionary] = []
+	var seen: Dictionary = {}
+	for i in range(chunk_count):
+		var chunk_start := start_bp + i * chunk_span
+		if chunk_start >= end_bp:
+			break
+		var chunk_end := mini(end_bp, chunk_start + chunk_span)
+		var resp: Dictionary = _zem.get_annotations(chr_id, chunk_start, chunk_end, ANNOT_MAX_PER_CHUNK)
+		if not resp.get("ok", false):
+			return resp
+		for f in resp.get("features", []):
+			var feat: Dictionary = f
+			var key := _feature_dedupe_key(feat)
+			if seen.get(key, false):
+				continue
+			seen[key] = true
+			out.append(feat)
+			if out.size() >= ANNOT_MAX_TOTAL:
+				out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+					var sa := int(a.get("start", 0))
+					var sb := int(b.get("start", 0))
+					if sa == sb:
+						return int(a.get("end", sa)) < int(b.get("end", sb))
+					return sa < sb
+				)
+				return {"ok": true, "features": out}
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var sa := int(a.get("start", 0))
+		var sb := int(b.get("start", 0))
+		if sa == sb:
+			return int(a.get("end", sa)) < int(b.get("end", sb))
+		return sa < sb
+	)
+	return {"ok": true, "features": out}
+
+func _feature_dedupe_key(feature: Dictionary) -> String:
+	return "%d|%d|%s|%s|%s|%s" % [
+		int(feature.get("start", 0)),
+		int(feature.get("end", 0)),
+		str(feature.get("strand", ".")),
+		str(feature.get("type", "")),
+		str(feature.get("name", "")),
+		str(feature.get("source", ""))
+	]
 
 func _schedule_fetch() -> void:
 	if _fetch_timer == null:
@@ -1140,7 +1192,11 @@ func _on_feature_clicked(feature: Dictionary) -> void:
 	feature_type_label.text = "Type: %s" % str(feature.get("type", "-"))
 	feature_range_label.text = "Range: %d - %d" % [int(feature.get("start", 0)), int(feature.get("end", 0))]
 	feature_strand_label.text = "Strand: %s" % str(feature.get("strand", "."))
-	feature_source_label.text = "Source: %s" % str(feature.get("source", "-"))
+	var feature_id := str(feature.get("id", "")).strip_edges()
+	if feature_id.is_empty():
+		feature_source_label.text = "Source: %s" % str(feature.get("source", "-"))
+	else:
+		feature_source_label.text = "Source: %s | ID=%s" % [str(feature.get("source", "-")), feature_id]
 	feature_seq_label.text = "Sequence: %s" % str(feature.get("seq_name", _current_chr_name))
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)

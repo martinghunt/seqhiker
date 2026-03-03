@@ -11,6 +11,7 @@ const MSG_ACK := 7
 const MSG_ERROR := 8
 const MSG_GET_CHROMOSOMES := 10
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
+const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
 const LOAD_TIMEOUT_MS := 120000
 
@@ -339,6 +340,10 @@ func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:
 			break
 		var attrs := payload.slice(off, off + attr_len).get_string_from_utf8()
 		off += attr_len
+		var name := _extract_first_attr(attrs, DISPLAY_NAME_KEYS)
+		var feature_id := _extract_first_attr(attrs, ["ID="])
+		if name.is_empty():
+			name = _extract_name(attrs, feature_type)
 		out.append({
 			"start": start_bp,
 			"end": end_bp,
@@ -346,7 +351,8 @@ func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:
 			"seq_name": seq_name,
 			"source": source,
 			"type": feature_type,
-			"name": _extract_name(attrs, feature_type)
+			"name": name,
+			"id": feature_id
 		})
 	return out
 
@@ -375,6 +381,18 @@ func _extract_name(attrs: String, fallback: String) -> String:
 				end = attrs.length()
 			return attrs.substr(start, end - start)
 	return fallback
+
+func _extract_first_attr(attrs: String, keys: Array) -> String:
+	for key in keys:
+		var pos: int = attrs.find(key)
+		if pos < 0:
+			continue
+		var start: int = pos + key.length()
+		var end: int = attrs.find(";", start)
+		if end == -1:
+			end = attrs.length()
+		return attrs.substr(start, end - start)
+	return ""
 
 func _next_request_id() -> int:
 	_request_id = (_request_id + 1) & 0xFFFF

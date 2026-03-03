@@ -576,6 +576,10 @@ func _draw_coverage_tiles(area: Rect2) -> void:
 func _draw_aa_tracks(area: Rect2) -> void:
 	var area_start := area.position.y
 	var show_aa_letters := _can_draw_aa_letters()
+	var frame_label_boxes: Array = []
+	frame_label_boxes.resize(6)
+	for i in range(6):
+		frame_label_boxes[i] = []
 	_feature_hitboxes.clear()
 	for i in range(6):
 		var y := area_start + i * (AA_ROW_H + AA_ROW_GAP)
@@ -603,14 +607,24 @@ func _draw_aa_tracks(area: Rect2) -> void:
 		var fx1 := TRACK_LEFT_PAD + _bp_to_x(f_end)
 		var rect := Rect2(Vector2(fx0, fy), Vector2(maxf(2.0, fx1 - fx0), AA_ROW_H - 8.0))
 		var feature_col: Color = (palette["feature"] as Color).lerp(Color.WHITE, 0.45)
-		feature_col.a = 0.6
+		feature_col.a = 0.4
 		draw_rect(rect, feature_col, true)
 		_feature_hitboxes.append({
 			"rect": rect,
 			"feature": feature
 		})
 		if rect.size.x > 60 and not show_aa_letters:
-			draw_string(get_theme_default_font(), Vector2(rect.position.x + 4, rect.position.y + 14), str(feature["name"]), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 8, 12, Color.WHITE)
+			var label_w := rect.size.x - 8.0
+			var label := _feature_annotation_label(feature, label_w)
+			if not label.is_empty():
+				var font := get_theme_default_font()
+				var font_size := 12
+				var text_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+				var draw_w := minf(label_w, text_w)
+				var label_rect := Rect2(Vector2(rect.position.x + 4.0, rect.position.y + 2.0), Vector2(draw_w, AA_ROW_H - 8.0))
+				if not _intersects_any(label_rect, frame_label_boxes[frame]):
+					draw_string(font, Vector2(rect.position.x + 4.0, rect.position.y + 14.0), label, HORIZONTAL_ALIGNMENT_LEFT, label_w, font_size, _axis_text_color())
+					frame_label_boxes[frame].append(label_rect)
 
 	if show_aa_letters:
 		_draw_aa_translation_letters(area_start)
@@ -743,7 +757,7 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 		var label_x := x0 + 4.0
 		var label_w := maxf(0.0, x1 - x0 - 8.0)
 		if label_w > 12.0:
-			draw_string(get_theme_default_font(), Vector2(label_x, top_y + 16.0), name, HORIZONTAL_ALIGNMENT_LEFT, label_w, 12, palette["text"])
+			draw_string(get_theme_default_font(), Vector2(label_x, top_y + 16.0), name, HORIZONTAL_ALIGNMENT_LEFT, label_w, 12, _axis_text_color())
 
 	var span := _plot_width() * bp_per_px
 	if span <= 0:
@@ -815,7 +829,7 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 	for tick_info in flat_labels:
 		var label := str(tick_info.get("label", ""))
 		var x := float(tick_info.get("x", 0.0))
-		draw_string(font, Vector2(x + 2.0, top_y + 54.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, palette["text"])
+		draw_string(font, Vector2(x + 2.0, top_y + 54.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
 
 func _bp_in_concat_segment(bp: int) -> bool:
 	for seg in concat_segments:
@@ -836,7 +850,7 @@ func _draw_ticks(top_y: float, line_y: float) -> void:
 		if tick >= 0 and tick <= chromosome_length:
 			var x := TRACK_LEFT_PAD + _bp_to_x(float(tick))
 			draw_line(Vector2(x, line_y - 8), Vector2(x, line_y + 8), palette["grid"], 1.0)
-			draw_string(get_theme_default_font(), Vector2(x + 2, top_y + 54), _format_axis_bp(tick, int(tick_step)), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, palette["text"])
+			draw_string(get_theme_default_font(), Vector2(x + 2, top_y + 54), _format_axis_bp(tick, int(tick_step)), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, _axis_text_color())
 		tick += int(tick_step)
 
 func _draw_grid(area: Rect2) -> void:
@@ -910,6 +924,32 @@ func _translate_codon(codon: String) -> String:
 	if codon.length() != 3:
 		return ""
 	return str(CODON_TO_AA.get(codon, "X"))
+
+func _feature_annotation_label(feature: Dictionary, max_width: float) -> String:
+	if max_width <= 0.0:
+		return ""
+	var font := get_theme_default_font()
+	var font_size := 12
+	var name := str(feature.get("name", "")).strip_edges()
+	var id := str(feature.get("id", "")).strip_edges()
+	if name.is_empty():
+		name = str(feature.get("type", "")).strip_edges()
+	if name.is_empty() and id.is_empty():
+		return ""
+	if id.is_empty() or id == name:
+		return name
+	var combined := "%s / %s" % [name, id]
+	var combined_w := font.get_string_size(combined, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	if combined_w <= max_width:
+		return combined
+	return name
+
+func _intersects_any(rect: Rect2, existing: Array) -> bool:
+	for r_any in existing:
+		var r: Rect2 = r_any
+		if r.intersects(rect):
+			return true
+	return false
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
@@ -1048,6 +1088,9 @@ func _format_axis_bp(value: int, step: int) -> String:
 	if step < 100000000:
 		return "%.1f Mb" % mb
 	return "%.0f Mb" % mb
+
+func _axis_text_color() -> Color:
+	return palette["text"]
 
 func _axis_tick_step(span: float) -> int:
 	if span <= 0.0:
