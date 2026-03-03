@@ -30,6 +30,7 @@ const SEQ_VIEW_SINGLE := 1
 @onready var feature_strand_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureStrandLabel
 @onready var feature_source_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureSourceLabel
 @onready var feature_seq_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureSeqLabel
+@onready var feature_content: VBoxContainer = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent
 @onready var ui_scale_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleSlider
 @onready var ui_scale_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleValue
 @onready var trackpad_pan_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPanSlider
@@ -97,6 +98,9 @@ var _read_thickness := DEFAULT_READ_THICKNESS
 var _show_full_length_regions := false
 var _chromosomes: Array[Dictionary] = []
 var _concat_segments: Array[Dictionary] = []
+var _track_settings_box: VBoxContainer
+var _track_settings_open := false
+var _active_track_settings_id := ""
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -105,6 +109,7 @@ func _ready() -> void:
 	_setup_read_view_controls()
 	_setup_sequence_controls()
 	_setup_track_order_controls()
+	_setup_track_settings_panel()
 	_connect_ui()
 	_load_or_init_config()
 	_apply_theme(theme_option.get_item_text(theme_option.selected))
@@ -151,15 +156,14 @@ func _connect_ui() -> void:
 	stop_button.pressed.connect(_stop_auto_play)
 	genome_view.viewport_changed.connect(_on_viewport_changed)
 	genome_view.feature_clicked.connect(_on_feature_clicked)
+	genome_view.track_settings_requested.connect(_on_track_settings_requested)
+	genome_view.track_order_changed.connect(_on_track_order_changed)
 	ui_scale_slider.value_changed.connect(_on_ui_scale_changed)
 	trackpad_pan_slider.value_changed.connect(_on_trackpad_pan_changed)
 	trackpad_pinch_slider.value_changed.connect(_on_trackpad_pinch_changed)
 	play_speed_slider.value_changed.connect(_on_play_speed_changed)
 	theme_option.item_selected.connect(_on_theme_selected)
 	feature_close_button.pressed.connect(_close_feature_panel)
-	_read_view_option.item_selected.connect(_on_read_view_selected)
-	_fragment_log_checkbox.toggled.connect(_on_fragment_log_toggled)
-	_read_thickness_spin.value_changed.connect(_on_read_thickness_changed)
 	_show_full_region_checkbox.toggled.connect(_on_show_full_region_toggled)
 	_track_order_list.gui_input.connect(_on_track_order_list_gui_input)
 	_seq_view_option.item_selected.connect(_on_seq_view_selected)
@@ -313,12 +317,6 @@ func _setup_read_view_controls() -> void:
 	_show_full_region_checkbox = CheckBox.new()
 	_show_full_region_checkbox.text = "Show full-length region annotations"
 	_show_full_region_checkbox.button_pressed = _show_full_length_regions
-	settings_content.add_child(_read_view_label)
-	settings_content.add_child(_read_view_option)
-	settings_content.add_child(_fragment_log_checkbox)
-	settings_content.add_child(_read_thickness_label)
-	settings_content.add_child(_read_thickness_spin)
-	settings_content.add_child(_show_full_region_checkbox)
 	genome_view.set_read_view_mode(0)
 	genome_view.set_fragment_log_scale(false)
 	genome_view.set_read_thickness(_read_thickness)
@@ -343,12 +341,6 @@ func _setup_sequence_controls() -> void:
 	_concat_gap_spin.max_value = 10000
 	_concat_gap_spin.step = 10
 	_concat_gap_spin.value = _concat_gap_bp
-	settings_content.add_child(_seq_view_label)
-	settings_content.add_child(_seq_view_option)
-	settings_content.add_child(_seq_option_label)
-	settings_content.add_child(_seq_option)
-	settings_content.add_child(_concat_gap_label)
-	settings_content.add_child(_concat_gap_spin)
 
 func _setup_track_order_controls() -> void:
 	_track_order_label = Label.new()
@@ -360,11 +352,17 @@ func _setup_track_order_controls() -> void:
 	settings_content.add_child(_track_order_list)
 	_refresh_track_order_list(genome_view.get_track_order(), 0)
 
+func _setup_track_settings_panel() -> void:
+	_track_settings_box = VBoxContainer.new()
+	_track_settings_box.visible = false
+	feature_content.add_child(_track_settings_box)
+
 func _on_read_view_selected(index: int) -> void:
+	_read_view_option.select(index)
 	genome_view.set_read_view_mode(index)
-	_fragment_log_checkbox.visible = index == 3
 
 func _on_fragment_log_toggled(enabled: bool) -> void:
+	_fragment_log_checkbox.button_pressed = enabled
 	genome_view.set_fragment_log_scale(enabled)
 
 func _on_read_thickness_changed(value: float) -> void:
@@ -433,6 +431,9 @@ func _refresh_track_order_list(order: PackedStringArray, select_idx: int = -1) -
 		idx = 0
 	_track_order_list.select(idx)
 
+func _on_track_order_changed(order: PackedStringArray) -> void:
+	_refresh_track_order_list(order)
+
 func _track_label_for_id(track_id: String) -> String:
 	match track_id:
 		"reads":
@@ -443,6 +444,121 @@ func _track_label_for_id(track_id: String) -> String:
 			return "Genome"
 		_:
 			return track_id
+
+func _on_track_settings_requested(track_id: String) -> void:
+	if _track_settings_box == null:
+		return
+	if _track_settings_open and _active_track_settings_id == track_id and _feature_panel_open:
+		_close_feature_panel()
+		return
+	_set_feature_labels_visible(false)
+	feature_name_label.visible = true
+	feature_name_label.text = "Track Settings: %s" % _track_label_for_id(track_id)
+	for child in _track_settings_box.get_children():
+		child.queue_free()
+	_track_settings_box.visible = true
+	_track_settings_open = true
+	_active_track_settings_id = track_id
+	match track_id:
+		"reads":
+			var view_label := Label.new()
+			view_label.text = "Read View"
+			var view_option := OptionButton.new()
+			view_option.add_item("Stack", 0)
+			view_option.add_item("Strand Stack", 1)
+			view_option.add_item("Paired", 2)
+			view_option.add_item("Fragment Size", 3)
+			view_option.select(_read_view_option.selected)
+			_track_settings_box.add_child(view_label)
+			_track_settings_box.add_child(view_option)
+			var frag_cb := CheckBox.new()
+			frag_cb.text = "Log fragment Y scale"
+			frag_cb.button_pressed = _fragment_log_checkbox.button_pressed
+			frag_cb.visible = view_option.selected == 3
+			view_option.item_selected.connect(func(index: int) -> void:
+				_on_read_view_selected(index)
+				frag_cb.visible = index == 3
+			)
+			frag_cb.toggled.connect(_on_fragment_log_toggled)
+			_track_settings_box.add_child(frag_cb)
+			var thickness_label := Label.new()
+			thickness_label.text = "Read Thickness"
+			var thickness_spin := SpinBox.new()
+			thickness_spin.min_value = 2
+			thickness_spin.max_value = 24
+			thickness_spin.step = 1
+			thickness_spin.value = _read_thickness
+			thickness_spin.value_changed.connect(_on_read_thickness_changed)
+			_track_settings_box.add_child(thickness_label)
+			_track_settings_box.add_child(thickness_spin)
+		"aa":
+			var region_cb := CheckBox.new()
+			region_cb.text = "Show full-length region annotations"
+			region_cb.button_pressed = _show_full_length_regions
+			region_cb.toggled.connect(_on_show_full_region_toggled)
+			_track_settings_box.add_child(region_cb)
+		"genome":
+			var seq_view_label := Label.new()
+			seq_view_label.text = "Sequence View"
+			var seq_view_option := OptionButton.new()
+			seq_view_option.add_item("Concatenate", SEQ_VIEW_CONCAT)
+			seq_view_option.add_item("Single Sequence", SEQ_VIEW_SINGLE)
+			seq_view_option.select(_seq_view_mode)
+			_track_settings_box.add_child(seq_view_label)
+			_track_settings_box.add_child(seq_view_option)
+			var seq_label := Label.new()
+			seq_label.text = "Sequence"
+			var seq_option := OptionButton.new()
+			for i in range(_seq_option.item_count):
+				seq_option.add_item(_seq_option.get_item_text(i), _seq_option.get_item_id(i))
+			if _selected_seq_id >= 0:
+				for i in range(seq_option.item_count):
+					if seq_option.get_item_id(i) == _selected_seq_id:
+						seq_option.select(i)
+						break
+			seq_option.visible = _seq_view_mode == SEQ_VIEW_SINGLE
+			seq_label.visible = seq_option.visible
+			_track_settings_box.add_child(seq_label)
+			_track_settings_box.add_child(seq_option)
+			var gap_label := Label.new()
+			gap_label.text = "Concat Gap (bp)"
+			var gap_spin := SpinBox.new()
+			gap_spin.min_value = 0
+			gap_spin.max_value = 10000
+			gap_spin.step = 10
+			gap_spin.value = _concat_gap_bp
+			_track_settings_box.add_child(gap_label)
+			_track_settings_box.add_child(gap_spin)
+			seq_view_option.item_selected.connect(func(index: int) -> void:
+				_on_seq_view_selected(index)
+				var single := index == SEQ_VIEW_SINGLE
+				seq_option.visible = single
+				seq_label.visible = single
+			)
+			seq_option.item_selected.connect(func(index: int) -> void:
+				if index < 0 or index >= seq_option.item_count:
+					return
+				var target_id := int(seq_option.get_item_id(index))
+				for j in range(_seq_option.item_count):
+					if _seq_option.get_item_id(j) == target_id:
+						_seq_option.select(j)
+						break
+				_on_seq_selected(_seq_option.selected)
+			)
+			gap_spin.value_changed.connect(_on_concat_gap_changed)
+		_:
+			var info := Label.new()
+			info.text = "No track-specific settings yet."
+			_track_settings_box.add_child(info)
+	_feature_panel_open = true
+	_slide_feature_panel(true, true)
+
+func _set_feature_labels_visible(visible: bool) -> void:
+	feature_type_label.visible = visible
+	feature_range_label.visible = visible
+	feature_strand_label.visible = visible
+	feature_source_label.visible = visible
+	feature_seq_label.visible = visible
 
 func _on_seq_view_selected(index: int) -> void:
 	_seq_view_mode = index
@@ -1014,6 +1130,11 @@ func _save_config() -> void:
 	cfg.save(CONFIG_PATH)
 
 func _on_feature_clicked(feature: Dictionary) -> void:
+	_track_settings_open = false
+	_active_track_settings_id = ""
+	_set_feature_labels_visible(true)
+	if _track_settings_box != null:
+		_track_settings_box.visible = false
 	feature_name_label.text = "Name: %s" % str(feature.get("name", "-"))
 	feature_type_label.text = "Type: %s" % str(feature.get("type", "-"))
 	feature_range_label.text = "Range: %d - %d" % [int(feature.get("start", 0)), int(feature.get("end", 0))]
@@ -1025,6 +1146,10 @@ func _on_feature_clicked(feature: Dictionary) -> void:
 
 func _close_feature_panel() -> void:
 	_feature_panel_open = false
+	_track_settings_open = false
+	_active_track_settings_id = ""
+	if _track_settings_box != null:
+		_track_settings_box.visible = false
 	_slide_feature_panel(false, true)
 
 func _input(event: InputEvent) -> void:

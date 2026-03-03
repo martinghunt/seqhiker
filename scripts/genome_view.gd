@@ -3,6 +3,8 @@ class_name GenomeView
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
 signal feature_clicked(feature: Dictionary)
+signal track_settings_requested(track_id: String)
+signal track_order_changed(order: PackedStringArray)
 
 const AA_ROW_H := 26.0
 const AA_ROW_GAP := 5.0
@@ -107,6 +109,11 @@ var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
 var _show_full_length_regions := false
 var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GENOME])
+var _track_grab_hitboxes: Array[Dictionary] = []
+var _track_settings_hitboxes: Array[Dictionary] = []
+var _track_drag_active := false
+var _track_drag_track_id := ""
+var _track_drag_target_index := -1
 
 func _ready() -> void:
 	clip_contents = true
@@ -208,6 +215,7 @@ func get_track_order() -> PackedStringArray:
 	return _track_order.duplicate()
 
 func set_track_order(order: PackedStringArray) -> void:
+	var prev := _track_order
 	var valid := PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GENOME])
 	var seen: Dictionary = {}
 	var next := PackedStringArray()
@@ -225,6 +233,8 @@ func set_track_order(order: PackedStringArray) -> void:
 	_track_order = next
 	_layout_read_scrollbar()
 	queue_redraw()
+	if prev != _track_order:
+		emit_signal("track_order_changed", _track_order.duplicate())
 
 func is_zoom_animating() -> bool:
 	return _zoom_tween != null and _zoom_tween.is_running()
@@ -314,6 +324,8 @@ func _notification(what: int) -> void:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), palette["panel"], true)
+	_track_grab_hitboxes.clear()
+	_track_settings_hitboxes.clear()
 	var track_rects := _track_layout_rects()
 	for track_id in _track_order:
 		if not track_rects.has(track_id):
@@ -326,14 +338,60 @@ func _draw() -> void:
 				_draw_aa_tracks(area)
 			TRACK_ID_GENOME:
 				_draw_genome_track(area)
+		_draw_track_header(track_id, area)
+	if _track_drag_active and _track_drag_target_index >= 0 and _track_drag_target_index < _track_order.size():
+		var target_id := _track_order[_track_drag_target_index]
+		if track_rects.has(target_id):
+			var target_rect: Rect2 = track_rects[target_id]
+			var y := target_rect.position.y - 2.0
+			draw_line(Vector2(2.0, y), Vector2(size.x - 2.0, y), Color(0.05, 0.05, 0.05, 0.9), 2.0)
 	_draw_file_status()
+
+func _draw_track_header(track_id: String, area: Rect2) -> void:
+	var title := _track_label_for_id(track_id)
+	var gx := 4.0
+	var gy := area.position.y + 4.0
+	var grab_rect := Rect2(gx, gy, 14.0, 14.0)
+	var settings_rect := Rect2(gx, gy + 18.0, 14.0, 14.0)
+	draw_rect(grab_rect, Color(1, 1, 1, 0.35), true)
+	draw_rect(grab_rect, palette["grid"], false, 1.0)
+	for i in range(3):
+		var ly := grab_rect.position.y + 4.0 + i * 4.0
+		draw_line(Vector2(grab_rect.position.x + 3.0, ly), Vector2(grab_rect.position.x + grab_rect.size.x - 3.0, ly), palette["text"], 1.0)
+	draw_rect(settings_rect, Color(1, 1, 1, 0.35), true)
+	draw_rect(settings_rect, palette["grid"], false, 1.0)
+	draw_string(get_theme_default_font(), Vector2(settings_rect.position.x + 3.0, settings_rect.position.y + 11.0), "S", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, palette["text"])
+	draw_string(get_theme_default_font(), Vector2(gx + 20.0, gy + 12.0), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, palette["text"])
+	_track_grab_hitboxes.append({"rect": grab_rect, "track_id": track_id})
+	_track_settings_hitboxes.append({"rect": settings_rect, "track_id": track_id})
+
+func _track_label_for_id(track_id: String) -> String:
+	match track_id:
+		TRACK_ID_READS:
+			return "Reads"
+		TRACK_ID_AA:
+			return "AA / Annotation"
+		TRACK_ID_GENOME:
+			return "Genome"
+		_:
+			return track_id
+
+func _track_index_for_y(y: float) -> int:
+	var rects := _track_layout_rects()
+	for i in range(_track_order.size()):
+		var track_id := _track_order[i]
+		if not rects.has(track_id):
+			continue
+		var r: Rect2 = rects[track_id]
+		if y < r.position.y + r.size.y * 0.5:
+			return i
+	return max(0, _track_order.size() - 1)
 
 func _draw_read_tracks(area: Rect2) -> void:
 	if area.size.y <= 24.0:
 		return
 	draw_rect(area, palette["bg"], true)
 	_draw_grid(area)
-	draw_string(get_theme_default_font(), Vector2(14, area.position.y + 20), "Reads", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, palette["text"])
 	_draw_coverage_tiles(area)
 
 	var content_top := area.position.y + 30.0
@@ -830,12 +888,48 @@ func _translate_codon(codon: String) -> String:
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		var mouse_pos: Vector2 = event.position
+		for hit in _track_settings_hitboxes:
+			var rect: Rect2 = hit["rect"]
+			if rect.has_point(mouse_pos):
+				emit_signal("track_settings_requested", str(hit["track_id"]))
+				accept_event()
+				return
+		for hit in _track_grab_hitboxes:
+			var rect: Rect2 = hit["rect"]
+			if rect.has_point(mouse_pos):
+				_track_drag_active = true
+				_track_drag_track_id = str(hit["track_id"])
+				_track_drag_target_index = _track_order.find(_track_drag_track_id)
+				accept_event()
+				return
 		for hit in _feature_hitboxes:
 			var rect: Rect2 = hit["rect"]
 			if rect.has_point(mouse_pos):
 				emit_signal("feature_clicked", hit["feature"])
 				accept_event()
 				return
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		if _track_drag_active:
+			var from_idx := _track_order.find(_track_drag_track_id)
+			var to_idx := clampi(_track_drag_target_index, 0, _track_order.size() - 1)
+			if from_idx >= 0 and to_idx >= 0 and from_idx != to_idx:
+				var next := _track_order.duplicate()
+				next.remove_at(from_idx)
+				if to_idx > from_idx:
+					to_idx -= 1
+				next.insert(to_idx, _track_drag_track_id)
+				set_track_order(next)
+			_track_drag_active = false
+			_track_drag_track_id = ""
+			_track_drag_target_index = -1
+			queue_redraw()
+			accept_event()
+			return
+	elif event is InputEventMouseMotion and _track_drag_active:
+		_track_drag_target_index = _track_index_for_y(event.position.y)
+		queue_redraw()
+		accept_event()
+		return
 	elif event is InputEventPanGesture:
 		var pan_event := event as InputEventPanGesture
 		if absf(pan_event.delta.x) > 0.0:
