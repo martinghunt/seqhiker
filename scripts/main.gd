@@ -77,6 +77,7 @@ var _read_view_option: OptionButton
 var _fragment_log_checkbox: CheckBox
 var _read_thickness_label: Label
 var _read_thickness_spin: SpinBox
+var _show_full_region_checkbox: CheckBox
 var _seq_view_label: Label
 var _seq_view_option: OptionButton
 var _seq_option_label: Label
@@ -88,6 +89,7 @@ var _selected_seq_id := -1
 var _selected_seq_name := ""
 var _concat_gap_bp := DEFAULT_CONCAT_GAP_BP
 var _read_thickness := DEFAULT_READ_THICKNESS
+var _show_full_length_regions := false
 var _chromosomes: Array[Dictionary] = []
 var _concat_segments: Array[Dictionary] = []
 
@@ -152,6 +154,7 @@ func _connect_ui() -> void:
 	_read_view_option.item_selected.connect(_on_read_view_selected)
 	_fragment_log_checkbox.toggled.connect(_on_fragment_log_toggled)
 	_read_thickness_spin.value_changed.connect(_on_read_thickness_changed)
+	_show_full_region_checkbox.toggled.connect(_on_show_full_region_toggled)
 	_seq_view_option.item_selected.connect(_on_seq_view_selected)
 	_seq_option.item_selected.connect(_on_seq_selected)
 	_concat_gap_spin.value_changed.connect(_on_concat_gap_changed)
@@ -192,6 +195,8 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_end = end_bp
 	_last_bp_per_px = bp_per_px
 	viewport_label.text = "%s:%d - %d bp  |  %.2f bp/px" % [_current_chr_name, start_bp, end_bp, bp_per_px]
+	if genome_view.is_zoom_animating():
+		return
 	if _current_chr_len > 0:
 		var zoom := _compute_tile_zoom(bp_per_px)
 		var mode := 0 if (_has_bam_loaded and zoom <= READ_DETAIL_MAX_ZOOM) else 1
@@ -298,14 +303,19 @@ func _setup_read_view_controls() -> void:
 	_read_thickness_spin.max_value = 24
 	_read_thickness_spin.step = 1
 	_read_thickness_spin.value = _read_thickness
+	_show_full_region_checkbox = CheckBox.new()
+	_show_full_region_checkbox.text = "Show full-length region annotations"
+	_show_full_region_checkbox.button_pressed = _show_full_length_regions
 	settings_content.add_child(_read_view_label)
 	settings_content.add_child(_read_view_option)
 	settings_content.add_child(_fragment_log_checkbox)
 	settings_content.add_child(_read_thickness_label)
 	settings_content.add_child(_read_thickness_spin)
+	settings_content.add_child(_show_full_region_checkbox)
 	genome_view.set_read_view_mode(0)
 	genome_view.set_fragment_log_scale(false)
 	genome_view.set_read_thickness(_read_thickness)
+	genome_view.set_show_full_length_regions(_show_full_length_regions)
 
 func _setup_sequence_controls() -> void:
 	_seq_view_label = Label.new()
@@ -343,6 +353,10 @@ func _on_fragment_log_toggled(enabled: bool) -> void:
 func _on_read_thickness_changed(value: float) -> void:
 	_read_thickness = clampf(value, 2.0, 24.0)
 	genome_view.set_read_thickness(_read_thickness)
+
+func _on_show_full_region_toggled(enabled: bool) -> void:
+	_show_full_length_regions = enabled
+	genome_view.set_show_full_length_regions(enabled)
 
 func _on_seq_view_selected(index: int) -> void:
 	_seq_view_mode = index
@@ -554,6 +568,9 @@ func _refresh_visible_data() -> void:
 	var right_span_mult := 3 if _auto_play_enabled else 1
 	var query_start: int = maxi(0, _last_start - span)
 	var query_end: int = mini(_current_chr_len, _last_end + span * right_span_mult)
+	var ann_margin: int = maxi(64, int(span * 0.2))
+	var ann_query_start: int = maxi(0, _last_start - ann_margin)
+	var ann_query_end: int = mini(_current_chr_len, _last_end + ann_margin)
 	var all_reads: Array[Dictionary] = []
 	var all_coverage_tiles: Array[Dictionary] = []
 	var features: Array[Dictionary] = []
@@ -581,7 +598,7 @@ func _refresh_visible_data() -> void:
 						return
 					all_coverage_tiles.append(cov_resp.get("coverage", {}))
 
-		var ann_resp: Dictionary = _zem.get_annotations(_current_chr_id, query_start, query_end, 6000)
+		var ann_resp: Dictionary = _zem.get_annotations(_current_chr_id, ann_query_start, ann_query_end, 2500)
 		if not ann_resp.get("ok", false):
 			_set_status("Annotation query failed: %s" % ann_resp.get("error", "error"), true)
 			return
@@ -595,6 +612,7 @@ func _refresh_visible_data() -> void:
 		ref_sequence = str(ref_resp.get("sequence", ""))
 	else:
 		var overlaps := _segments_overlapping(query_start, query_end)
+		var ann_overlaps := _segments_overlapping(ann_query_start, ann_query_end)
 		var zoom := _compute_tile_zoom(_last_bp_per_px)
 		for ov in overlaps:
 			var chr_id := int(ov["id"])
@@ -624,12 +642,17 @@ func _refresh_visible_data() -> void:
 						var shifted_cov := _shift_coverage_coords(cov_resp.get("coverage", {}), offset)
 						all_coverage_tiles.append(shifted_cov)
 
-			var ann_resp_part: Dictionary = _zem.get_annotations(chr_id, local_start, local_end, 4000)
+		for aov in ann_overlaps:
+			var a_chr_id := int(aov["id"])
+			var a_offset := int(aov["offset"])
+			var a_local_start := int(aov["local_start"])
+			var a_local_end := int(aov["local_end"])
+			var ann_resp_part: Dictionary = _zem.get_annotations(a_chr_id, a_local_start, a_local_end, 2500)
 			if not ann_resp_part.get("ok", false):
 				_set_status("Annotation query failed: %s" % ann_resp_part.get("error", "error"), true)
 				return
 			for f in ann_resp_part.get("features", []):
-				features.append(_shift_feature_coords(f, offset))
+				features.append(_shift_feature_coords(f, a_offset))
 
 		ref_sequence = _build_concat_reference(query_start, query_end, overlaps)
 
@@ -862,6 +885,9 @@ func _load_or_init_config() -> void:
 	_read_thickness = clampf(_read_thickness, 2.0, 24.0)
 	_read_thickness_spin.value = _read_thickness
 	genome_view.set_read_thickness(_read_thickness)
+	_show_full_length_regions = bool(cfg.get_value("ui", "show_full_length_regions", false))
+	_show_full_region_checkbox.button_pressed = _show_full_length_regions
+	genome_view.set_show_full_length_regions(_show_full_length_regions)
 	var frag_log := bool(cfg.get_value("ui", "fragment_log_scale", false))
 	_fragment_log_checkbox.button_pressed = frag_log
 	genome_view.set_fragment_log_scale(frag_log)
@@ -884,6 +910,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)
 	cfg.set_value("ui", "read_view_mode", _read_view_option.selected)
 	cfg.set_value("ui", "read_thickness", _read_thickness)
+	cfg.set_value("ui", "show_full_length_regions", _show_full_length_regions)
 	cfg.set_value("ui", "fragment_log_scale", _fragment_log_checkbox.button_pressed)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
 	cfg.set_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value)

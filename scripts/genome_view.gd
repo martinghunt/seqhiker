@@ -15,6 +15,7 @@ const BOTTOM_PAD := 12.0
 const READ_ROW_H := 8.0
 const READ_ROW_GAP := 4.0
 const SNP_MARK_MAX_BP_PER_PX := 1.5
+const NUC_TEXT_MAX_BASES := 3000
 const READ_VIEW_STACK := 0
 const READ_VIEW_STRAND := 1
 const READ_VIEW_PAIRED := 2
@@ -38,6 +39,24 @@ const COMPLEMENT_MAP := {
 	"D": "H",
 	"H": "D",
 	"N": "N"
+}
+const CODON_TO_AA := {
+	"TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
+	"CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
+	"ATT": "I", "ATC": "I", "ATA": "I", "ATG": "M",
+	"GTT": "V", "GTC": "V", "GTA": "V", "GTG": "V",
+	"TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
+	"CCT": "P", "CCC": "P", "CCA": "P", "CCG": "P",
+	"ACT": "T", "ACC": "T", "ACA": "T", "ACG": "T",
+	"GCT": "A", "GCC": "A", "GCA": "A", "GCG": "A",
+	"TAT": "Y", "TAC": "Y", "TAA": "*", "TAG": "*",
+	"CAT": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
+	"AAT": "N", "AAC": "N", "AAA": "K", "AAG": "K",
+	"GAT": "D", "GAC": "D", "GAA": "E", "GAG": "E",
+	"TGT": "C", "TGC": "C", "TGA": "*", "TGG": "W",
+	"CGT": "R", "CGC": "R", "CGA": "R", "CGG": "R",
+	"AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R",
+	"GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G"
 }
 
 var chromosome_length := 50000
@@ -83,6 +102,7 @@ var _strand_reverse_rows := 0
 var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
+var _show_full_length_regions := false
 
 func _ready() -> void:
 	clip_contents = true
@@ -176,6 +196,13 @@ func set_read_thickness(value: float) -> void:
 	_layout_read_scrollbar()
 	queue_redraw()
 
+func set_show_full_length_regions(enabled: bool) -> void:
+	_show_full_length_regions = enabled
+	queue_redraw()
+
+func is_zoom_animating() -> bool:
+	return _zoom_tween != null and _zoom_tween.is_running()
+
 func pan_by_fraction(fraction: float, duration: float = 0.35) -> void:
 	var plot_w := _plot_width()
 	if plot_w <= 0:
@@ -230,11 +257,15 @@ func _animate_zoom(from_start: float, to_start: float, from_bp_per_px: float, to
 	_zoom_tween.set_trans(Tween.TRANS_CUBIC)
 	_zoom_tween.set_ease(Tween.EASE_OUT)
 	_zoom_tween.tween_method(_set_zoom_progress, 0.0, 1.0, duration)
+	_zoom_tween.finished.connect(_on_zoom_finished, CONNECT_ONE_SHOT)
 
 func _set_zoom_progress(t: float) -> void:
 	bp_per_px = lerpf(_zoom_from_bp_per_px, _zoom_to_bp_per_px, t)
 	view_start_bp = _clamp_start(lerpf(_zoom_from_start_bp, _zoom_to_start_bp, t))
 	queue_redraw()
+	_emit_viewport_changed()
+
+func _on_zoom_finished() -> void:
 	_emit_viewport_changed()
 
 func _clamp_start(next_start: float) -> float:
@@ -435,6 +466,7 @@ func _draw_coverage_tiles(area: Rect2) -> void:
 
 func _draw_aa_tracks(area: Rect2) -> void:
 	var area_start := area.position.y
+	var show_aa_letters := _can_draw_aa_letters()
 	_feature_hitboxes.clear()
 	var labels := ["F1", "F2", "F3", "R1", "R2", "R3"]
 	for i in range(6):
@@ -447,6 +479,8 @@ func _draw_aa_tracks(area: Rect2) -> void:
 		draw_rect(Rect2(52, y + 7, 6, 12), aa_col, true)
 
 	for feature in features:
+		if _is_hidden_full_length_region(feature):
+			continue
 		var frame := _feature_to_frame(feature)
 		if frame < 0 || frame > 5:
 			continue
@@ -463,8 +497,94 @@ func _draw_aa_tracks(area: Rect2) -> void:
 			"rect": rect,
 			"feature": feature
 		})
-		if rect.size.x > 60:
+		if rect.size.x > 60 and not show_aa_letters:
 			draw_string(get_theme_default_font(), Vector2(rect.position.x + 4, rect.position.y + 14), str(feature["name"]), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 8, 12, Color.WHITE)
+
+	if show_aa_letters:
+		_draw_aa_translation_letters(area_start)
+
+func _can_draw_aa_letters() -> bool:
+	if reference_sequence.is_empty():
+		return false
+	if _zoom_tween != null and _zoom_tween.is_running():
+		return false
+	var font := get_theme_default_font()
+	var nuc_font_size := 14
+	var nuc_char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, nuc_font_size).x
+	if nuc_char_px <= 0.0:
+		return false
+	var pixels_per_bp := 1.0 / bp_per_px
+	if pixels_per_bp < nuc_char_px + 1.0:
+		return false
+	var aa_font_size := 12
+	var aa_char_px := font.get_string_size("M", HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size).x
+	if aa_char_px <= 0.0:
+		return false
+	return 3.0 * pixels_per_bp >= aa_char_px + 1.0
+
+func _draw_aa_translation_letters(area_start: float) -> void:
+	if not _can_draw_aa_letters():
+		return
+	var font := get_theme_default_font()
+	var aa_font_size := 12
+	var aa_char_px := font.get_string_size("M", HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size).x
+
+	var seq_len := reference_sequence.length()
+	if seq_len < 3:
+		return
+	var ref_start := reference_start_bp
+	var ref_end := reference_start_bp + seq_len
+	var vis_start := maxi(ref_start, int(floor(view_start_bp)))
+	var vis_end := mini(ref_end, int(ceil(_viewport_end_bp())))
+	if vis_end - vis_start < 3:
+		return
+	for frame in range(3):
+		var first_bp := vis_start + posmod(frame - posmod(vis_start, 3), 3)
+		var last_bp := vis_end - 3
+		if last_bp < first_bp:
+			continue
+		var codon_count := int((last_bp - first_bp) / 3) + 1
+		var max_by_pixels := maxi(1, int(floor(_plot_width() / maxf(1.0, aa_char_px + 1.0))) + 1)
+		var sample_count := mini(codon_count, max_by_pixels)
+		for n in range(sample_count):
+			var codon_index := n
+			if sample_count > 1 and codon_count > 1:
+				codon_index = int(round(float(n) * float(codon_count - 1) / float(sample_count - 1)))
+			var bp := first_bp + codon_index * 3
+			var i0 := bp - ref_start
+			var i1 := i0 + 1
+			var i2 := i0 + 2
+			if i0 < 0 or i2 >= seq_len:
+				continue
+			var b0 := reference_sequence.substr(i0, 1).to_upper()
+			var b1 := reference_sequence.substr(i1, 1).to_upper()
+			var b2 := reference_sequence.substr(i2, 1).to_upper()
+			if b0 == " " or b1 == " " or b2 == " ":
+				continue
+
+			var codon := b0 + b1 + b2
+			var aa_fwd := _translate_codon(codon)
+			if not aa_fwd.is_empty():
+				var x := TRACK_LEFT_PAD + _bp_to_x(float(bp) + 1.5) - aa_char_px * 0.5
+				var y := area_start + frame * (AA_ROW_H + AA_ROW_GAP) + 17.0
+				draw_string(font, Vector2(x, y), aa_fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, palette["text"])
+
+			var rev_codon := _complement_base(b2) + _complement_base(b1) + _complement_base(b0)
+			var aa_rev := _translate_codon(rev_codon)
+			if not aa_rev.is_empty():
+				var rx := TRACK_LEFT_PAD + _bp_to_x(float(bp) + 1.5) - aa_char_px * 0.5
+				var ry := area_start + (3 + frame) * (AA_ROW_H + AA_ROW_GAP) + 17.0
+				draw_string(font, Vector2(rx, ry), aa_rev, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, palette["text"])
+
+func _is_hidden_full_length_region(feature: Dictionary) -> bool:
+	if _show_full_length_regions:
+		return false
+	var feature_type := str(feature.get("type", "")).to_lower()
+	if feature_type != "region":
+		return false
+	var start_bp := int(feature.get("start", 0))
+	var end_bp := int(feature.get("end", 0))
+	return start_bp <= 0 and end_bp >= chromosome_length
 
 func _draw_genome_track(area: Rect2) -> void:
 	var y := area.position.y
@@ -607,14 +727,14 @@ func _draw_grid(area: Rect2) -> void:
 	var span := _plot_width() * bp_per_px
 	if span <= 0:
 		return
-	var step := _nice_tick(span / 6.0)
-	var first := int(floor(view_start_bp / step) * step)
-	var grid := first
-	while grid < int(view_start_bp + span):
-		if grid >= 0:
-			var x := TRACK_LEFT_PAD + _bp_to_x(float(grid))
+	var step: float = maxf(1.0, _nice_tick(span / 6.0))
+	var first: float = floor(view_start_bp / step) * step
+	var grid: float = first
+	while grid < view_start_bp + span:
+		if grid >= 0.0:
+			var x := TRACK_LEFT_PAD + _bp_to_x(grid)
 			draw_line(Vector2(x, area.position.y), Vector2(x, area.position.y + area.size.y), palette["grid"], 1.0)
-		grid += int(step)
+		grid += step
 
 func _draw_file_status() -> void:
 	if loaded_files.is_empty():
@@ -633,6 +753,20 @@ func _draw_nucleotide_letters(top_y: float, line_y: float) -> void:
 		return
 
 	var base_count: int = reference_sequence.length()
+	if base_count <= 0:
+		return
+	var vis_start_bp := int(floor(view_start_bp))
+	var vis_end_bp := int(ceil(_viewport_end_bp()))
+	var ref_start_bp := reference_start_bp
+	var ref_end_bp := reference_start_bp + base_count
+	if vis_end_bp < ref_start_bp or vis_start_bp > ref_end_bp:
+		return
+	var i_start := maxi(0, vis_start_bp - ref_start_bp)
+	var i_end := mini(base_count - 1, vis_end_bp - ref_start_bp)
+	if i_end < i_start:
+		return
+	if i_end - i_start + 1 > NUC_TEXT_MAX_BASES:
+		i_end = i_start + NUC_TEXT_MAX_BASES - 1
 	var fwd_y := line_y - 12.0
 	var rev_y := line_y + 30.0
 	var base_colors := {
@@ -642,10 +776,8 @@ func _draw_nucleotide_letters(top_y: float, line_y: float) -> void:
 		"T": Color("b91c1c"),
 		"N": palette["text"]
 	}
-	for i in range(base_count):
+	for i in range(i_start, i_end + 1):
 		var bp := reference_start_bp + i
-		if bp < int(view_start_bp) || bp > int(_viewport_end_bp()):
-			continue
 		var fwd := reference_sequence.substr(i, 1).to_upper()
 		if fwd == " ":
 			continue
@@ -657,6 +789,11 @@ func _draw_nucleotide_letters(top_y: float, line_y: float) -> void:
 
 func _complement_base(base: String) -> String:
 	return COMPLEMENT_MAP.get(base, "N")
+
+func _translate_codon(codon: String) -> String:
+	if codon.length() != 3:
+		return ""
+	return str(CODON_TO_AA.get(codon, "X"))
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
@@ -921,8 +1058,8 @@ func _should_use_mate_span_for_packing(read: Dictionary) -> bool:
 	var max_distance := view_span * 2
 	var read_start := int(read.get("start", 0))
 	var read_end := int(read.get("end", read_start + 1))
-	var read_center := (read_start + read_end) / 2
-	var mate_center := (mate_start + mate_end) / 2
+	var read_center := int((read_start + read_end) / 2.0)
+	var mate_center := int((mate_start + mate_end) / 2.0)
 	return absi(mate_center - read_center) <= max_distance
 
 func _layout_read_scrollbar() -> void:
