@@ -4,6 +4,9 @@ const ThemePaletteScript = preload("res://scripts/theme_palette.gd")
 const ZemClientScript = preload("res://scripts/zem_client.gd")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const READ_DETAIL_MAX_ZOOM := 7
+const DEFAULT_CONCAT_GAP_BP := 50
+const SEQ_VIEW_CONCAT := 0
+const SEQ_VIEW_SINGLE := 1
 
 @onready var background: ColorRect = $Background
 @onready var genome_view: Control = $Root/ContentMargin/GenomeView
@@ -64,18 +67,32 @@ var _cache_start := -1
 var _cache_end := -1
 var _cache_zoom := -1
 var _cache_mode := -1
+var _cache_scope_key := ""
 var _theme_text_color: Color = Color.BLACK
 var _auto_play_enabled := false
 var _auto_play_direction := 1.0
 var _read_view_label: Label
 var _read_view_option: OptionButton
 var _fragment_log_checkbox: CheckBox
+var _seq_view_label: Label
+var _seq_view_option: OptionButton
+var _seq_option_label: Label
+var _seq_option: OptionButton
+var _concat_gap_label: Label
+var _concat_gap_spin: SpinBox
+var _seq_view_mode := SEQ_VIEW_CONCAT
+var _selected_seq_id := -1
+var _selected_seq_name := ""
+var _concat_gap_bp := DEFAULT_CONCAT_GAP_BP
+var _chromosomes: Array[Dictionary] = []
+var _concat_segments: Array[Dictionary] = []
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
 	_disable_button_focus()
 	_setup_theme_selector()
 	_setup_read_view_controls()
+	_setup_sequence_controls()
 	_connect_ui()
 	_load_or_init_config()
 	_apply_theme(theme_option.get_item_text(theme_option.selected))
@@ -130,6 +147,9 @@ func _connect_ui() -> void:
 	feature_close_button.pressed.connect(_close_feature_panel)
 	_read_view_option.item_selected.connect(_on_read_view_selected)
 	_fragment_log_checkbox.toggled.connect(_on_fragment_log_toggled)
+	_seq_view_option.item_selected.connect(_on_seq_view_selected)
+	_seq_option.item_selected.connect(_on_seq_selected)
+	_concat_gap_spin.value_changed.connect(_on_concat_gap_changed)
 
 func _disable_button_focus() -> void:
 	var buttons := [
@@ -167,10 +187,10 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_end = end_bp
 	_last_bp_per_px = bp_per_px
 	viewport_label.text = "%s:%d - %d bp  |  %.2f bp/px" % [_current_chr_name, start_bp, end_bp, bp_per_px]
-	if _current_chr_id >= 0:
+	if _current_chr_len > 0:
 		var zoom := _compute_tile_zoom(bp_per_px)
 		var mode := 0 if (_has_bam_loaded and zoom <= READ_DETAIL_MAX_ZOOM) else 1
-		var needs_fetch := not _is_viewport_cached(start_bp, end_bp, zoom, mode)
+		var needs_fetch := not _is_viewport_cached(start_bp, end_bp, zoom, mode, _scope_cache_key())
 		if _auto_play_enabled and _is_near_cache_right_edge(start_bp, end_bp):
 			needs_fetch = true
 		if needs_fetch:
@@ -234,14 +254,14 @@ func _on_play_speed_changed(value: float) -> void:
 	play_speed_value.text = "%.2f widths/s" % value
 
 func _start_auto_play() -> void:
-	if _current_chr_id < 0:
+	if _current_chr_len <= 0:
 		_set_status("Cannot play: no chromosome loaded.", true)
 		return
 	_auto_play_enabled = true
 	_auto_play_direction = 1.0
 
 func _start_auto_play_left() -> void:
-	if _current_chr_id < 0:
+	if _current_chr_len <= 0:
 		_set_status("Cannot play: no chromosome loaded.", true)
 		return
 	_auto_play_enabled = true
@@ -272,12 +292,63 @@ func _setup_read_view_controls() -> void:
 	genome_view.set_read_view_mode(0)
 	genome_view.set_fragment_log_scale(false)
 
+func _setup_sequence_controls() -> void:
+	_seq_view_label = Label.new()
+	_seq_view_label.text = "Sequence View"
+	_seq_view_option = OptionButton.new()
+	_seq_view_option.add_item("Concatenate", SEQ_VIEW_CONCAT)
+	_seq_view_option.add_item("Single Sequence", SEQ_VIEW_SINGLE)
+	_seq_view_option.select(SEQ_VIEW_CONCAT)
+	_seq_option_label = Label.new()
+	_seq_option_label.text = "Sequence"
+	_seq_option = OptionButton.new()
+	_seq_option.visible = false
+	_seq_option_label.visible = false
+	_concat_gap_label = Label.new()
+	_concat_gap_label.text = "Concat Gap (bp)"
+	_concat_gap_spin = SpinBox.new()
+	_concat_gap_spin.min_value = 0
+	_concat_gap_spin.max_value = 10000
+	_concat_gap_spin.step = 10
+	_concat_gap_spin.value = _concat_gap_bp
+	settings_content.add_child(_seq_view_label)
+	settings_content.add_child(_seq_view_option)
+	settings_content.add_child(_seq_option_label)
+	settings_content.add_child(_seq_option)
+	settings_content.add_child(_concat_gap_label)
+	settings_content.add_child(_concat_gap_spin)
+
 func _on_read_view_selected(index: int) -> void:
 	genome_view.set_read_view_mode(index)
 	_fragment_log_checkbox.visible = index == 3
 
 func _on_fragment_log_toggled(enabled: bool) -> void:
 	genome_view.set_fragment_log_scale(enabled)
+
+func _on_seq_view_selected(index: int) -> void:
+	_seq_view_mode = index
+	var single := index == SEQ_VIEW_SINGLE
+	_seq_option.visible = single
+	_seq_option_label.visible = single
+	_invalidate_cache()
+	_apply_sequence_view(true)
+	_schedule_fetch()
+
+func _on_seq_selected(index: int) -> void:
+	if index < 0 or index >= _seq_option.item_count:
+		return
+	_selected_seq_id = int(_seq_option.get_item_id(index))
+	_selected_seq_name = _seq_option.get_item_text(index)
+	_invalidate_cache()
+	_apply_sequence_view(true)
+	_schedule_fetch()
+
+func _on_concat_gap_changed(value: float) -> void:
+	_concat_gap_bp = maxi(0, int(value))
+	_rebuild_concat_segments()
+	if _seq_view_mode == SEQ_VIEW_CONCAT:
+		_apply_sequence_view(true)
+		_schedule_fetch()
 
 func _apply_theme(theme_name: String) -> void:
 	if not ThemePaletteScript.THEMES.has(theme_name):
@@ -368,19 +439,97 @@ func _refresh_chromosomes() -> void:
 	if chroms.is_empty():
 		_set_status("No chromosomes loaded", true)
 		return
-	var first := chroms[0]
-	_current_chr_id = int(first.get("id", -1))
-	_current_chr_len = int(first.get("length", 0))
-	_current_chr_name = str(first.get("name", "chr"))
+	_chromosomes = chroms
+	_rebuild_concat_segments()
+	_refresh_sequence_options()
+	_apply_sequence_view(true)
+
+func _rebuild_concat_segments() -> void:
+	_concat_segments.clear()
+	var pos := 0
+	for i in range(_chromosomes.size()):
+		var c: Dictionary = _chromosomes[i]
+		var seg_len := int(c.get("length", 0))
+		var seg := {
+			"id": int(c.get("id", -1)),
+			"name": str(c.get("name", "chr")),
+			"length": seg_len,
+			"start": pos,
+			"end": pos + seg_len
+		}
+		_concat_segments.append(seg)
+		pos += seg_len
+		if i < _chromosomes.size() - 1:
+			pos += _concat_gap_bp
+
+func _refresh_sequence_options() -> void:
+	_seq_option.clear()
+	for c in _chromosomes:
+		_seq_option.add_item(str(c.get("name", "chr")), int(c.get("id", -1)))
+	if _selected_seq_id < 0 and not _selected_seq_name.is_empty():
+		for c in _chromosomes:
+			if str(c.get("name", "")) == _selected_seq_name:
+				_selected_seq_id = int(c.get("id", -1))
+				break
+	if _selected_seq_id < 0 and _chromosomes.size() > 0:
+		_selected_seq_id = int(_chromosomes[0].get("id", -1))
+	var found := false
+	for i in range(_seq_option.item_count):
+		if _seq_option.get_item_id(i) == _selected_seq_id:
+			_seq_option.select(i)
+			_selected_seq_name = _seq_option.get_item_text(i)
+			found = true
+			break
+	if not found and _seq_option.item_count > 0:
+		_seq_option.select(0)
+		_selected_seq_id = int(_seq_option.get_item_id(0))
+		_selected_seq_name = _seq_option.get_item_text(0)
+
+func _apply_sequence_view(reset_viewport: bool) -> void:
+	if _seq_view_mode == SEQ_VIEW_SINGLE:
+		var selected: Dictionary = {}
+		for c in _chromosomes:
+			if int(c.get("id", -1)) == _selected_seq_id:
+				selected = c
+				break
+		if selected.is_empty() and _chromosomes.size() > 0:
+			selected = _chromosomes[0]
+			_selected_seq_id = int(selected.get("id", -1))
+		_current_chr_id = int(selected.get("id", -1))
+		_current_chr_name = str(selected.get("name", "chr"))
+		_selected_seq_name = _current_chr_name
+		_current_chr_len = int(selected.get("length", 0))
+		_set_status("Loaded %s (%d bp)" % [_current_chr_name, _current_chr_len])
+	else:
+		_current_chr_id = -2
+		var total := 0
+		if _concat_segments.size() > 0:
+			total = int(_concat_segments[_concat_segments.size() - 1].get("end", 0))
+		_current_chr_name = "concat"
+		_current_chr_len = total
+		_set_status("Loaded concat (%d seqs, %d bp)" % [_concat_segments.size(), _current_chr_len])
+	if reset_viewport:
+		genome_view.set_chromosome(_current_chr_name, _current_chr_len)
+	if _seq_view_mode == SEQ_VIEW_CONCAT:
+		genome_view.set_concat_segments(_concat_segments)
+	else:
+		genome_view.set_concat_segments([])
+	_invalidate_cache()
+
+func _scope_cache_key() -> String:
+	if _seq_view_mode == SEQ_VIEW_SINGLE:
+		return "single:%d" % _current_chr_id
+	return "concat:%d:%d" % [_concat_segments.size(), _concat_gap_bp]
+
+func _invalidate_cache() -> void:
 	_cache_start = -1
 	_cache_end = -1
 	_cache_zoom = -1
 	_cache_mode = -1
-	genome_view.set_chromosome(_current_chr_name, _current_chr_len)
-	_set_status("Loaded %s (%d bp)" % [_current_chr_name, _current_chr_len])
+	_cache_scope_key = ""
 
 func _refresh_visible_data() -> void:
-	if _current_chr_id < 0:
+	if _current_chr_len <= 0:
 		return
 	var span: int = maxi(1, _last_end - _last_start)
 	var right_span_mult := 3 if _auto_play_enabled else 1
@@ -388,46 +537,96 @@ func _refresh_visible_data() -> void:
 	var query_end: int = mini(_current_chr_len, _last_end + span * right_span_mult)
 	var all_reads: Array[Dictionary] = []
 	var all_coverage_tiles: Array[Dictionary] = []
-	if _has_bam_loaded:
+	var features: Array[Dictionary] = []
+	var ref_start := query_start
+	var ref_sequence := ""
+
+	if _seq_view_mode == SEQ_VIEW_SINGLE:
+		if _has_bam_loaded:
+			var zoom := _compute_tile_zoom(_last_bp_per_px)
+			var tile_width := 1024 << zoom
+			var tile_start := int(floor(float(query_start) / float(tile_width)))
+			var tile_end := int(floor(float(query_end) / float(tile_width)))
+			if zoom <= READ_DETAIL_MAX_ZOOM:
+				for t in range(tile_start, tile_end + 1):
+					var tile_resp: Dictionary = _zem.get_tile(_current_chr_id, zoom, t)
+					if not tile_resp.get("ok", false):
+						_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
+						return
+					all_reads.append_array(tile_resp.get("reads", []))
+			else:
+				for t in range(tile_start, tile_end + 1):
+					var cov_resp: Dictionary = _zem.get_coverage_tile(_current_chr_id, zoom, t)
+					if not cov_resp.get("ok", false):
+						_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
+						return
+					all_coverage_tiles.append(cov_resp.get("coverage", {}))
+
+		var ann_resp: Dictionary = _zem.get_annotations(_current_chr_id, query_start, query_end, 6000)
+		if not ann_resp.get("ok", false):
+			_set_status("Annotation query failed: %s" % ann_resp.get("error", "error"), true)
+			return
+		features = ann_resp.get("features", [])
+
+		var ref_resp: Dictionary = _zem.get_reference_slice(_current_chr_id, query_start, query_end)
+		if not ref_resp.get("ok", false):
+			_set_status("Reference query failed: %s" % ref_resp.get("error", "error"), true)
+			return
+		ref_start = int(ref_resp.get("slice_start", query_start))
+		ref_sequence = str(ref_resp.get("sequence", ""))
+	else:
+		var overlaps := _segments_overlapping(query_start, query_end)
 		var zoom := _compute_tile_zoom(_last_bp_per_px)
-		var tile_width := 1024 << zoom
-		var tile_start := int(floor(float(query_start) / float(tile_width)))
-		var tile_end := int(floor(float(query_end) / float(tile_width)))
-		if zoom <= READ_DETAIL_MAX_ZOOM:
-			for t in range(tile_start, tile_end + 1):
-				var tile_resp: Dictionary = _zem.get_tile(_current_chr_id, zoom, t)
-				if not tile_resp.get("ok", false):
-					_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
-					return
-				all_reads.append_array(tile_resp.get("reads", []))
-		else:
-			for t in range(tile_start, tile_end + 1):
-				var cov_resp: Dictionary = _zem.get_coverage_tile(_current_chr_id, zoom, t)
-				if not cov_resp.get("ok", false):
-					_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
-					return
-				all_coverage_tiles.append(cov_resp.get("coverage", {}))
+		for ov in overlaps:
+			var chr_id := int(ov["id"])
+			var offset := int(ov["offset"])
+			var local_start := int(ov["local_start"])
+			var local_end := int(ov["local_end"])
+			if _has_bam_loaded:
+				var tile_width := 1024 << zoom
+				var tile_start := int(floor(float(local_start) / float(tile_width)))
+				var tile_end := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width)))
+				if zoom <= READ_DETAIL_MAX_ZOOM:
+					for t in range(tile_start, tile_end + 1):
+						var tile_resp: Dictionary = _zem.get_tile(chr_id, zoom, t)
+						if not tile_resp.get("ok", false):
+							_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
+							return
+						for r in tile_resp.get("reads", []):
+							var shifted := _shift_read_coords(r, offset)
+							if int(shifted.get("end", 0)) > query_start and int(shifted.get("start", 0)) < query_end:
+								all_reads.append(shifted)
+				else:
+					for t in range(tile_start, tile_end + 1):
+						var cov_resp: Dictionary = _zem.get_coverage_tile(chr_id, zoom, t)
+						if not cov_resp.get("ok", false):
+							_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
+							return
+						var shifted_cov := _shift_coverage_coords(cov_resp.get("coverage", {}), offset)
+						all_coverage_tiles.append(shifted_cov)
 
-	var ann_resp: Dictionary = _zem.get_annotations(_current_chr_id, query_start, query_end, 6000)
-	if not ann_resp.get("ok", false):
-		_set_status("Annotation query failed: %s" % ann_resp.get("error", "error"), true)
-		return
+			var ann_resp_part: Dictionary = _zem.get_annotations(chr_id, local_start, local_end, 4000)
+			if not ann_resp_part.get("ok", false):
+				_set_status("Annotation query failed: %s" % ann_resp_part.get("error", "error"), true)
+				return
+			for f in ann_resp_part.get("features", []):
+				features.append(_shift_feature_coords(f, offset))
 
-	var ref_resp: Dictionary = _zem.get_reference_slice(_current_chr_id, query_start, query_end)
-	if not ref_resp.get("ok", false):
-		_set_status("Reference query failed: %s" % ref_resp.get("error", "error"), true)
-		return
+		ref_sequence = _build_concat_reference(query_start, query_end, overlaps)
 
 	genome_view.set_reads(all_reads)
 	genome_view.set_coverage_tiles(all_coverage_tiles)
-	genome_view.set_features(ann_resp.get("features", []))
-	genome_view.set_reference_slice(int(ref_resp.get("slice_start", _last_start)), str(ref_resp.get("sequence", "")))
+	genome_view.set_features(features)
+	genome_view.set_reference_slice(ref_start, ref_sequence)
 	_cache_start = query_start
 	_cache_end = query_end
 	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)
 	_cache_mode = 0 if (_has_bam_loaded and _cache_zoom <= READ_DETAIL_MAX_ZOOM) else 1
+	_cache_scope_key = _scope_cache_key()
 
 func _schedule_fetch() -> void:
+	if _fetch_timer == null:
+		return
 	if _fetch_in_progress:
 		_fetch_pending = true
 		return
@@ -441,6 +640,82 @@ func _on_fetch_timer_timeout() -> void:
 	_fetch_in_progress = false
 	if _fetch_pending:
 		_fetch_timer.start()
+
+func _segments_overlapping(start_bp: int, end_bp: int) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for seg in _concat_segments:
+		var seg_start := int(seg.get("start", 0))
+		var seg_end := int(seg.get("end", 0))
+		if seg_end <= start_bp or seg_start >= end_bp:
+			continue
+		var overlap_start := maxi(start_bp, seg_start)
+		var overlap_end := mini(end_bp, seg_end)
+		out.append({
+			"id": int(seg.get("id", -1)),
+			"name": str(seg.get("name", "chr")),
+			"offset": seg_start,
+			"local_start": overlap_start - seg_start,
+			"local_end": overlap_end - seg_start,
+			"global_start": overlap_start,
+			"global_end": overlap_end
+		})
+	return out
+
+func _shift_read_coords(read: Dictionary, offset: int) -> Dictionary:
+	var shifted := read.duplicate(true)
+	shifted["start"] = int(shifted.get("start", 0)) + offset
+	shifted["end"] = int(shifted.get("end", 0)) + offset
+	if int(shifted.get("mate_start", -1)) >= 0:
+		shifted["mate_start"] = int(shifted.get("mate_start", -1)) + offset
+	if int(shifted.get("mate_end", -1)) >= 0:
+		shifted["mate_end"] = int(shifted.get("mate_end", -1)) + offset
+	var shifted_snps := PackedInt32Array()
+	var snps: PackedInt32Array = shifted.get("snps", PackedInt32Array())
+	for s in snps:
+		shifted_snps.append(int(s) + offset)
+	shifted["snps"] = shifted_snps
+	return shifted
+
+func _shift_coverage_coords(cov: Dictionary, offset: int) -> Dictionary:
+	if cov.is_empty():
+		return cov
+	return {
+		"start": int(cov.get("start", 0)) + offset,
+		"end": int(cov.get("end", 0)) + offset,
+		"bins": cov.get("bins", PackedInt32Array())
+	}
+
+func _shift_feature_coords(feature: Dictionary, offset: int) -> Dictionary:
+	var shifted := feature.duplicate(true)
+	shifted["start"] = int(shifted.get("start", 0)) + offset
+	shifted["end"] = int(shifted.get("end", 0)) + offset
+	return shifted
+
+func _build_concat_reference(query_start: int, query_end: int, overlaps: Array[Dictionary]) -> String:
+	var ln := maxi(0, query_end - query_start)
+	if ln == 0:
+		return ""
+	var chars: Array[String] = []
+	chars.resize(ln)
+	for i in range(ln):
+		chars[i] = " "
+	for ov in overlaps:
+		var chr_id := int(ov["id"])
+		var local_start := int(ov["local_start"])
+		var local_end := int(ov["local_end"])
+		var global_start := int(ov["global_start"])
+		var ref_resp: Dictionary = _zem.get_reference_slice(chr_id, local_start, local_end)
+		if not ref_resp.get("ok", false):
+			continue
+		var seq := str(ref_resp.get("sequence", ""))
+		var dst := global_start - query_start
+		var copy_len := mini(seq.length(), ln - dst)
+		for i in range(copy_len):
+			chars[dst + i] = seq.substr(i, 1)
+	var built := ""
+	for c in chars:
+		built += c
+	return built
 
 func _compute_tile_zoom(bp_per_px: float) -> int:
 	var z := int(round(log(max(bp_per_px, 0.001)) / log(2.0)))
@@ -473,19 +748,25 @@ func _reset_loaded_state() -> void:
 	_current_chr_len = 0
 	_cache_start = -1
 	_cache_end = -1
-	_cache_zoom = -1
-	_cache_mode = -1
+	_invalidate_cache()
 	_has_bam_loaded = false
 	_has_fasta_loaded = false
+	_chromosomes.clear()
+	_concat_segments.clear()
+	_seq_option.clear()
+	_selected_seq_id = -1
+	_selected_seq_name = ""
 	_auto_play_enabled = false
 	_feature_panel_open = false
 	_slide_feature_panel(false, false)
 	genome_view.clear_all_data()
 
-func _is_viewport_cached(start_bp: int, end_bp: int, zoom: int, mode: int) -> bool:
+func _is_viewport_cached(start_bp: int, end_bp: int, zoom: int, mode: int, scope_key: String) -> bool:
 	if _cache_start < 0 || _cache_end < 0:
 		return false
 	if _cache_zoom != zoom or _cache_mode != mode:
+		return false
+	if _cache_scope_key != scope_key:
 		return false
 	return start_bp >= _cache_start and end_bp <= _cache_end
 
@@ -544,6 +825,16 @@ func _load_or_init_config() -> void:
 
 	var theme_name := str(cfg.get_value("ui", "theme", theme_option.get_item_text(theme_option.selected)))
 	_select_theme_option(theme_name)
+	var seq_view := int(cfg.get_value("ui", "sequence_view_mode", SEQ_VIEW_CONCAT))
+	seq_view = clampi(seq_view, SEQ_VIEW_CONCAT, SEQ_VIEW_SINGLE)
+	_concat_gap_bp = int(cfg.get_value("ui", "concat_gap_bp", DEFAULT_CONCAT_GAP_BP))
+	_concat_gap_bp = maxi(0, _concat_gap_bp)
+	_concat_gap_spin.value = _concat_gap_bp
+	_seq_view_option.select(seq_view)
+	_on_seq_view_selected(seq_view)
+	var seq_name := str(cfg.get_value("ui", "selected_sequence_name", ""))
+	if not seq_name.is_empty():
+		_selected_seq_name = seq_name
 	var read_view := int(cfg.get_value("ui", "read_view_mode", 0))
 	read_view = clampi(read_view, 0, 3)
 	_read_view_option.select(read_view)
@@ -565,6 +856,9 @@ func _save_config() -> void:
 	cfg.set_value("ui", "scale", ui_scale_slider.value)
 	cfg.set_value("ui", "play_speed_widths_per_sec", play_speed_slider.value)
 	cfg.set_value("ui", "theme", theme_option.get_item_text(theme_option.selected))
+	cfg.set_value("ui", "sequence_view_mode", _seq_view_option.selected)
+	cfg.set_value("ui", "concat_gap_bp", _concat_gap_bp)
+	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)
 	cfg.set_value("ui", "read_view_mode", _read_view_option.selected)
 	cfg.set_value("ui", "fragment_log_scale", _fragment_log_checkbox.button_pressed)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
@@ -612,7 +906,7 @@ func _input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if not _auto_play_enabled:
 		return
-	if _current_chr_id < 0:
+	if _current_chr_len <= 0:
 		_auto_play_enabled = false
 		return
 	var bp_delta: float = play_speed_slider.value * genome_view.get_visible_span_bp() * delta * _auto_play_direction

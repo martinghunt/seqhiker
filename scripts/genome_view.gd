@@ -52,6 +52,7 @@ var features: Array[Dictionary] = []
 var loaded_files: PackedStringArray = PackedStringArray()
 var reference_start_bp := 0
 var reference_sequence := ""
+var concat_segments: Array[Dictionary] = []
 
 var palette: Dictionary = {
 	"bg": Color("f7efe4"),
@@ -120,12 +121,20 @@ func set_reference_slice(start_bp: int, sequence: String) -> void:
 	reference_sequence = sequence
 	queue_redraw()
 
+func set_concat_segments(segments: Array) -> void:
+	concat_segments.clear()
+	for seg in segments:
+		if typeof(seg) == TYPE_DICTIONARY:
+			concat_segments.append(seg)
+	queue_redraw()
+
 func clear_all_data() -> void:
 	reads.clear()
 	_laid_out_reads.clear()
 	_read_row_count = 0
 	coverage_tiles.clear()
 	features.clear()
+	concat_segments.clear()
 	loaded_files = PackedStringArray()
 	reference_start_bp = 0
 	reference_sequence = ""
@@ -454,24 +463,137 @@ func _draw_genome_track(area: Rect2) -> void:
 	var y := area.position.y
 	draw_rect(area, palette["bg"], true)
 	_draw_grid(area)
-	draw_string(get_theme_default_font(), Vector2(14, y + 20), "Genome", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, palette["text"])
 	var line_y := y + 36.0
-	draw_line(Vector2(TRACK_LEFT_PAD, line_y), Vector2(size.x - 12.0, line_y), palette["genome"], 3.0)
-	_draw_ticks(y, line_y)
+	if concat_segments.is_empty():
+		var axis_left := TRACK_LEFT_PAD
+		var axis_right := size.x - TRACK_RIGHT_PAD
+		var vis_start := maxf(0.0, view_start_bp)
+		var vis_end := minf(_viewport_end_bp(), float(chromosome_length))
+		if vis_end > vis_start:
+			var x0 := clampf(axis_left + _bp_to_x(vis_start), axis_left, axis_right)
+			var x1 := clampf(axis_left + _bp_to_x(vis_end), axis_left, axis_right)
+			if x1 > x0:
+				draw_line(Vector2(x0, line_y), Vector2(x1, line_y), palette["genome"], 3.0)
+		_draw_ticks(y, line_y)
+	else:
+		_draw_concat_genome_axis(y, line_y)
 	_draw_nucleotide_letters(y, line_y)
+
+func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
+	var axis_left := TRACK_LEFT_PAD
+	var axis_right := size.x - TRACK_RIGHT_PAD
+	for seg in concat_segments:
+		var seg_start := float(seg.get("start", 0))
+		var seg_end := float(seg.get("end", 0))
+		if seg_end <= view_start_bp or seg_start >= _viewport_end_bp():
+			continue
+		var x0 := axis_left + _bp_to_x(seg_start)
+		var x1 := axis_left + _bp_to_x(seg_end)
+		x0 = clampf(x0, axis_left, axis_right)
+		x1 = clampf(x1, axis_left, axis_right)
+		if x1 <= x0:
+			continue
+		draw_line(Vector2(x0, line_y), Vector2(x1, line_y), palette["genome"], 3.0)
+		draw_line(Vector2(x0, line_y - 7.0), Vector2(x0, line_y + 7.0), Color.BLACK, 1.0)
+		draw_line(Vector2(x1, line_y - 7.0), Vector2(x1, line_y + 7.0), Color.BLACK, 1.0)
+		var name := str(seg.get("name", "chr"))
+		var label_x := x0 + 4.0
+		var label_w := maxf(0.0, x1 - x0 - 8.0)
+		if label_w > 12.0:
+			draw_string(get_theme_default_font(), Vector2(label_x, top_y + 16.0), name, HORIZONTAL_ALIGNMENT_LEFT, label_w, 12, palette["text"])
+
+	var span := _plot_width() * bp_per_px
+	if span <= 0:
+		return
+	var view_end := _viewport_end_bp()
+	var font := get_theme_default_font()
+	var font_size := 11
+	var max_tick_labels := 8
+	var tick_step := _axis_tick_step(span)
+	var segment_tick_labels: Array = []
+	for seg in concat_segments:
+		var seg_start := int(seg.get("start", 0))
+		var seg_end := int(seg.get("end", 0))
+		var seg_len := maxi(0, seg_end - seg_start)
+		if seg_len <= 0:
+			continue
+		var vis_start := maxi(seg_start, int(floor(view_start_bp)))
+		var vis_end := mini(seg_end, int(ceil(view_end)))
+		if vis_end <= vis_start:
+			continue
+		var local_vis_start := maxi(0, vis_start - seg_start)
+		var local_vis_end := mini(seg_len, vis_end - seg_start)
+		var first_local_tick := int(floor(float(local_vis_start) / float(tick_step)) * tick_step)
+		var local_tick := first_local_tick
+		var ticks_for_segment: Array = []
+		while local_tick <= local_vis_end:
+			if local_tick >= 0 and local_tick <= seg_len:
+				var global_tick := seg_start + local_tick
+				var x := TRACK_LEFT_PAD + _bp_to_x(float(global_tick))
+				draw_line(Vector2(x, line_y - 8), Vector2(x, line_y + 8), palette["grid"], 1.0)
+				ticks_for_segment.append({
+					"x": x,
+					"label": _format_axis_bp(local_tick, tick_step)
+				})
+			local_tick += tick_step
+		segment_tick_labels.append(ticks_for_segment)
+
+	for i in range(segment_tick_labels.size() - 1):
+		var left_ticks: Array = segment_tick_labels[i]
+		var right_ticks: Array = segment_tick_labels[i + 1]
+		if left_ticks.is_empty() or right_ticks.is_empty():
+			continue
+		var left_last: Dictionary = left_ticks[left_ticks.size() - 1]
+		var right_first: Dictionary = right_ticks[0]
+		var left_x := float(left_last.get("x", 0.0)) + 2.0
+		var right_x := float(right_first.get("x", 0.0)) + 2.0
+		var left_label := str(left_last.get("label", ""))
+		var left_w := font.get_string_size(left_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		if left_x + left_w > right_x:
+			left_ticks.remove_at(left_ticks.size() - 1)
+
+	var flat_labels: Array = []
+	for ticks_for_segment in segment_tick_labels:
+		for tick_info in ticks_for_segment:
+			flat_labels.append(tick_info)
+	flat_labels.sort_custom(func(a, b): return float(a.get("x", 0.0)) < float(b.get("x", 0.0)))
+
+	if flat_labels.size() > max_tick_labels:
+		var selected: Array = []
+		for i in range(max_tick_labels):
+			var idx := int(round(float(i) * float(flat_labels.size() - 1) / float(max_tick_labels - 1)))
+			if selected.is_empty() or idx != int(selected[selected.size() - 1]):
+				selected.append(idx)
+		var filtered: Array = []
+		for idx in selected:
+			filtered.append(flat_labels[int(idx)])
+		flat_labels = filtered
+
+	for tick_info in flat_labels:
+		var label := str(tick_info.get("label", ""))
+		var x := float(tick_info.get("x", 0.0))
+		draw_string(font, Vector2(x + 2.0, top_y + 54.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, palette["text"])
+
+func _bp_in_concat_segment(bp: int) -> bool:
+	for seg in concat_segments:
+		var s := int(seg.get("start", 0))
+		var e := int(seg.get("end", 0))
+		if bp >= s and bp < e:
+			return true
+	return false
 
 func _draw_ticks(top_y: float, line_y: float) -> void:
 	var span := _plot_width() * bp_per_px
 	if span <= 0:
 		return
-	var tick_step := _nice_tick(span / 8.0)
+	var tick_step := float(_axis_tick_step(span))
 	var first_tick := int(floor(view_start_bp / tick_step) * tick_step)
 	var tick := first_tick
 	while tick < int(view_start_bp + span):
-		if tick >= 0:
+		if tick >= 0 and tick <= chromosome_length:
 			var x := TRACK_LEFT_PAD + _bp_to_x(float(tick))
 			draw_line(Vector2(x, line_y - 8), Vector2(x, line_y + 8), palette["grid"], 1.0)
-			draw_string(get_theme_default_font(), Vector2(x + 2, top_y + 54), _format_bp(tick), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, palette["text"])
+			draw_string(get_theme_default_font(), Vector2(x + 2, top_y + 54), _format_axis_bp(tick, int(tick_step)), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, palette["text"])
 		tick += int(tick_step)
 
 func _draw_grid(area: Rect2) -> void:
@@ -518,6 +640,8 @@ func _draw_nucleotide_letters(top_y: float, line_y: float) -> void:
 		if bp < int(view_start_bp) || bp > int(_viewport_end_bp()):
 			continue
 		var fwd := reference_sequence.substr(i, 1).to_upper()
+		if fwd == " ":
+			continue
 		var rev := _complement_base(fwd)
 		var color: Color = base_colors.get(fwd, palette["text"])
 		var x := TRACK_LEFT_PAD + _bp_to_x(float(bp)) + 1.0
@@ -604,6 +728,40 @@ func _format_bp(value: int) -> String:
 	if value >= 1000:
 		return "%.1f kb" % (float(value) / 1000.0)
 	return "%d" % value
+
+func _format_axis_bp(value: int, step: int) -> String:
+	if step < 1000:
+		return str(value)
+	if step < 1000000:
+		var kb := float(value) / 1000.0
+		if step < 10000:
+			return "%.2f kb" % kb
+		if step < 100000:
+			return "%.1f kb" % kb
+		return "%.0f kb" % kb
+	var mb := float(value) / 1000000.0
+	if step < 10000000:
+		return "%.2f Mb" % mb
+	if step < 100000000:
+		return "%.1f Mb" % mb
+	return "%.0f Mb" % mb
+
+func _axis_tick_step(span: float) -> int:
+	if span <= 0.0:
+		return 1
+	var step6 := int(maxf(1.0, _nice_tick(span / 6.0)))
+	var step8 := int(maxf(1.0, _nice_tick(span / 8.0)))
+	var count6 := span / float(step6)
+	var count8 := span / float(step8)
+	var score6 := absf(count6 - 7.0)
+	var score8 := absf(count8 - 7.0)
+	if count6 < 6.0 or count6 > 8.0:
+		score6 += 10.0
+	if count8 < 6.0 or count8 > 8.0:
+		score8 += 10.0
+	if score8 < score6:
+		return step8
+	return step6
 
 func _feature_to_frame(feature: Dictionary) -> int:
 	var strand: String = str(feature.get("strand", "+"))
