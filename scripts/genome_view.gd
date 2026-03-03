@@ -3,11 +3,12 @@ class_name GenomeView
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
 signal feature_clicked(feature: Dictionary)
+signal read_clicked(read: Dictionary)
 signal track_settings_requested(track_id: String)
 signal track_order_changed(order: PackedStringArray)
 
 const AA_ROW_H := 26.0
-const AA_ROW_GAP := 5.0
+const AA_ROW_GAP := 3.0
 const GENOME_H := 86.0
 const TRACK_LEFT_PAD := 64.0
 const TRACK_RIGHT_PAD := 28.0
@@ -83,6 +84,7 @@ var palette: Dictionary = {
 	"panel": Color("fff7eb"),
 	"grid": Color("d4c6b4"),
 	"text": Color("2b2520"),
+	"aa_alt_bg": Color("ececec"),
 	"genome": Color("3f5a7a"),
 	"read": Color("0f8b8d"),
 	"aa_forward": Color("8a4fff"),
@@ -97,6 +99,7 @@ var _zoom_to_bp_per_px := 8.0
 var _zoom_from_start_bp := 0.0
 var _zoom_to_start_bp := 0.0
 var _feature_hitboxes: Array[Dictionary] = []
+var _read_hitboxes: Array[Dictionary] = []
 var _trackpad_pan_sensitivity := 1.0
 var _trackpad_pinch_sensitivity := 1.0
 var _reads_scrollbar: VScrollBar
@@ -326,6 +329,7 @@ func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), palette["panel"], true)
 	_track_grab_hitboxes.clear()
 	_track_settings_hitboxes.clear()
+	_read_hitboxes.clear()
 	var track_rects := _track_layout_rects()
 	for track_id in _track_order:
 		if not track_rects.has(track_id):
@@ -348,7 +352,6 @@ func _draw() -> void:
 	_draw_file_status()
 
 func _draw_track_header(track_id: String, area: Rect2) -> void:
-	var title := _track_label_for_id(track_id)
 	var gx := 4.0
 	var gy := area.position.y + 4.0
 	var grab_rect := Rect2(gx, gy, 14.0, 14.0)
@@ -361,7 +364,6 @@ func _draw_track_header(track_id: String, area: Rect2) -> void:
 	draw_rect(settings_rect, Color(1, 1, 1, 0.35), true)
 	draw_rect(settings_rect, palette["grid"], false, 1.0)
 	draw_string(get_theme_default_font(), Vector2(settings_rect.position.x + 3.0, settings_rect.position.y + 11.0), "S", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, palette["text"])
-	draw_string(get_theme_default_font(), Vector2(gx + 20.0, gy + 12.0), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, palette["text"])
 	_track_grab_hitboxes.append({"rect": grab_rect, "track_id": track_id})
 	_track_settings_hitboxes.append({"rect": settings_rect, "track_id": track_id})
 
@@ -438,6 +440,17 @@ func _draw_read_tracks(area: Rect2) -> void:
 			_draw_pair_connector(read, y)
 			_draw_mate_block(read, y)
 		draw_rect(rect, palette["read"], true)
+		_read_hitboxes.append({
+			"rect": rect,
+			"read": read
+		})
+		if _read_view_mode == READ_VIEW_PAIRED or _read_view_mode == READ_VIEW_FRAGMENT:
+			var mate_rect := _mate_rect_for_read(read, y)
+			if mate_rect.size.x > 0.0 and mate_rect.size.y > 0.0:
+				_read_hitboxes.append({
+					"rect": mate_rect,
+					"read": read
+				})
 		if bp_per_px <= SNP_MARK_MAX_BP_PER_PX:
 			var snps: PackedInt32Array = read.get("snps", PackedInt32Array())
 			for snp_bp in snps:
@@ -474,16 +487,22 @@ func _draw_pair_connector(read: Dictionary, y: float) -> void:
 	draw_line(Vector2(x0, yc), Vector2(x1, yc), Color(0.24, 0.24, 0.24, 0.9), 1.0)
 
 func _draw_mate_block(read: Dictionary, y: float) -> void:
+	var mate_rect := _mate_rect_for_read(read, y)
+	if mate_rect.size.x <= 0.0 or mate_rect.size.y <= 0.0:
+		return
+	var mate_color: Color = palette["read"]
+	draw_rect(mate_rect, mate_color, true)
+
+func _mate_rect_for_read(read: Dictionary, y: float) -> Rect2:
 	var mate_start := int(read.get("mate_start", -1))
 	var mate_end := int(read.get("mate_end", -1))
 	if mate_start < 0 or mate_end <= mate_start:
-		return
+		return Rect2()
 	if mate_end < int(view_start_bp) or mate_start > int(_viewport_end_bp()):
-		return
+		return Rect2()
 	var mx0 := TRACK_LEFT_PAD + _bp_to_x(mate_start)
 	var mx1 := TRACK_LEFT_PAD + _bp_to_x(mate_end)
-	var mate_color: Color = palette["read"]
-	draw_rect(Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), _read_row_h)), mate_color, true)
+	return Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), _read_row_h))
 
 func _pair_render_key(read: Dictionary) -> String:
 	var mate_start := int(read.get("mate_start", -1))
@@ -558,15 +577,16 @@ func _draw_aa_tracks(area: Rect2) -> void:
 	var area_start := area.position.y
 	var show_aa_letters := _can_draw_aa_letters()
 	_feature_hitboxes.clear()
-	var labels := ["F1", "F2", "F3", "R1", "R2", "R3"]
 	for i in range(6):
 		var y := area_start + i * (AA_ROW_H + AA_ROW_GAP)
 		var track_rect := Rect2(0.0, y, area.size.x, AA_ROW_H)
-		draw_rect(track_rect, palette["bg"], true)
+		var bg_col: Color = palette["bg"]
+		if i == 1 or i == 4:
+			bg_col = palette.get("aa_alt_bg", bg_col)
+		draw_rect(track_rect, bg_col, true)
 		_draw_grid(track_rect)
-		draw_string(get_theme_default_font(), Vector2(14, y + 17), labels[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, palette["text"])
-		var aa_col: Color = palette["aa_forward"] if i < 3 else palette["aa_reverse"]
-		draw_rect(Rect2(52, y + 7, 6, 12), aa_col, true)
+	var split_y := area_start + 3.0 * (AA_ROW_H + AA_ROW_GAP) - AA_ROW_GAP * 0.5
+	draw_line(Vector2(0.0, split_y), Vector2(size.x, split_y), Color(0.15, 0.15, 0.15, 0.45), 1.0)
 
 	for feature in features:
 		if _is_hidden_full_length_region(feature):
@@ -582,7 +602,9 @@ func _draw_aa_tracks(area: Rect2) -> void:
 		var fx0 := TRACK_LEFT_PAD + _bp_to_x(f_start)
 		var fx1 := TRACK_LEFT_PAD + _bp_to_x(f_end)
 		var rect := Rect2(Vector2(fx0, fy), Vector2(maxf(2.0, fx1 - fx0), AA_ROW_H - 8.0))
-		draw_rect(rect, palette["feature"], true)
+		var feature_col: Color = (palette["feature"] as Color).lerp(Color.WHITE, 0.45)
+		feature_col.a = 0.6
+		draw_rect(rect, feature_col, true)
 		_feature_hitboxes.append({
 			"rect": rect,
 			"feature": feature
@@ -699,10 +721,12 @@ func _draw_genome_track(area: Rect2) -> void:
 func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 	var axis_left := TRACK_LEFT_PAD
 	var axis_right := size.x - TRACK_RIGHT_PAD
+	var view_start := view_start_bp
+	var visible_end := _viewport_end_bp()
 	for seg in concat_segments:
 		var seg_start := float(seg.get("start", 0))
 		var seg_end := float(seg.get("end", 0))
-		if seg_end <= view_start_bp or seg_start >= _viewport_end_bp():
+		if seg_end <= view_start or seg_start >= visible_end:
 			continue
 		var x0 := axis_left + _bp_to_x(seg_start)
 		var x1 := axis_left + _bp_to_x(seg_end)
@@ -711,8 +735,10 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 		if x1 <= x0:
 			continue
 		draw_line(Vector2(x0, line_y), Vector2(x1, line_y), palette["genome"], 3.0)
-		draw_line(Vector2(x0, line_y - 7.0), Vector2(x0, line_y + 7.0), Color.BLACK, 1.0)
-		draw_line(Vector2(x1, line_y - 7.0), Vector2(x1, line_y + 7.0), Color.BLACK, 1.0)
+		if seg_start >= view_start and seg_start <= visible_end:
+			draw_line(Vector2(x0, line_y - 7.0), Vector2(x0, line_y + 7.0), Color.BLACK, 1.0)
+		if seg_end >= view_start and seg_end <= visible_end:
+			draw_line(Vector2(x1, line_y - 7.0), Vector2(x1, line_y + 7.0), Color.BLACK, 1.0)
 		var name := str(seg.get("name", "chr"))
 		var label_x := x0 + 4.0
 		var label_w := maxf(0.0, x1 - x0 - 8.0)
@@ -735,7 +761,7 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 		if seg_len <= 0:
 			continue
 		var vis_start := maxi(seg_start, int(floor(view_start_bp)))
-		var vis_end := mini(seg_end, int(ceil(view_end)))
+		var vis_end := mini(seg_end, int(ceil(visible_end)))
 		if vis_end <= vis_start:
 			continue
 		var local_vis_start := maxi(0, vis_start - seg_start)
@@ -906,6 +932,13 @@ func _gui_input(event: InputEvent) -> void:
 			var rect: Rect2 = hit["rect"]
 			if rect.has_point(mouse_pos):
 				emit_signal("feature_clicked", hit["feature"])
+				accept_event()
+				return
+		for i in range(_read_hitboxes.size() - 1, -1, -1):
+			var read_hit: Dictionary = _read_hitboxes[i]
+			var read_rect: Rect2 = read_hit["rect"]
+			if read_rect.has_point(mouse_pos):
+				emit_signal("read_clicked", read_hit["read"])
 				accept_event()
 				return
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:

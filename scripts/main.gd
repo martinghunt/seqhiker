@@ -24,12 +24,12 @@ const SEQ_VIEW_SINGLE := 1
 @onready var server_status_label: Label = $Root/TopBar/ServerStatusLabel
 @onready var feature_panel: PanelContainer = $FeaturePanel
 @onready var feature_close_button: Button = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureCloseButton
-@onready var feature_name_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureNameLabel
-@onready var feature_type_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureTypeLabel
-@onready var feature_range_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureRangeLabel
-@onready var feature_strand_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureStrandLabel
-@onready var feature_source_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureSourceLabel
-@onready var feature_seq_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureSeqLabel
+@onready var feature_name_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureNameLabel
+@onready var feature_type_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureTypeLabel
+@onready var feature_range_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureRangeLabel
+@onready var feature_strand_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureStrandLabel
+@onready var feature_source_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureSourceLabel
+@onready var feature_seq_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureSeqLabel
 @onready var feature_content: VBoxContainer = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent
 @onready var ui_scale_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleSlider
 @onready var ui_scale_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleValue
@@ -156,6 +156,7 @@ func _connect_ui() -> void:
 	stop_button.pressed.connect(_stop_auto_play)
 	genome_view.viewport_changed.connect(_on_viewport_changed)
 	genome_view.feature_clicked.connect(_on_feature_clicked)
+	genome_view.read_clicked.connect(_on_read_clicked)
 	genome_view.track_settings_requested.connect(_on_track_settings_requested)
 	genome_view.track_order_changed.connect(_on_track_order_changed)
 	ui_scale_slider.value_changed.connect(_on_ui_scale_changed)
@@ -605,12 +606,12 @@ func _apply_theme(theme_name: String) -> void:
 	server_status_label.add_theme_color_override("font_color", palette["text"])
 	viewport_label.add_theme_color_override("font_color", palette["text"])
 	status_message_label.add_theme_color_override("font_color", palette["text"])
-	feature_name_label.add_theme_color_override("font_color", palette["text"])
-	feature_type_label.add_theme_color_override("font_color", palette["text"])
-	feature_range_label.add_theme_color_override("font_color", palette["text"])
-	feature_strand_label.add_theme_color_override("font_color", palette["text"])
-	feature_source_label.add_theme_color_override("font_color", palette["text"])
-	feature_seq_label.add_theme_color_override("font_color", palette["text"])
+	feature_name_label.add_theme_color_override("default_color", palette["text"])
+	feature_type_label.add_theme_color_override("default_color", palette["text"])
+	feature_range_label.add_theme_color_override("default_color", palette["text"])
+	feature_strand_label.add_theme_color_override("default_color", palette["text"])
+	feature_source_label.add_theme_color_override("default_color", palette["text"])
+	feature_seq_label.add_theme_color_override("default_color", palette["text"])
 	_apply_text_theme_recursive($SettingsPanel/SettingsMargin/SettingsLayout, palette["text"])
 
 func _on_files_dropped(files: PackedStringArray) -> void:
@@ -1143,6 +1144,51 @@ func _on_feature_clicked(feature: Dictionary) -> void:
 	feature_seq_label.text = "Sequence: %s" % str(feature.get("seq_name", _current_chr_name))
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)
+
+func _on_read_clicked(read: Dictionary) -> void:
+	_track_settings_open = false
+	_active_track_settings_id = ""
+	_set_feature_labels_visible(true)
+	if _track_settings_box != null:
+		_track_settings_box.visible = false
+	var read_name := str(read.get("name", ""))
+	if read_name.is_empty():
+		read_name = "(unnamed)"
+	var start_bp := int(read.get("start", 0))
+	var end_bp := int(read.get("end", start_bp))
+	var read_len := maxi(0, end_bp - start_bp)
+	var cigar := str(read.get("cigar", ""))
+	if cigar.is_empty():
+		cigar = "-"
+	var mapq := int(read.get("mapq", 0))
+	var flags := int(read.get("flags", 0))
+	var strand := "-" if bool(read.get("reverse", false)) else "+"
+	var mate_start := int(read.get("mate_start", -1))
+	var mate_end := int(read.get("mate_end", -1))
+	var mate_text := "Mate: unavailable"
+	if mate_start >= 0 and mate_end > mate_start:
+		mate_text = "Mate: %d - %d" % [mate_start, mate_end]
+	var frag_len := int(read.get("fragment_len", 0))
+	var snp_text := _format_read_snps(read.get("snps", PackedInt32Array()) as PackedInt32Array)
+	feature_name_label.text = "Read: %s" % read_name
+	feature_type_label.text = "Range: %d - %d (%d bp)" % [start_bp, end_bp, read_len]
+	feature_range_label.text = "CIGAR: %s" % cigar
+	feature_strand_label.text = "Strand: %s | MAPQ: %d | Flags: %d" % [strand, mapq, flags]
+	feature_source_label.text = "%s | Fragment: %d bp" % [mate_text, frag_len]
+	feature_seq_label.text = "SNPs: %s" % snp_text
+	_feature_panel_open = true
+	_slide_feature_panel(true, true)
+
+func _format_read_snps(snps: PackedInt32Array) -> String:
+	if snps.is_empty():
+		return "none"
+	var parts: Array[String] = []
+	var limit := mini(12, snps.size())
+	for i in range(limit):
+		parts.append(str(int(snps[i])))
+	if snps.size() > limit:
+		parts.append("...")
+	return "%d [%s]" % [snps.size(), ", ".join(parts)]
 
 func _close_feature_panel() -> void:
 	_feature_panel_open = false

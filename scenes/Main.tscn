@@ -288,32 +288,50 @@ text = "Close"
 [node name="FeatureSeparator" type="HSeparator" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
 
-[node name="FeatureNameLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureNameLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
+focus_mode = 2
 text = "Name: -"
-autowrap_mode = 3
+fit_content = true
+scroll_active = false
+selection_enabled = true
 
-[node name="FeatureTypeLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureTypeLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
+focus_mode = 2
 text = "Type: -"
-autowrap_mode = 3
+fit_content = true
+scroll_active = false
+selection_enabled = true
 
-[node name="FeatureRangeLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureRangeLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
+focus_mode = 2
 text = "Range: -"
-autowrap_mode = 3
+fit_content = true
+scroll_active = false
+selection_enabled = true
 
-[node name="FeatureStrandLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureStrandLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
+focus_mode = 2
 text = "Strand: -"
-autowrap_mode = 3
+fit_content = true
+scroll_active = false
+selection_enabled = true
 
-[node name="FeatureSourceLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureSourceLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
+focus_mode = 2
 text = "Source: -"
-autowrap_mode = 3
+fit_content = true
+scroll_active = false
+selection_enabled = true
 
-[node name="FeatureSeqLabel" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureSeqLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
+focus_mode = 2
 text = "Sequence: -"
-autowrap_mode = 3
+fit_content = true
+scroll_active = false
+selection_enabled = true
