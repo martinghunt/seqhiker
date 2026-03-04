@@ -129,7 +129,7 @@ func _ready() -> void:
 	_layout_read_scrollbar()
 	_emit_viewport_changed()
 
-func set_chromosome(chr_name: String, length_bp: int) -> void:
+func set_chromosome(_chr_name: String, length_bp: int) -> void:
 	chromosome_length = max(length_bp, 1)
 	view_start_bp = 0.0
 	reference_start_bp = 0
@@ -669,7 +669,7 @@ func _draw_aa_translation_letters(area_start: float) -> void:
 		var last_bp := vis_end - 3
 		if last_bp < first_bp:
 			continue
-		var codon_count := int((last_bp - first_bp) / 3) + 1
+		var codon_count := int(floor(float(last_bp - first_bp) / 3.0)) + 1
 		var max_by_pixels := maxi(1, int(floor(_plot_width() / maxf(1.0, aa_char_px + 1.0))) + 1)
 		var sample_count := mini(codon_count, max_by_pixels)
 		for n in range(sample_count):
@@ -753,16 +753,15 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 			draw_line(Vector2(x0, line_y - 7.0), Vector2(x0, line_y + 7.0), Color.BLACK, 1.0)
 		if seg_end >= view_start and seg_end <= visible_end:
 			draw_line(Vector2(x1, line_y - 7.0), Vector2(x1, line_y + 7.0), Color.BLACK, 1.0)
-		var name := str(seg.get("name", "chr"))
+		var chr_label := str(seg.get("name", "chr"))
 		var label_x := x0 + 4.0
 		var label_w := maxf(0.0, x1 - x0 - 8.0)
 		if label_w > 12.0:
-			draw_string(get_theme_default_font(), Vector2(label_x, top_y + 16.0), name, HORIZONTAL_ALIGNMENT_LEFT, label_w, 12, _axis_text_color())
+			draw_string(get_theme_default_font(), Vector2(label_x, top_y + 16.0), chr_label, HORIZONTAL_ALIGNMENT_LEFT, label_w, 12, _axis_text_color())
 
 	var span := _plot_width() * bp_per_px
 	if span <= 0:
 		return
-	var view_end := _viewport_end_bp()
 	var font := get_theme_default_font()
 	var font_size := 11
 	var max_tick_labels := 8
@@ -872,7 +871,7 @@ func _draw_file_status() -> void:
 	else:
 		draw_string(get_theme_default_font(), Vector2(16, size.y - 10), "Loaded files: %d" % loaded_files.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, palette["text"])
 
-func _draw_nucleotide_letters(top_y: float, line_y: float) -> void:
+func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 	if reference_sequence.is_empty():
 		return
 	var font := get_theme_default_font()
@@ -930,19 +929,19 @@ func _feature_annotation_label(feature: Dictionary, max_width: float) -> String:
 		return ""
 	var font := get_theme_default_font()
 	var font_size := 12
-	var name := str(feature.get("name", "")).strip_edges()
+	var label_name := str(feature.get("name", "")).strip_edges()
 	var id := str(feature.get("id", "")).strip_edges()
-	if name.is_empty():
-		name = str(feature.get("type", "")).strip_edges()
-	if name.is_empty() and id.is_empty():
+	if label_name.is_empty():
+		label_name = str(feature.get("type", "")).strip_edges()
+	if label_name.is_empty() and id.is_empty():
 		return ""
-	if id.is_empty() or id == name:
-		return name
-	var combined := "%s / %s" % [name, id]
+	if id.is_empty() or id == label_name:
+		return label_name
+	var combined := "%s / %s" % [label_name, id]
 	var combined_w := font.get_string_size(combined, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	if combined_w <= max_width:
 		return combined
-	return name
+	return label_name
 
 func _intersects_any(rect: Rect2, existing: Array) -> bool:
 	for r_any in existing:
@@ -1054,8 +1053,8 @@ func _bp_to_x(bp: float) -> float:
 func _nice_tick(raw: float) -> float:
 	if raw <= 0.0:
 		return 1.0
-	var exp: float = floor(log(raw) / log(10.0))
-	var base: float = pow(10.0, exp)
+	var exponent: float = floor(log(raw) / log(10.0))
+	var base: float = pow(10.0, exponent)
 	var scaled: float = raw / base
 	if scaled <= 1.0:
 		return base
@@ -1143,10 +1142,10 @@ func _generate_mock_data() -> void:
 func _genome_area() -> Rect2:
 	return _track_rect(TRACK_ID_GENOME)
 
-func _annotation_area(genome_area: Rect2) -> Rect2:
+func _annotation_area(_area_unused: Rect2) -> Rect2:
 	return _track_rect(TRACK_ID_AA)
 
-func _read_area(annotation_area: Rect2) -> Rect2:
+func _read_area(_ann_area_unused: Rect2) -> Rect2:
 	return _track_rect(TRACK_ID_READS)
 
 func _track_layout_rects() -> Dictionary:

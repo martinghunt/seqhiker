@@ -558,12 +558,12 @@ func _on_track_settings_requested(track_id: String) -> void:
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)
 
-func _set_feature_labels_visible(visible: bool) -> void:
-	feature_type_label.visible = visible
-	feature_range_label.visible = visible
-	feature_strand_label.visible = visible
-	feature_source_label.visible = visible
-	feature_seq_label.visible = visible
+func _set_feature_labels_visible(show_labels: bool) -> void:
+	feature_type_label.visible = show_labels
+	feature_range_label.visible = show_labels
+	feature_strand_label.visible = show_labels
+	feature_source_label.visible = show_labels
+	feature_seq_label.visible = show_labels
 
 func _on_seq_view_selected(index: int) -> void:
 	_seq_view_mode = index
