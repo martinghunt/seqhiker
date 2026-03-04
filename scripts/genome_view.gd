@@ -27,7 +27,6 @@ const READ_VIEW_STACK := 0
 const READ_VIEW_STRAND := 1
 const READ_VIEW_PAIRED := 2
 const READ_VIEW_FRAGMENT := 3
-const STRAND_SPLIT_GAP := 8.0
 const STRAND_SPLIT_LINE_WIDTH := 2.5
 const COMPLEMENT_MAP := {
 	"A": "T",
@@ -108,6 +107,7 @@ var _laid_out_reads: Array[Dictionary] = []
 var _read_row_count := 0
 var _strand_forward_rows := 0
 var _strand_reverse_rows := 0
+var _strand_split_lock_y := -1.0
 var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
@@ -141,6 +141,7 @@ func set_chromosome(_chr_name: String, length_bp: int) -> void:
 	view_start_bp = 0.0
 	reference_start_bp = 0
 	reference_sequence = ""
+	_strand_split_lock_y = -1.0
 	queue_redraw()
 	_emit_viewport_changed()
 
@@ -174,6 +175,7 @@ func clear_all_data() -> void:
 	reads.clear()
 	_laid_out_reads.clear()
 	_read_row_count = 0
+	_strand_split_lock_y = -1.0
 	coverage_tiles.clear()
 	features.clear()
 	concat_segments.clear()
@@ -196,6 +198,7 @@ func set_trackpad_pinch_sensitivity(value: float) -> void:
 
 func set_read_view_mode(mode: int) -> void:
 	_read_view_mode = clampi(mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
+	_strand_split_lock_y = -1.0
 	if _reads_scrollbar != null:
 		_reads_scrollbar.value = 0.0
 	_layout_reads()
@@ -219,6 +222,18 @@ func set_read_thickness(value: float) -> void:
 
 func set_show_full_length_regions(enabled: bool) -> void:
 	_show_full_length_regions = enabled
+	queue_redraw()
+
+func center_strand_scroll() -> void:
+	if _read_view_mode != READ_VIEW_STRAND or _reads_scrollbar == null:
+		return
+	var read_area := _track_rect(TRACK_ID_READS)
+	var content_top := read_area.position.y + 30.0
+	var content_bottom := read_area.position.y + read_area.size.y - 4.0
+	_strand_split_lock_y = (content_top + content_bottom) * 0.5
+	_layout_read_scrollbar()
+	if _reads_scrollbar.visible:
+		_reads_scrollbar.value = _reads_scrollbar.max_value * 0.5
 	queue_redraw()
 
 func get_track_order() -> PackedStringArray:
@@ -435,12 +450,13 @@ func _draw_read_tracks(area: Rect2) -> void:
 	var strand_split_y := 0.0
 	if _read_view_mode == READ_VIEW_STRAND:
 		var step_px := _read_row_h + READ_ROW_GAP
+		var split_gap := _strand_split_gap_px()
 		var forward_extent := 0.0
 		var reverse_extent := 0.0
 		if _strand_forward_rows > 0:
-			forward_extent = _read_row_h + float(_strand_forward_rows - 1) * step_px + STRAND_SPLIT_GAP * 0.5
+			forward_extent = _read_row_h + float(_strand_forward_rows - 1) * step_px + split_gap * 0.5
 		if _strand_reverse_rows > 0:
-			reverse_extent = _read_row_h + float(_strand_reverse_rows - 1) * step_px + STRAND_SPLIT_GAP * 0.5
+			reverse_extent = _read_row_h + float(_strand_reverse_rows - 1) * step_px + split_gap * 0.5
 		var split_at_forward_top := content_top + forward_extent
 		var split_at_reverse_bottom := content_bottom - reverse_extent
 		if split_at_forward_top <= split_at_reverse_bottom:
@@ -449,7 +465,8 @@ func _draw_read_tracks(area: Rect2) -> void:
 			var range_px := split_at_forward_top - split_at_reverse_bottom
 			var off_px := clampf(_reads_scrollbar.value, 0.0, range_px)
 			strand_split_y = split_at_forward_top - off_px
-		draw_line(Vector2(TRACK_LEFT_PAD, strand_split_y), Vector2(size.x - TRACK_RIGHT_PAD, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
+		_strand_split_lock_y = strand_split_y
+		draw_line(Vector2(0.0, strand_split_y), Vector2(size.x, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
 	var drawn_pairs: Dictionary = {}
 	for read in _laid_out_reads:
 		var read_start: int = read["start"]
@@ -501,9 +518,10 @@ func _read_y_for_area(read: Dictionary, content_top: float, content_bottom: floa
 		return content_bottom - _read_row_h - norm * span
 	var row: int = int(read.get("row", 0))
 	if _read_view_mode == READ_VIEW_STRAND:
+		var split_gap := _strand_split_gap_px()
 		if bool(read.get("reverse", false)):
-			return strand_split_y + STRAND_SPLIT_GAP * 0.5 + row * (_read_row_h + READ_ROW_GAP)
-		return strand_split_y - STRAND_SPLIT_GAP * 0.5 - _read_row_h - row * (_read_row_h + READ_ROW_GAP)
+			return strand_split_y + split_gap * 0.5 + row * (_read_row_h + READ_ROW_GAP)
+		return strand_split_y - split_gap * 0.5 - _read_row_h - row * (_read_row_h + READ_ROW_GAP)
 	return content_bottom - _read_row_h - row * (_read_row_h + READ_ROW_GAP) + scroll_px
 
 func _draw_pair_connector(read: Dictionary, y: float) -> void:
@@ -1368,14 +1386,15 @@ func _layout_read_scrollbar() -> void:
 	var max_rows := maxi(_read_row_count, 0)
 	if _read_view_mode == READ_VIEW_STRAND:
 		var step_px := _read_row_h + READ_ROW_GAP
+		var split_gap := _strand_split_gap_px()
 		var content_top := read_area.position.y + 30.0
 		var content_bottom := read_area.position.y + read_area.size.y - 4.0
 		var forward_extent := 0.0
 		var reverse_extent := 0.0
 		if _strand_forward_rows > 0:
-			forward_extent = _read_row_h + float(_strand_forward_rows - 1) * step_px
+			forward_extent = _read_row_h + float(_strand_forward_rows - 1) * step_px + split_gap * 0.5
 		if _strand_reverse_rows > 0:
-			reverse_extent = _read_row_h + float(_strand_reverse_rows - 1) * step_px
+			reverse_extent = _read_row_h + float(_strand_reverse_rows - 1) * step_px + split_gap * 0.5
 		var split_at_forward_top := content_top + forward_extent
 		var split_at_reverse_bottom := content_bottom - reverse_extent
 		var range_px := maxf(0.0, split_at_forward_top - split_at_reverse_bottom)
@@ -1383,7 +1402,10 @@ func _layout_read_scrollbar() -> void:
 		_reads_scrollbar.max_value = range_px
 		_reads_scrollbar.page = maxf(1.0, minf(range_px, 64.0))
 		_reads_scrollbar.step = 1.0
-		_reads_scrollbar.value = clampf(_reads_scrollbar.value, 0.0, range_px)
+		var next_val := clampf(_reads_scrollbar.value, 0.0, range_px)
+		if _strand_split_lock_y >= content_top and _strand_split_lock_y <= content_bottom and split_at_forward_top > split_at_reverse_bottom:
+			next_val = clampf(split_at_forward_top - _strand_split_lock_y, 0.0, range_px)
+		_reads_scrollbar.value = next_val
 		return
 	var max_offset := maxf(0.0, float(max_rows) - visible_rows)
 	_reads_scrollbar.visible = max_offset > 0.0
@@ -1394,3 +1416,6 @@ func _layout_read_scrollbar() -> void:
 
 func _on_reads_scroll_changed(_value: float) -> void:
 	queue_redraw()
+
+func _strand_split_gap_px() -> float:
+	return 12.0

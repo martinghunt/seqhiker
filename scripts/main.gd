@@ -71,6 +71,7 @@ var _last_start := 0
 var _last_end := 0
 var _last_bp_per_px := 8.0
 var _has_bam_loaded := false
+var _center_strand_scroll_pending := false
 var _has_fasta_loaded := false
 var _cache_start := -1
 var _cache_end := -1
@@ -700,6 +701,7 @@ func _load_dropped_files(files: PackedStringArray) -> bool:
 			_set_status("Load BAM failed: %s" % bam_resp.get("error", "error"), true)
 			return false
 		_has_bam_loaded = true
+		_center_strand_scroll_pending = true
 	return true
 
 func _refresh_chromosomes() -> void:
@@ -903,6 +905,9 @@ func _refresh_visible_data() -> void:
 	genome_view.set_coverage_tiles(all_coverage_tiles)
 	genome_view.set_features(features)
 	genome_view.set_reference_slice(ref_start, ref_sequence)
+	if _center_strand_scroll_pending and _read_view_option.selected == 1 and all_reads.size() > 0:
+		genome_view.center_strand_scroll()
+		_center_strand_scroll_pending = false
 	_cache_start = query_start
 	_cache_end = query_end
 	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)
