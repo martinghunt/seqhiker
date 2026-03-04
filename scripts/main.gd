@@ -85,6 +85,7 @@ var _read_thickness_spin: SpinBox
 var _show_full_region_checkbox: CheckBox
 var _track_order_label: Label
 var _track_order_list: ItemList
+var _track_visibility_box: VBoxContainer
 var _track_dragging := false
 var _track_drag_index := -1
 var _track_drop_index := -1
@@ -163,6 +164,7 @@ func _connect_ui() -> void:
 	genome_view.read_clicked.connect(_on_read_clicked)
 	genome_view.track_settings_requested.connect(_on_track_settings_requested)
 	genome_view.track_order_changed.connect(_on_track_order_changed)
+	genome_view.track_visibility_changed.connect(_on_track_visibility_changed)
 	ui_scale_slider.value_changed.connect(_on_ui_scale_changed)
 	trackpad_pan_slider.value_changed.connect(_on_trackpad_pan_changed)
 	trackpad_pinch_slider.value_changed.connect(_on_trackpad_pinch_changed)
@@ -353,9 +355,13 @@ func _setup_track_order_controls() -> void:
 	_track_order_list = ItemList.new()
 	_track_order_list.select_mode = ItemList.SELECT_SINGLE
 	_track_order_list.custom_minimum_size = Vector2(0, 84)
+	_track_visibility_box = VBoxContainer.new()
+	_track_visibility_box.add_theme_constant_override("separation", 4)
 	settings_content.add_child(_track_order_label)
 	settings_content.add_child(_track_order_list)
+	settings_content.add_child(_track_visibility_box)
 	_refresh_track_order_list(genome_view.get_track_order(), 0)
+	_refresh_track_visibility_controls(genome_view.get_track_order())
 
 func _setup_track_settings_panel() -> void:
 	_track_settings_box = VBoxContainer.new()
@@ -435,9 +441,29 @@ func _refresh_track_order_list(order: PackedStringArray, select_idx: int = -1) -
 	if idx < 0 or idx >= _track_order_list.item_count:
 		idx = 0
 	_track_order_list.select(idx)
+	_refresh_track_visibility_controls(order)
+
+func _refresh_track_visibility_controls(order: PackedStringArray) -> void:
+	if _track_visibility_box == null:
+		return
+	for child in _track_visibility_box.get_children():
+		child.queue_free()
+	for id_any in order:
+		var track_id := str(id_any)
+		var cb := CheckBox.new()
+		cb.text = "Show %s" % _track_label_for_id(track_id)
+		cb.button_pressed = genome_view.is_track_visible(track_id)
+		cb.toggled.connect(_on_track_visibility_toggled.bind(track_id))
+		_track_visibility_box.add_child(cb)
 
 func _on_track_order_changed(order: PackedStringArray) -> void:
 	_refresh_track_order_list(order)
+
+func _on_track_visibility_changed(_track_id: String, _visible: bool) -> void:
+	_refresh_track_visibility_controls(genome_view.get_track_order())
+
+func _on_track_visibility_toggled(checked: bool, track_id: String) -> void:
+	genome_view.set_track_visible(track_id, checked)
 
 func _track_label_for_id(track_id: String) -> String:
 	match track_id:
@@ -1152,6 +1178,12 @@ func _load_or_init_config() -> void:
 		for id in raw_track_order:
 			saved_track_order.append(str(id))
 	genome_view.set_track_order(saved_track_order)
+	var raw_track_visibility = cfg.get_value("ui", "track_visibility", {})
+	if raw_track_visibility is Dictionary:
+		for id in genome_view.get_track_order():
+			var track_id := str(id)
+			if raw_track_visibility.has(track_id):
+				genome_view.set_track_visible(track_id, bool(raw_track_visibility[track_id]))
 	_refresh_track_order_list(genome_view.get_track_order())
 
 func _select_theme_option(theme_name: String) -> void:
@@ -1178,6 +1210,11 @@ func _save_config() -> void:
 	for id in genome_view.get_track_order():
 		track_order_arr.append(str(id))
 	cfg.set_value("ui", "track_order", track_order_arr)
+	var track_visibility := {}
+	for id in genome_view.get_track_order():
+		var track_id := str(id)
+		track_visibility[track_id] = genome_view.is_track_visible(track_id)
+	cfg.set_value("ui", "track_visibility", track_visibility)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
 	cfg.set_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value)
 	cfg.save(CONFIG_PATH)

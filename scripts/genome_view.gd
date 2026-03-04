@@ -6,6 +6,7 @@ signal feature_clicked(feature: Dictionary)
 signal read_clicked(read: Dictionary)
 signal track_settings_requested(track_id: String)
 signal track_order_changed(order: PackedStringArray)
+signal track_visibility_changed(track_id: String, visible: bool)
 
 const AA_ROW_H := 26.0
 const AA_ROW_GAP := 3.0
@@ -112,6 +113,12 @@ var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
 var _show_full_length_regions := false
 var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GENOME])
+var _track_visible := {
+	TRACK_ID_READS: true,
+	TRACK_ID_AA: true,
+	TRACK_ID_GENOME: true
+}
+var _track_close_hitboxes: Array[Dictionary] = []
 var _track_grab_hitboxes: Array[Dictionary] = []
 var _track_settings_hitboxes: Array[Dictionary] = []
 var _track_drag_active := false
@@ -216,6 +223,24 @@ func set_show_full_length_regions(enabled: bool) -> void:
 
 func get_track_order() -> PackedStringArray:
 	return _track_order.duplicate()
+
+func is_track_visible(track_id: String) -> bool:
+	return bool(_track_visible.get(track_id, true))
+
+func set_track_visible(track_id: String, show_track: bool) -> void:
+	if not _track_visible.has(track_id):
+		return
+	var next_visible := show_track
+	if bool(_track_visible.get(track_id, true)) == next_visible:
+		return
+	_track_visible[track_id] = next_visible
+	if _track_drag_active and _track_drag_track_id == track_id and not next_visible:
+		_track_drag_active = false
+		_track_drag_track_id = ""
+		_track_drag_target_index = -1
+	_layout_read_scrollbar()
+	queue_redraw()
+	emit_signal("track_visibility_changed", track_id, next_visible)
 
 func set_track_order(order: PackedStringArray) -> void:
 	var prev := _track_order
@@ -327,6 +352,7 @@ func _notification(what: int) -> void:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), palette["panel"], true)
+	_track_close_hitboxes.clear()
 	_track_grab_hitboxes.clear()
 	_track_settings_hitboxes.clear()
 	_read_hitboxes.clear()
@@ -354,8 +380,13 @@ func _draw() -> void:
 func _draw_track_header(track_id: String, area: Rect2) -> void:
 	var gx := 4.0
 	var gy := area.position.y + 4.0
-	var grab_rect := Rect2(gx, gy, 14.0, 14.0)
-	var settings_rect := Rect2(gx, gy + 18.0, 14.0, 14.0)
+	var close_rect := Rect2(gx, gy, 14.0, 14.0)
+	var grab_rect := Rect2(gx, gy + 18.0, 14.0, 14.0)
+	var settings_rect := Rect2(gx, gy + 36.0, 14.0, 14.0)
+	draw_rect(close_rect, Color(1, 1, 1, 0.35), true)
+	draw_rect(close_rect, palette["grid"], false, 1.0)
+	draw_line(close_rect.position + Vector2(3.0, 3.0), close_rect.position + Vector2(close_rect.size.x - 3.0, close_rect.size.y - 3.0), palette["text"], 1.0)
+	draw_line(close_rect.position + Vector2(close_rect.size.x - 3.0, 3.0), close_rect.position + Vector2(3.0, close_rect.size.y - 3.0), palette["text"], 1.0)
 	draw_rect(grab_rect, Color(1, 1, 1, 0.35), true)
 	draw_rect(grab_rect, palette["grid"], false, 1.0)
 	for i in range(3):
@@ -364,6 +395,7 @@ func _draw_track_header(track_id: String, area: Rect2) -> void:
 	draw_rect(settings_rect, Color(1, 1, 1, 0.35), true)
 	draw_rect(settings_rect, palette["grid"], false, 1.0)
 	draw_string(get_theme_default_font(), Vector2(settings_rect.position.x + 3.0, settings_rect.position.y + 11.0), "S", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, palette["text"])
+	_track_close_hitboxes.append({"rect": close_rect, "track_id": track_id})
 	_track_grab_hitboxes.append({"rect": grab_rect, "track_id": track_id})
 	_track_settings_hitboxes.append({"rect": settings_rect, "track_id": track_id})
 
@@ -953,6 +985,12 @@ func _intersects_any(rect: Rect2, existing: Array) -> bool:
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		var mouse_pos: Vector2 = event.position
+		for hit in _track_close_hitboxes:
+			var close_rect: Rect2 = hit["rect"]
+			if close_rect.has_point(mouse_pos):
+				set_track_visible(str(hit["track_id"]), false)
+				accept_event()
+				return
 		for hit in _track_settings_hitboxes:
 			var rect: Rect2 = hit["rect"]
 			if rect.has_point(mouse_pos):
@@ -1155,18 +1193,27 @@ func _track_layout_rects() -> Dictionary:
 	var fixed_sum := 0.0
 	var flex_count := 0
 	for track_id in _track_order:
+		if not is_track_visible(track_id):
+			continue
 		var h := _track_fixed_height(track_id)
 		if h >= 0.0:
 			fixed_sum += h
 		else:
 			flex_count += 1
-	var gap_total := PANEL_GAP * maxf(0.0, float(_track_order.size() - 1))
+	var visible_track_count := 0
+	for track_id in _track_order:
+		if is_track_visible(track_id):
+			visible_track_count += 1
+	var gap_total := PANEL_GAP * maxf(0.0, float(visible_track_count - 1))
 	var available := maxf(0.0, size.y - TOP_PAD - BOTTOM_PAD - gap_total - fixed_sum)
 	var flex_h := 0.0
 	if flex_count > 0:
 		flex_h = available / float(flex_count)
-	var y := TOP_PAD
+	var used_h := fixed_sum + gap_total + flex_h * float(flex_count)
+	var y := maxf(TOP_PAD, size.y - BOTTOM_PAD - used_h)
 	for track_id in _track_order:
+		if not is_track_visible(track_id):
+			continue
 		var h := _track_fixed_height(track_id)
 		if h < 0.0:
 			h = maxf(24.0, flex_h)
