@@ -10,6 +10,9 @@ const ANNOT_CHUNK_TARGET_BP := 120000
 const ANNOT_MAX_CHUNKS := 24
 const ANNOT_MAX_PER_CHUNK := 2500
 const ANNOT_MAX_TOTAL := 12000
+const TRACK_READS := "reads"
+const TRACK_AA := "aa"
+const TRACK_GENOME := "genome"
 const SEQ_VIEW_CONCAT := 0
 const SEQ_VIEW_SINGLE := 1
 
@@ -461,6 +464,9 @@ func _on_track_order_changed(order: PackedStringArray) -> void:
 
 func _on_track_visibility_changed(_track_id: String, _visible: bool) -> void:
 	_refresh_track_visibility_controls(genome_view.get_track_order())
+	_invalidate_cache()
+	if _current_chr_len > 0:
+		_schedule_fetch()
 
 func _on_track_visibility_toggled(checked: bool, track_id: String) -> void:
 	genome_view.set_track_visible(track_id, checked)
@@ -797,6 +803,10 @@ func _invalidate_cache() -> void:
 func _refresh_visible_data() -> void:
 	if _current_chr_len <= 0:
 		return
+	var show_reads: bool = bool(genome_view.is_track_visible(TRACK_READS))
+	var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
+	var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
+	var need_reference: bool = show_aa or show_genome
 	var span: int = maxi(1, _last_end - _last_start)
 	var right_span_mult := 3 if _auto_play_enabled else 1
 	var query_start: int = maxi(0, _last_start - span)
@@ -808,7 +818,7 @@ func _refresh_visible_data() -> void:
 	var ref_sequence := ""
 
 	if _seq_view_mode == SEQ_VIEW_SINGLE:
-		if _has_bam_loaded:
+		if _has_bam_loaded and show_reads:
 			var zoom := _compute_tile_zoom(_last_bp_per_px)
 			var tile_width := 1024 << zoom
 			var tile_start := int(floor(float(query_start) / float(tile_width)))
@@ -828,28 +838,30 @@ func _refresh_visible_data() -> void:
 						return
 					all_coverage_tiles.append(cov_resp.get("coverage", {}))
 
-		var ann_resp := _get_annotations_window_paged(_current_chr_id, query_start, query_end)
-		if not ann_resp.get("ok", false):
-			_set_status("Annotation query failed: %s" % ann_resp.get("error", "error"), true)
-			return
-		features = ann_resp.get("features", [])
+		if show_aa:
+			var ann_resp := _get_annotations_window_paged(_current_chr_id, query_start, query_end)
+			if not ann_resp.get("ok", false):
+				_set_status("Annotation query failed: %s" % ann_resp.get("error", "error"), true)
+				return
+			features = ann_resp.get("features", [])
 
-		var ref_resp: Dictionary = _zem.get_reference_slice(_current_chr_id, query_start, query_end)
-		if not ref_resp.get("ok", false):
-			_set_status("Reference query failed: %s" % ref_resp.get("error", "error"), true)
-			return
-		ref_start = int(ref_resp.get("slice_start", query_start))
-		ref_sequence = str(ref_resp.get("sequence", ""))
+		if need_reference:
+			var ref_resp: Dictionary = _zem.get_reference_slice(_current_chr_id, query_start, query_end)
+			if not ref_resp.get("ok", false):
+				_set_status("Reference query failed: %s" % ref_resp.get("error", "error"), true)
+				return
+			ref_start = int(ref_resp.get("slice_start", query_start))
+			ref_sequence = str(ref_resp.get("sequence", ""))
 	else:
 		var overlaps := _segments_overlapping(query_start, query_end)
-		var ann_overlaps := _segments_overlapping(query_start, query_end)
+		var ann_overlaps := _segments_overlapping(query_start, query_end) if show_aa else ([] as Array[Dictionary])
 		var zoom := _compute_tile_zoom(_last_bp_per_px)
 		for ov in overlaps:
 			var chr_id := int(ov["id"])
 			var offset := int(ov["offset"])
 			var local_start := int(ov["local_start"])
 			var local_end := int(ov["local_end"])
-			if _has_bam_loaded:
+			if _has_bam_loaded and show_reads:
 				var tile_width := 1024 << zoom
 				var tile_start := int(floor(float(local_start) / float(tile_width)))
 				var tile_end := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width)))
@@ -884,7 +896,8 @@ func _refresh_visible_data() -> void:
 			for f in ann_resp_part.get("features", []):
 				features.append(_shift_feature_coords(f, a_offset))
 
-		ref_sequence = _build_concat_reference(query_start, query_end, overlaps)
+		if need_reference:
+			ref_sequence = _build_concat_reference(query_start, query_end, overlaps)
 
 	genome_view.set_reads(all_reads)
 	genome_view.set_coverage_tiles(all_coverage_tiles)
