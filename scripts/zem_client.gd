@@ -250,16 +250,20 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 		var cigar := payload.slice(off, off + cigar_len).get_string_from_utf8()
 		off += cigar_len
 		var snps := PackedInt32Array()
+		var snp_bases := PackedByteArray()
 		if off + 2 <= payload.size():
 			var snp_count := int(payload.decode_u16(off))
 			off += 2
 			for _s in range(snp_count):
-				if off + 4 > payload.size():
+				if off + 5 > payload.size():
 					break
 				snps.append(int(payload.decode_u32(off)))
 				off += 4
+				snp_bases.append(payload[off])
+				off += 1
 		else:
 			snps = PackedInt32Array()
+			snp_bases = PackedByteArray()
 		out.append({
 			"start": int(start_bp),
 			"end": int(end_bp),
@@ -269,6 +273,7 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 			"name": read_name,
 			"cigar": cigar,
 			"snps": snps,
+			"snp_bases": snp_bases,
 			"mate_start": -1 if mate_start_u == 0xFFFFFFFF else int(mate_start_u),
 			"mate_end": -1 if mate_end_u == 0xFFFFFFFF else int(mate_end_u),
 			"fragment_len": fragment_len,

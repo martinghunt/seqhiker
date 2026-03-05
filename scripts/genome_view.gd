@@ -114,7 +114,7 @@ var _read_row_h := READ_ROW_H
 var _show_full_length_regions := false
 var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GENOME])
 var _track_visible := {
-	TRACK_ID_READS: true,
+	TRACK_ID_READS: false,
 	TRACK_ID_AA: true,
 	TRACK_ID_GENOME: true
 }
@@ -468,6 +468,9 @@ func _draw_read_tracks(area: Rect2) -> void:
 		_strand_split_lock_y = strand_split_y
 		draw_line(Vector2(0.0, strand_split_y), Vector2(size.x, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
 	var drawn_pairs: Dictionary = {}
+	var draw_snp_text := _can_draw_read_snp_letters()
+	var snp_font := get_theme_default_font()
+	var snp_font_size := clampi(int(floor(_read_row_h - 1.0)), 8, 14)
 	for read in _laid_out_reads:
 		var read_start: int = read["start"]
 		var read_end: int = read["end"]
@@ -502,14 +505,27 @@ func _draw_read_tracks(area: Rect2) -> void:
 				})
 		if bp_per_px <= SNP_MARK_MAX_BP_PER_PX:
 			var snps: PackedInt32Array = read.get("snps", PackedInt32Array())
-			for snp_bp in snps:
+			var snp_bases: PackedByteArray = read.get("snp_bases", PackedByteArray())
+			for i in range(snps.size()):
+				var snp_bp := int(snps[i])
 				if snp_bp < int(view_start_bp) or snp_bp > int(_viewport_end_bp()):
 					continue
 				var sx := TRACK_LEFT_PAD + _bp_to_x(float(snp_bp))
 				if sx < TRACK_LEFT_PAD or sx > size.x - TRACK_RIGHT_PAD:
 					continue
 				var snp_w := maxf(1.0, 1.0 / bp_per_px)
+				var base_text := ""
+				if draw_snp_text and i < snp_bases.size():
+					var b := char(int(snp_bases[i]))
+					base_text = "N" if b.is_empty() else b
+					var base_w := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x + 2.0
+					snp_w = maxf(snp_w, base_w)
 				draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, _read_row_h), Color(0.86, 0.14, 0.14), true)
+				if draw_snp_text and not base_text.is_empty():
+					var tw := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x
+					var tx := sx - tw * 0.5
+					var ty := y + (_read_row_h + float(snp_font_size)) * 0.5 - 1.0
+					draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, Color.WHITE)
 
 func _read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:
 	if _read_view_mode == READ_VIEW_FRAGMENT:
@@ -535,6 +551,17 @@ func _draw_pair_connector(read: Dictionary, y: float) -> void:
 	var x1 := TRACK_LEFT_PAD + _bp_to_x(mate_center)
 	var yc := y + _read_row_h * 0.5
 	draw_line(Vector2(x0, yc), Vector2(x1, yc), Color(0.24, 0.24, 0.24, 0.9), 1.0)
+
+func _can_draw_read_snp_letters() -> bool:
+	if _read_row_h < 10.0:
+		return false
+	var font := get_theme_default_font()
+	var font_size := clampi(int(floor(_read_row_h - 1.0)), 8, 14)
+	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	if char_px <= 0.0:
+		return false
+	var pixels_per_bp := 1.0 / bp_per_px
+	return pixels_per_bp >= char_px + 1.0
 
 func _draw_mate_block(read: Dictionary, y: float) -> void:
 	var mate_rect := _mate_rect_for_read(read, y)

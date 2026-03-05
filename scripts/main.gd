@@ -702,6 +702,7 @@ func _load_dropped_files(files: PackedStringArray) -> bool:
 			return false
 		_has_bam_loaded = true
 		_center_strand_scroll_pending = true
+		genome_view.set_track_visible(TRACK_READS, true)
 	return true
 
 func _refresh_chromosomes() -> void:
