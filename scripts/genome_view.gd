@@ -146,7 +146,11 @@ func set_chromosome(_chr_name: String, length_bp: int) -> void:
 	_emit_viewport_changed()
 
 func set_reads(next_reads: Array[Dictionary]) -> void:
-	reads = next_reads
+	reads.clear()
+	for read_any in next_reads:
+		var read: Dictionary = (read_any as Dictionary).duplicate(true)
+		_attach_indel_markers(read)
+		reads.append(read)
 	_layout_reads()
 	_layout_read_scrollbar()
 	queue_redraw()
@@ -526,6 +530,7 @@ func _draw_read_tracks(area: Rect2) -> void:
 					var tx := sx - tw * 0.5
 					var ty := y + (_read_row_h + float(snp_font_size)) * 0.5 - 1.0
 					draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, Color.WHITE)
+			_draw_indel_markers(read, y)
 
 func _read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:
 	if _read_view_mode == READ_VIEW_FRAGMENT:
@@ -562,6 +567,78 @@ func _can_draw_read_snp_letters() -> bool:
 		return false
 	var pixels_per_bp := 1.0 / bp_per_px
 	return pixels_per_bp >= char_px + 1.0
+
+func _draw_indel_markers(read: Dictionary, y: float) -> void:
+	var mid_y := y + _read_row_h * 0.5
+	var half_h := maxf(1.0, _read_row_h * 0.5)
+	var trim_h := maxf(0.0, (_read_row_h - half_h) * 0.5)
+	var del_starts: PackedInt32Array = read.get("del_starts", PackedInt32Array())
+	var del_ends: PackedInt32Array = read.get("del_ends", PackedInt32Array())
+	var del_count := mini(del_starts.size(), del_ends.size())
+	for i in range(del_count):
+		var ds := int(del_starts[i])
+		var de := int(del_ends[i])
+		if de <= ds:
+			continue
+		if de < int(view_start_bp) or ds > int(_viewport_end_bp()):
+			continue
+		var dx0 := TRACK_LEFT_PAD + _bp_to_x(float(ds))
+		var dx1 := TRACK_LEFT_PAD + _bp_to_x(float(de))
+		# Thin the read body around deletions so the deletion marker is easier to see.
+		if trim_h > 0.0 and dx1 > dx0:
+			draw_rect(Rect2(dx0, y, dx1 - dx0, trim_h), palette["bg"], true)
+			draw_rect(Rect2(dx0, y + _read_row_h - trim_h, dx1 - dx0, trim_h), palette["bg"], true)
+		draw_line(Vector2(dx0, mid_y), Vector2(dx1, mid_y), Color(0.08, 0.08, 0.08, 0.95), 1.0)
+	var ins_positions: PackedInt32Array = read.get("ins_positions", PackedInt32Array())
+	for pos in ins_positions:
+		var ip := int(pos)
+		if ip < int(view_start_bp) or ip > int(_viewport_end_bp()):
+			continue
+		var ix := TRACK_LEFT_PAD + _bp_to_x(float(ip))
+		var y0 := y + 1.0
+		var y1 := y + _read_row_h - 1.0
+		var cap_w := maxf(4.0, _read_row_h * 0.7)
+		var cap_line_w := maxf(1.0, _read_row_h * 0.15)
+		var stem_line_w := maxf(1.0, _read_row_h * 0.3)
+		var col := Color(0.05, 0.05, 0.05, 0.98)
+		draw_line(Vector2(ix, y0), Vector2(ix, y1), col, stem_line_w)
+		draw_line(Vector2(ix - cap_w * 0.5, y0), Vector2(ix + cap_w * 0.5, y0), col, cap_line_w)
+		draw_line(Vector2(ix - cap_w * 0.5, y1), Vector2(ix + cap_w * 0.5, y1), col, cap_line_w)
+
+func _attach_indel_markers(read: Dictionary) -> void:
+	var cigar := str(read.get("cigar", ""))
+	if cigar.is_empty():
+		return
+	var ref_pos := int(read.get("start", 0))
+	var num := 0
+	var del_starts := PackedInt32Array()
+	var del_ends := PackedInt32Array()
+	var ins_positions := PackedInt32Array()
+	for i in range(cigar.length()):
+		var ch := cigar.substr(i, 1)
+		if ch >= "0" and ch <= "9":
+			num = num * 10 + int(ch.to_int())
+			continue
+		var ln := num
+		num = 0
+		if ln <= 0:
+			continue
+		match ch:
+			"M", "=", "X":
+				ref_pos += ln
+			"D", "N":
+				del_starts.append(ref_pos)
+				del_ends.append(ref_pos + ln)
+				ref_pos += ln
+			"I":
+				ins_positions.append(ref_pos)
+			"S", "H", "P":
+				pass
+			_:
+				pass
+	read["del_starts"] = del_starts
+	read["del_ends"] = del_ends
+	read["ins_positions"] = ins_positions
 
 func _draw_mate_block(read: Dictionary, y: float) -> void:
 	var mate_rect := _mate_rect_for_read(read, y)
