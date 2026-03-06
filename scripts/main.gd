@@ -21,6 +21,9 @@ const DEFAULT_GC_WINDOW_BP := 200
 const PLOT_Y_UNIT := 0
 const PLOT_Y_AUTOSCALE := 1
 const PLOT_Y_FIXED := 2
+const DEFAULT_PLOT_HEIGHT := 100.0
+const MIN_PLOT_HEIGHT := 50.0
+const MAX_PLOT_HEIGHT := 360.0
 const UI_FONT_SIZE := 13
 
 @onready var background: ColorRect = $Background
@@ -122,6 +125,8 @@ var _gc_plot_y_max := 1.0
 var _depth_plot_y_mode := PLOT_Y_AUTOSCALE
 var _depth_plot_y_min := 0.0
 var _depth_plot_y_max := 100.0
+var _gc_plot_height := DEFAULT_PLOT_HEIGHT
+var _depth_plot_height := DEFAULT_PLOT_HEIGHT
 var _chromosomes: Array[Dictionary] = []
 var _concat_segments: Array[Dictionary] = []
 var _track_settings_box: VBoxContainer
@@ -141,6 +146,8 @@ func _ready() -> void:
 	_load_or_init_config()
 	_apply_gc_plot_y_scale()
 	_apply_depth_plot_y_scale()
+	_apply_gc_plot_height()
+	_apply_depth_plot_height()
 	_apply_theme(theme_option.get_item_text(theme_option.selected))
 	_on_trackpad_pan_changed(trackpad_pan_slider.value)
 	_on_trackpad_pinch_changed(trackpad_pinch_slider.value)
@@ -422,6 +429,14 @@ func _apply_depth_plot_y_scale() -> void:
 		_depth_plot_y_max = _depth_plot_y_min + 1.0
 	genome_view.set_depth_plot_y_scale(_depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max)
 
+func _apply_gc_plot_height() -> void:
+	_gc_plot_height = clampf(_gc_plot_height, MIN_PLOT_HEIGHT, MAX_PLOT_HEIGHT)
+	genome_view.set_gc_plot_height(_gc_plot_height)
+
+func _apply_depth_plot_height() -> void:
+	_depth_plot_height = clampf(_depth_plot_height, MIN_PLOT_HEIGHT, MAX_PLOT_HEIGHT)
+	genome_view.set_depth_plot_height(_depth_plot_height)
+
 func _on_track_order_list_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -648,6 +663,17 @@ func _on_track_settings_requested(track_id: String) -> void:
 				_invalidate_cache()
 				_schedule_fetch()
 			)
+			var height_label := Label.new()
+			height_label.text = "Track Height (px)"
+			var height_spin := SpinBox.new()
+			height_spin.min_value = MIN_PLOT_HEIGHT
+			height_spin.max_value = MAX_PLOT_HEIGHT
+			height_spin.step = 1
+			height_spin.value = _gc_plot_height
+			height_spin.value_changed.connect(func(value: float) -> void:
+				_gc_plot_height = value
+				_apply_gc_plot_height()
+			)
 			var y_mode_label := Label.new()
 			y_mode_label.text = "Y Scale"
 			var y_mode_option := OptionButton.new()
@@ -693,6 +719,8 @@ func _on_track_settings_requested(track_id: String) -> void:
 			)
 			_track_settings_box.add_child(win_label)
 			_track_settings_box.add_child(win_spin)
+			_track_settings_box.add_child(height_label)
+			_track_settings_box.add_child(height_spin)
 			_track_settings_box.add_child(y_mode_label)
 			_track_settings_box.add_child(y_mode_option)
 			_track_settings_box.add_child(y_min_label)
@@ -704,6 +732,17 @@ func _on_track_settings_requested(track_id: String) -> void:
 				var no_bam := Label.new()
 				no_bam.text = "Load BAM to enable depth plot."
 				_track_settings_box.add_child(no_bam)
+			var height_label2 := Label.new()
+			height_label2.text = "Track Height (px)"
+			var height_spin2 := SpinBox.new()
+			height_spin2.min_value = MIN_PLOT_HEIGHT
+			height_spin2.max_value = MAX_PLOT_HEIGHT
+			height_spin2.step = 1
+			height_spin2.value = _depth_plot_height
+			height_spin2.value_changed.connect(func(value: float) -> void:
+				_depth_plot_height = value
+				_apply_depth_plot_height()
+			)
 			var y_mode_label2 := Label.new()
 			y_mode_label2.text = "Y Scale"
 			var y_mode_option2 := OptionButton.new()
@@ -747,6 +786,8 @@ func _on_track_settings_requested(track_id: String) -> void:
 				_depth_plot_y_max = value
 				_apply_depth_plot_y_scale()
 			)
+			_track_settings_box.add_child(height_label2)
+			_track_settings_box.add_child(height_spin2)
 			_track_settings_box.add_child(y_mode_label2)
 			_track_settings_box.add_child(y_mode_option2)
 			_track_settings_box.add_child(y_min_label2)

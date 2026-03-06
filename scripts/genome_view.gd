@@ -11,7 +11,9 @@ signal region_selected(start_bp: int, end_bp: int)
 
 const AA_ROW_H := 26.0
 const AA_ROW_GAP := 3.0
-const PLOT_H := 120.0
+const DEFAULT_PLOT_H := 100.0
+const MIN_PLOT_H := 50.0
+const MAX_PLOT_H := 360.0
 const GENOME_H := 86.0
 const TRACK_LEFT_PAD := 64.0
 const TRACK_RIGHT_PAD := 28.0
@@ -132,6 +134,8 @@ var _gc_plot_y_max := 1.0
 var _depth_plot_y_mode := PLOT_Y_UNIT
 var _depth_plot_y_min := 0.0
 var _depth_plot_y_max := 1.0
+var _gc_plot_h := DEFAULT_PLOT_H
+var _depth_plot_h := DEFAULT_PLOT_H
 var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_DEPTH_PLOT, TRACK_ID_GC_PLOT, TRACK_ID_AA, TRACK_ID_GENOME])
 var _track_visible := {
 	TRACK_ID_READS: false,
@@ -282,6 +286,16 @@ func set_depth_plot_y_scale(mode: int, min_v: float, max_v: float) -> void:
 	_depth_plot_y_max = max_v
 	if _depth_plot_y_max <= _depth_plot_y_min:
 		_depth_plot_y_max = _depth_plot_y_min + 1.0
+	queue_redraw()
+
+func set_gc_plot_height(height_px: float) -> void:
+	_gc_plot_h = clampf(height_px, MIN_PLOT_H, MAX_PLOT_H)
+	_layout_read_scrollbar()
+	queue_redraw()
+
+func set_depth_plot_height(height_px: float) -> void:
+	_depth_plot_h = clampf(height_px, MIN_PLOT_H, MAX_PLOT_H)
+	_layout_read_scrollbar()
 	queue_redraw()
 
 func center_strand_scroll() -> void:
@@ -1586,8 +1600,10 @@ func _track_fixed_height(track_id: String) -> float:
 	match track_id:
 		TRACK_ID_AA:
 			return 6.0 * (AA_ROW_H + AA_ROW_GAP)
-		TRACK_ID_GC_PLOT, TRACK_ID_DEPTH_PLOT:
-			return PLOT_H
+		TRACK_ID_GC_PLOT:
+			return _gc_plot_h
+		TRACK_ID_DEPTH_PLOT:
+			return _depth_plot_h
 		TRACK_ID_GENOME:
 			return GENOME_H
 		_:
