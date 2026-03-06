@@ -514,7 +514,7 @@ func _draw_read_tracks(area: Rect2) -> void:
 				var snp_bp := int(snps[i])
 				if snp_bp < int(view_start_bp) or snp_bp > int(_viewport_end_bp()):
 					continue
-				var sx := TRACK_LEFT_PAD + _bp_to_x(float(snp_bp))
+				var sx := _bp_to_screen_center(float(snp_bp))
 				if sx < TRACK_LEFT_PAD or sx > size.x - TRACK_RIGHT_PAD:
 					continue
 				var snp_w := maxf(1.0, 1.0 / bp_per_px)
@@ -939,7 +939,7 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 		while local_tick <= local_vis_end:
 			if local_tick >= 0 and local_tick <= seg_len:
 				var global_tick := seg_start + local_tick
-				var x := TRACK_LEFT_PAD + _bp_to_x(float(global_tick))
+				var x := _bp_to_screen_center(float(global_tick))
 				draw_line(Vector2(x, line_y - 8), Vector2(x, line_y + 8), palette["grid"], 1.0)
 				ticks_for_segment.append({
 					"x": x,
@@ -955,11 +955,15 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 			continue
 		var left_last: Dictionary = left_ticks[left_ticks.size() - 1]
 		var right_first: Dictionary = right_ticks[0]
-		var left_x := float(left_last.get("x", 0.0)) + 2.0
-		var right_x := float(right_first.get("x", 0.0)) + 2.0
+		var left_x := float(left_last.get("x", 0.0))
+		var right_x := float(right_first.get("x", 0.0))
 		var left_label := str(left_last.get("label", ""))
+		var right_label := str(right_first.get("label", ""))
 		var left_w := font.get_string_size(left_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		if left_x + left_w > right_x:
+		var right_w := font.get_string_size(right_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		var left_start := left_x - left_w * 0.5
+		var right_start := right_x - right_w * 0.5
+		if left_start + left_w > right_start:
 			left_ticks.remove_at(left_ticks.size() - 1)
 
 	var flat_labels: Array = []
@@ -982,7 +986,8 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 	for tick_info in flat_labels:
 		var label := str(tick_info.get("label", ""))
 		var x := float(tick_info.get("x", 0.0))
-		draw_string(font, Vector2(x + 2.0, top_y + 54.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
+		var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		draw_string(font, Vector2(x - label_w * 0.5, top_y + 54.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
 
 func _bp_in_concat_segment(bp: int) -> bool:
 	for seg in concat_segments:
@@ -1001,9 +1006,13 @@ func _draw_ticks(top_y: float, line_y: float) -> void:
 	var tick := first_tick
 	while tick < int(view_start_bp + span):
 		if tick >= 0 and tick <= chromosome_length:
-			var x := TRACK_LEFT_PAD + _bp_to_x(float(tick))
+			var x := _bp_to_screen_center(float(tick))
 			draw_line(Vector2(x, line_y - 8), Vector2(x, line_y + 8), palette["grid"], 1.0)
-			draw_string(get_theme_default_font(), Vector2(x + 2, top_y + 54), _format_axis_bp(tick, int(tick_step)), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, _axis_text_color())
+			var label := _format_axis_bp(tick, int(tick_step))
+			var font := get_theme_default_font()
+			var font_size := 11
+			var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+			draw_string(font, Vector2(x - label_w * 0.5, top_y + 54), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
 		tick += int(tick_step)
 
 func _draw_grid(area: Rect2) -> void:
@@ -1015,7 +1024,7 @@ func _draw_grid(area: Rect2) -> void:
 	var grid: float = first
 	while grid < view_start_bp + span:
 		if grid >= 0.0:
-			var x := TRACK_LEFT_PAD + _bp_to_x(grid)
+			var x := _bp_to_screen_center(grid)
 			draw_line(Vector2(x, area.position.y), Vector2(x, area.position.y + area.size.y), palette["grid"], 1.0)
 		grid += step
 
@@ -1066,9 +1075,11 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 			continue
 		var rev := _complement_base(fwd)
 		var color: Color = base_colors.get(fwd, palette["text"])
-		var x := TRACK_LEFT_PAD + _bp_to_x(float(bp)) + 1.0
-		draw_string(font, Vector2(x, fwd_y), fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
-		draw_string(font, Vector2(x, rev_y), rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+		var x := _bp_to_screen_center(float(bp))
+		var fwd_w := font.get_string_size(fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		var rev_w := font.get_string_size(rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		draw_string(font, Vector2(x - fwd_w * 0.5, fwd_y), fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+		draw_string(font, Vector2(x - rev_w * 0.5, rev_y), rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 
 func _complement_base(base: String) -> String:
 	return COMPLEMENT_MAP.get(base, "N")
@@ -1209,6 +1220,9 @@ func _viewport_end_bp() -> float:
 
 func _bp_to_x(bp: float) -> float:
 	return (bp - view_start_bp) / bp_per_px
+
+func _bp_to_screen_center(bp: float) -> float:
+	return TRACK_LEFT_PAD + _bp_to_x(bp + 0.5)
 
 func _nice_tick(raw: float) -> float:
 	if raw <= 0.0:
