@@ -1,6 +1,6 @@
 extends Control
 
-const ThemePaletteScript = preload("res://scripts/theme_palette.gd")
+const ThemesLibScript = preload("res://scripts/themes.gd")
 const ZemClientScript = preload("res://scripts/zem_client.gd")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const READ_DETAIL_MAX_ZOOM := 7
@@ -15,6 +15,7 @@ const TRACK_AA := "aa"
 const TRACK_GENOME := "genome"
 const SEQ_VIEW_CONCAT := 0
 const SEQ_VIEW_SINGLE := 1
+const UI_FONT_SIZE := 13
 
 @onready var background: ColorRect = $Background
 @onready var genome_view: Control = $Root/ContentMargin/GenomeView
@@ -79,6 +80,8 @@ var _cache_zoom := -1
 var _cache_mode := -1
 var _cache_scope_key := ""
 var _theme_text_color: Color = Color.BLACK
+var _theme_error_color: Color = Color("8b0000")
+var _themes_lib: RefCounted
 var _auto_play_enabled := false
 var _auto_play_direction := 1.0
 var _read_view_label: Label
@@ -105,6 +108,7 @@ var _selected_seq_name := ""
 var _concat_gap_bp := DEFAULT_CONCAT_GAP_BP
 var _read_thickness := DEFAULT_READ_THICKNESS
 var _show_full_length_regions := false
+var _colorize_nucleotides := true
 var _chromosomes: Array[Dictionary] = []
 var _concat_segments: Array[Dictionary] = []
 var _track_settings_box: VBoxContainer
@@ -113,6 +117,7 @@ var _active_track_settings_id := ""
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
+	_themes_lib = ThemesLibScript.new()
 	_disable_button_focus()
 	_setup_theme_selector()
 	_setup_read_view_controls()
@@ -145,10 +150,10 @@ func _setup_fetch_timer() -> void:
 
 func _setup_theme_selector() -> void:
 	theme_option.clear()
-	for theme_name in ThemePaletteScript.THEMES.keys():
+	for theme_name in _themes_lib.theme_names():
 		theme_option.add_item(theme_name)
 	for i in range(theme_option.item_count):
-		if theme_option.get_item_text(i) == "Dawn":
+		if theme_option.get_item_text(i) == "Light":
 			theme_option.select(i)
 			break
 
@@ -388,6 +393,10 @@ func _on_show_full_region_toggled(enabled: bool) -> void:
 	_show_full_length_regions = enabled
 	genome_view.set_show_full_length_regions(enabled)
 
+func _on_colorize_nucleotides_toggled(enabled: bool) -> void:
+	_colorize_nucleotides = enabled
+	genome_view.set_colorize_nucleotides(enabled)
+
 func _on_track_order_list_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -567,6 +576,11 @@ func _on_track_settings_requested(track_id: String) -> void:
 			gap_spin.value = _concat_gap_bp
 			_track_settings_box.add_child(gap_label)
 			_track_settings_box.add_child(gap_spin)
+			var colorize_cb := CheckBox.new()
+			colorize_cb.text = "Color nucleotides by base"
+			colorize_cb.button_pressed = _colorize_nucleotides
+			colorize_cb.toggled.connect(_on_colorize_nucleotides_toggled)
+			_track_settings_box.add_child(colorize_cb)
 			seq_view_option.item_selected.connect(func(index: int) -> void:
 				_on_seq_view_selected(index)
 				var single := index == SEQ_VIEW_SINGLE
@@ -624,32 +638,21 @@ func _on_concat_gap_changed(value: float) -> void:
 		_schedule_fetch()
 
 func _apply_theme(theme_name: String) -> void:
-	if not ThemePaletteScript.THEMES.has(theme_name):
+	if not _themes_lib.has_theme(theme_name):
 		return
-	var palette: Dictionary = ThemePaletteScript.THEMES[theme_name]
+	var palette: Dictionary = _themes_lib.palette(theme_name)
+	self.theme = _themes_lib.make_theme(theme_name, UI_FONT_SIZE)
 	_theme_text_color = palette["text"]
+	_theme_error_color = palette["status_error"]
 	background.color = palette["bg"]
-	genome_view.set_palette(palette)
-
-	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = palette["panel"]
-	panel_style.border_width_left = 1
-	panel_style.border_width_right = 1
-	panel_style.border_width_top = 1
-	panel_style.border_width_bottom = 1
-	panel_style.border_color = palette["grid"]
-	settings_panel.add_theme_stylebox_override("panel", panel_style)
-	feature_panel.add_theme_stylebox_override("panel", panel_style)
-	server_status_label.add_theme_color_override("font_color", palette["text"])
-	viewport_label.add_theme_color_override("font_color", palette["text"])
-	status_message_label.add_theme_color_override("font_color", palette["text"])
+	genome_view.set_palette(_themes_lib.genome_palette(theme_name))
 	feature_name_label.add_theme_color_override("default_color", palette["text"])
 	feature_type_label.add_theme_color_override("default_color", palette["text"])
 	feature_range_label.add_theme_color_override("default_color", palette["text"])
 	feature_strand_label.add_theme_color_override("default_color", palette["text"])
 	feature_source_label.add_theme_color_override("default_color", palette["text"])
 	feature_seq_label.add_theme_color_override("default_color", palette["text"])
-	_apply_text_theme_recursive($SettingsPanel/SettingsMargin/SettingsLayout, palette["text"])
+	status_message_label.add_theme_color_override("font_color", palette["text"])
 
 func _on_files_dropped(files: PackedStringArray) -> void:
 	var dropped_fasta := _has_fasta(files)
@@ -1124,24 +1127,7 @@ func _set_status(message: String, is_error: bool = false) -> void:
 	server_status_label.tooltip_text = message
 	status_message_label.text = message
 	status_message_label.tooltip_text = message
-	status_message_label.add_theme_color_override("font_color", Color("8b0000") if is_error else _theme_text_color)
-
-func _apply_text_theme_recursive(node: Node, color: Color) -> void:
-	if node is Label:
-		(node as Label).add_theme_color_override("font_color", color)
-	elif node is Button:
-		(node as Button).add_theme_color_override("font_color", color)
-	elif node is LineEdit:
-		(node as LineEdit).add_theme_color_override("font_color", color)
-	elif node is OptionButton:
-		(node as OptionButton).add_theme_color_override("font_color", color)
-	elif node is CheckBox:
-		(node as CheckBox).add_theme_color_override("font_color", color)
-	elif node is ItemList:
-		(node as ItemList).add_theme_color_override("font_color", color)
-
-	for child in node.get_children():
-		_apply_text_theme_recursive(child, color)
+	status_message_label.add_theme_color_override("font_color", _theme_error_color if is_error else _theme_text_color)
 
 func _load_or_init_config() -> void:
 	var cfg := ConfigFile.new()
@@ -1188,6 +1174,8 @@ func _load_or_init_config() -> void:
 	_show_full_length_regions = bool(cfg.get_value("ui", "show_full_length_regions", false))
 	_show_full_region_checkbox.button_pressed = _show_full_length_regions
 	genome_view.set_show_full_length_regions(_show_full_length_regions)
+	_colorize_nucleotides = bool(cfg.get_value("ui", "colorize_nucleotides", true))
+	genome_view.set_colorize_nucleotides(_colorize_nucleotides)
 	var frag_log := bool(cfg.get_value("ui", "fragment_log_scale", false))
 	_fragment_log_checkbox.button_pressed = frag_log
 	genome_view.set_fragment_log_scale(frag_log)
@@ -1224,6 +1212,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "read_view_mode", _read_view_option.selected)
 	cfg.set_value("ui", "read_thickness", _read_thickness)
 	cfg.set_value("ui", "show_full_length_regions", _show_full_length_regions)
+	cfg.set_value("ui", "colorize_nucleotides", _colorize_nucleotides)
 	cfg.set_value("ui", "fragment_log_scale", _fragment_log_checkbox.button_pressed)
 	var track_order_arr: Array[String] = []
 	for id in genome_view.get_track_order():

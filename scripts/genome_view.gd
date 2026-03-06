@@ -88,6 +88,8 @@ var palette: Dictionary = {
 	"aa_alt_bg": Color("ececec"),
 	"genome": Color("3f5a7a"),
 	"read": Color("0f8b8d"),
+	"snp": Color("d7263d"),
+	"snp_text": Color("ffffff"),
 	"aa_forward": Color("8a4fff"),
 	"aa_reverse": Color("f39237"),
 	"feature": Color("c53211")
@@ -113,6 +115,7 @@ var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
 var _show_full_length_regions := false
+var _colorize_nucleotides := true
 var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GENOME])
 var _track_visible := {
 	TRACK_ID_READS: false,
@@ -231,6 +234,10 @@ func set_read_thickness(value: float) -> void:
 
 func set_show_full_length_regions(enabled: bool) -> void:
 	_show_full_length_regions = enabled
+	queue_redraw()
+
+func set_colorize_nucleotides(enabled: bool) -> void:
+	_colorize_nucleotides = enabled
 	queue_redraw()
 
 func center_strand_scroll() -> void:
@@ -549,12 +556,12 @@ func _draw_read_tracks(area: Rect2) -> void:
 					base_text = "N" if b.is_empty() else b
 					var base_w := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x + 2.0
 					snp_w = maxf(snp_w, base_w)
-				draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, _read_row_h), Color(0.86, 0.14, 0.14), true)
+				draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, _read_row_h), palette.get("snp", Color(0.86, 0.14, 0.14)), true)
 				if draw_snp_text and not base_text.is_empty():
 					var tw := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x
 					var tx := sx - tw * 0.5
 					var ty := y + (_read_row_h + float(snp_font_size)) * 0.5 - 1.0
-					draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, Color.WHITE)
+					draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, palette.get("snp_text", Color.WHITE))
 			_draw_indel_markers(read, y)
 
 func _read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:
@@ -1099,7 +1106,9 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 		if fwd == " ":
 			continue
 		var rev := _complement_base(fwd)
-		var color: Color = base_colors.get(fwd, palette["text"])
+		var color: Color = palette["text"]
+		if _colorize_nucleotides:
+			color = base_colors.get(fwd, palette["text"])
 		var x := _bp_to_screen_center(float(bp))
 		var fwd_w := font.get_string_size(fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		var rev_w := font.get_string_size(rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
