@@ -1,0 +1,154 @@
+SplineFontDB: 3.2
+FontName: magrathea
+FullName: magrathea
+FamilyName: magrathea
+Weight: Regular
+Copyright: Copyright (c) 2026, Martin Hunt
+UComments: "2026-3-6: Created with FontForge (http://fontforge.org)"
+Version: 001.000
+ItalicAngle: 0
+UnderlinePosition: -100
+UnderlineWidth: 50
+Ascent: 800
+Descent: 200
+InvalidEm: 0
+LayerCount: 2
+Layer: 0 0 "Back" 1
+Layer: 1 0 "Fore" 0
+XUID: [1021 470 619280062 3803321]
+StyleMap: 0x0000
+FSType: 0
+OS2Version: 0
+OS2_WeightWidthSlopeOnly: 0
+OS2_UseTypoMetrics: 1
+CreationTime: 1772828475
+ModificationTime: 1772833373
+OS2TypoAscent: 0
+OS2TypoAOffset: 1
+OS2TypoDescent: 0
+OS2TypoDOffset: 1
+OS2TypoLinegap: 90
+OS2WinAscent: 0
+OS2WinAOffset: 1
+OS2WinDescent: 0
+OS2WinDOffset: 1
+HheadAscent: 0
+HheadAOffset: 1
+HheadDescent: 0
+HheadDOffset: 1
+MarkAttachClasses: 1
+DEI: 91125
+Encoding: ISO8859-1
+UnicodeInterp: none
+NameList: AGL For New Fonts
+DisplaySize: -48
+AntiAlias: 1
+FitToEm: 0
+WinInfo: 38 19 5
+BeginPrivate: 0
+EndPrivate
+BeginChars: 256 3
+
+StartChar: A
+Encoding: 65 65 0
+Width: 1000
+Flags: H
+LayerCount: 2
+Fore
+SplineSet
+814 240 m 2
+ 638 139 l 1
+ 255 -82 l 2
+ 244 -88 232 -92 220 -92 c 0
+ 208 -92 197 -88 186 -82 c 0
+ 164 -69 152 -47 152 -23 c 0
+ 152 -23 152 0 152 30 c 0
+ 152 90 152 180 152 180 c 1
+ 152 623 l 2
+ 152 647 164 670 186 683 c 0
+ 197 689 208 692 220 692 c 0
+ 232 692 244 688 255 682 c 0
+ 431 581 l 1
+ 814 360 l 2
+ 835 348 849 326 849 300 c 0
+ 849 274 835 252 814 240 c 2
+EndSplineSet
+Validated: 1
+EndChar
+
+StartChar: B
+Encoding: 66 66 1
+Width: 1000
+Flags: HW
+LayerCount: 2
+Fore
+SplineSet
+181 240 m 6
+ 160 252 146 274 146 300 c 4
+ 146 326 160 348 181 360 c 6
+ 564 581 l 5
+ 740 682 l 4
+ 751 688 763 692 775 692 c 4
+ 787 692 798 689 809 683 c 4
+ 831 670 843 647 843 623 c 6
+ 843 180 l 5
+ 843 180 843 90 843 30 c 4
+ 843 0 843 -23 843 -23 c 4
+ 843 -47 831 -69 809 -82 c 4
+ 798 -88 787 -92 775 -92 c 4
+ 763 -92 751 -88 740 -82 c 6
+ 357 139 l 5
+ 181 240 l 6
+EndSplineSet
+Validated: 1
+EndChar
+
+StartChar: C
+Encoding: 67 67 2
+Width: 1000
+Flags: HO
+LayerCount: 2
+Fore
+SplineSet
+500 705 m 0
+ 523 705 546 703 568 699 c 1
+ 571 690 572 680 572 669 c 0
+ 572 657 571 644 571 631 c 0
+ 571 594 578 554 629 524 c 0
+ 650 512 669 507 686 507 c 0
+ 739 507 776 552 811 559 c 1
+ 840 524 864 483 880 440 c 1
+ 849 404 759 400 759 300 c 0
+ 759 200 849 196 880 160 c 1
+ 864 117 840 76 811 41 c 1
+ 776 48 739 93 686 93 c 0
+ 669 93 650 88 629 76 c 0
+ 578 46 571 6 571 -31 c 0
+ 571 -44 572 -57 572 -69 c 0
+ 572 -80 571 -90 568 -99 c 1
+ 546 -103 523 -105 500 -105 c 0
+ 477 -105 454 -103 432 -99 c 1
+ 429 -90 428 -80 428 -69 c 0
+ 428 -57 429 -44 429 -31 c 0
+ 429 6 422 46 371 76 c 0
+ 350 88 331 93 314 93 c 0
+ 261 93 224 48 189 41 c 1
+ 160 76 136 117 120 160 c 1
+ 151 196 241 200 241 300 c 0
+ 241 400 151 404 120 440 c 1
+ 136 483 160 524 189 559 c 1
+ 224 552 261 507 314 507 c 0
+ 331 507 350 512 371 524 c 0
+ 422 554 429 594 429 631 c 0
+ 429 644 428 657 428 669 c 0
+ 428 680 429 690 432 699 c 1
+ 454 703 477 705 500 705 c 0
+500 481 m 0
+ 400 481 319 400 319 300 c 0
+ 319 200 400 119 500 119 c 0
+ 600 119 681 200 681 300 c 0
+ 681 400 600 481 500 481 c 0
+EndSplineSet
+EndChar
+EndChars
+EndSplineFont

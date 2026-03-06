@@ -158,7 +158,6 @@ func _ready() -> void:
 		get_window().files_dropped.connect(_on_files_dropped)
 
 func _initialize_settings_panel() -> void:
-	settings_toggle_button.text = "Settings"
 	_set_status("Disconnected")
 	_slide_settings(false, false)
 	_slide_feature_panel(false, false)
@@ -257,14 +256,12 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 
 func _toggle_settings() -> void:
 	_settings_open = not _settings_open
-	settings_toggle_button.text = "Close" if _settings_open else "Settings"
 	_slide_settings(_settings_open, true)
 	if not _settings_open:
 		_save_config()
 
 func _close_settings() -> void:
 	_settings_open = false
-	settings_toggle_button.text = "Settings"
 	_slide_settings(false, true)
 	_save_config()
 
