@@ -7,6 +7,7 @@ signal read_clicked(read: Dictionary)
 signal track_settings_requested(track_id: String)
 signal track_order_changed(order: PackedStringArray)
 signal track_visibility_changed(track_id: String, visible: bool)
+signal region_selected(start_bp: int, end_bp: int)
 
 const AA_ROW_H := 26.0
 const AA_ROW_GAP := 3.0
@@ -124,6 +125,10 @@ var _track_settings_hitboxes: Array[Dictionary] = []
 var _track_drag_active := false
 var _track_drag_track_id := ""
 var _track_drag_target_index := -1
+var _region_select_dragging := false
+var _region_select_has_selection := false
+var _region_select_start_edge := 0
+var _region_select_end_edge := 0
 
 func _ready() -> void:
 	clip_contents = true
@@ -388,6 +393,7 @@ func _draw() -> void:
 			TRACK_ID_GENOME:
 				_draw_genome_track(area)
 		_draw_track_header(track_id, area)
+	_draw_region_selection(track_rects)
 	if _track_drag_active and _track_drag_target_index >= 0 and _track_drag_target_index < _track_order.size():
 		var target_id := _track_order[_track_drag_target_index]
 		if track_rects.has(target_id):
@@ -395,6 +401,25 @@ func _draw() -> void:
 			var y := target_rect.position.y - 2.0
 			draw_line(Vector2(2.0, y), Vector2(size.x - 2.0, y), Color(0.05, 0.05, 0.05, 0.9), 2.0)
 	_draw_file_status()
+
+func _draw_region_selection(track_rects: Dictionary) -> void:
+	if not _region_select_has_selection and not _region_select_dragging:
+		return
+	var view_rect := _tracks_view_rect(track_rects)
+	if view_rect.size.y <= 0.0:
+		return
+	var bp0 := mini(_region_select_start_edge, _region_select_end_edge)
+	var bp1 := maxi(_region_select_start_edge, _region_select_end_edge)
+	var x0 := clampf(_bp_to_screen_edge(bp0), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
+	var x1 := clampf(_bp_to_screen_edge(bp1), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
+	var w := maxf(1.0, x1 - x0)
+	var rect := Rect2(x0, view_rect.position.y, w, view_rect.size.y)
+	var fill: Color = palette.get("genome", Color(0.25, 0.45, 0.75))
+	fill.a = 0.28
+	draw_rect(rect, fill, true)
+	var border: Color = palette["text"]
+	border.a = 0.55
+	draw_rect(rect, border, false, 1.0)
 
 func _draw_track_header(track_id: String, area: Rect2) -> void:
 	var gx := 4.0
@@ -1151,6 +1176,15 @@ func _gui_input(event: InputEvent) -> void:
 				emit_signal("read_clicked", read_hit["read"])
 				accept_event()
 				return
+		if _can_start_region_selection(mouse_pos):
+			var edge := _x_to_bp_edge(mouse_pos.x)
+			_region_select_dragging = true
+			_region_select_has_selection = true
+			_region_select_start_edge = edge
+			_region_select_end_edge = edge
+			queue_redraw()
+			accept_event()
+			return
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 		if _track_drag_active:
 			var from_idx := _track_order.find(_track_drag_track_id)
@@ -1168,8 +1202,24 @@ func _gui_input(event: InputEvent) -> void:
 			queue_redraw()
 			accept_event()
 			return
+		if _region_select_dragging:
+			_region_select_dragging = false
+			var bp0 := mini(_region_select_start_edge, _region_select_end_edge)
+			var bp1 := maxi(_region_select_start_edge, _region_select_end_edge)
+			if bp1 <= bp0:
+				_region_select_has_selection = false
+			else:
+				emit_signal("region_selected", bp0, bp1)
+			queue_redraw()
+			accept_event()
+			return
 	elif event is InputEventMouseMotion and _track_drag_active:
 		_track_drag_target_index = _track_index_for_y(event.position.y)
+		queue_redraw()
+		accept_event()
+		return
+	elif event is InputEventMouseMotion and _region_select_dragging:
+		_region_select_end_edge = _x_to_bp_edge(event.position.x)
 		queue_redraw()
 		accept_event()
 		return
@@ -1221,8 +1271,18 @@ func _viewport_end_bp() -> float:
 func _bp_to_x(bp: float) -> float:
 	return (bp - view_start_bp) / bp_per_px
 
+func _bp_to_screen_edge(bp: float) -> float:
+	return TRACK_LEFT_PAD + _bp_to_x(bp)
+
 func _bp_to_screen_center(bp: float) -> float:
 	return TRACK_LEFT_PAD + _bp_to_x(bp + 0.5)
+
+func _x_to_bp(x: float) -> float:
+	var px := clampf(x - TRACK_LEFT_PAD, 0.0, _plot_width())
+	return view_start_bp + px * bp_per_px
+
+func _x_to_bp_edge(x: float) -> int:
+	return int(round(_x_to_bp(x)))
 
 func _nice_tick(raw: float) -> float:
 	if raw <= 0.0:
@@ -1371,6 +1431,28 @@ func _track_rect(track_id: String) -> Rect2:
 	if rects.has(track_id):
 		return rects[track_id]
 	return Rect2(0.0, 0.0, size.x, 0.0)
+
+func _can_start_region_selection(mouse_pos: Vector2) -> bool:
+	if mouse_pos.x < TRACK_LEFT_PAD or mouse_pos.x > size.x - TRACK_RIGHT_PAD:
+		return false
+	var aa_rect := _track_rect(TRACK_ID_AA)
+	if aa_rect.has_point(mouse_pos):
+		return true
+	var genome_rect := _track_rect(TRACK_ID_GENOME)
+	return genome_rect.has_point(mouse_pos)
+
+func _tracks_view_rect(track_rects: Dictionary) -> Rect2:
+	var min_y := INF
+	var max_y := -INF
+	for rect_any in track_rects.values():
+		var r: Rect2 = rect_any
+		if r.size.y <= 0.0:
+			continue
+		min_y = minf(min_y, r.position.y)
+		max_y = maxf(max_y, r.position.y + r.size.y)
+	if min_y == INF or max_y <= min_y:
+		return Rect2(0.0, TOP_PAD, size.x, maxf(0.0, size.y - TOP_PAD - BOTTOM_PAD))
+	return Rect2(0.0, min_y, size.x, max_y - min_y)
 
 func _layout_reads() -> void:
 	_laid_out_reads.clear()
