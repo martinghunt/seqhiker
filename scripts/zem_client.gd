@@ -10,6 +10,7 @@ const MSG_GET_REFERENCE_SLICE := 6
 const MSG_ACK := 7
 const MSG_ERROR := 8
 const MSG_GET_CHROMOSOMES := 10
+const MSG_GET_GC_PLOT_TILE := 11
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -94,6 +95,19 @@ func get_coverage_tile(chr_id: int, zoom: int, tile_index: int) -> Dictionary:
 	if not resp.get("ok", false):
 		return resp
 	resp["coverage"] = _parse_coverage_tile(resp["payload"])
+	return resp
+
+func get_gc_plot_tile(chr_id: int, zoom: int, tile_index: int, window_len_bp: int) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(11)
+	payload.encode_u16(0, chr_id)
+	payload[2] = zoom
+	payload.encode_u32(3, tile_index)
+	payload.encode_u32(7, max(window_len_bp, 1))
+	var resp := _send_request(MSG_GET_GC_PLOT_TILE, payload)
+	if not resp.get("ok", false):
+		return resp
+	resp["plot"] = _parse_gc_plot_tile(resp["payload"])
 	return resp
 
 func get_annotations(chr_id: int, start_bp: int, end_bp: int, max_records: int = 2000) -> Dictionary:
@@ -301,6 +315,30 @@ func _parse_coverage_tile(payload: PackedByteArray) -> Dictionary:
 		"start": start_bp,
 		"end": end_bp,
 		"bins": bins
+	}
+
+func _parse_gc_plot_tile(payload: PackedByteArray) -> Dictionary:
+	if payload.size() < 17:
+		return {"start": 0, "end": 0, "window": 0, "values": PackedFloat32Array()}
+	var tile_type := payload[0]
+	if tile_type != 3:
+		return {"start": 0, "end": 0, "window": 0, "values": PackedFloat32Array()}
+	var start_bp := int(payload.decode_u32(1))
+	var end_bp := int(payload.decode_u32(5))
+	var window_bp := int(payload.decode_u32(9))
+	var count := int(payload.decode_u32(13))
+	var values := PackedFloat32Array()
+	var off := 17
+	for _i in range(count):
+		if off + 4 > payload.size():
+			break
+		values.append(payload.decode_float(off))
+		off += 4
+	return {
+		"start": start_bp,
+		"end": end_bp,
+		"window": window_bp,
+		"values": values
 	}
 
 func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:

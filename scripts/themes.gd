@@ -22,6 +22,8 @@ const THEMES := {
 		"aa_alt_bg": Color("efefef"),
 		"genome": Color("3f5a7a"),
 		"read": Color("0f8b8d"),
+		"gc_plot": Color("2aa198"),
+		"depth_plot": Color("345995"),
 		"snp": Color("b11f47"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("8a4fff"),
@@ -48,6 +50,8 @@ const THEMES := {
 		"aa_alt_bg": Color("dfe8d8"),
 		"genome": Color("386641"),
 		"read": Color("6a994e"),
+		"gc_plot": Color("2a9d8f"),
+		"depth_plot": Color("386641"),
 		"snp": Color("7a143a"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("588157"),
@@ -74,6 +78,8 @@ const THEMES := {
 		"aa_alt_bg": Color("dde3ea"),
 		"genome": Color("345995"),
 		"read": Color("2d7dd2"),
+		"gc_plot": Color("2d7dd2"),
+		"depth_plot": Color("345995"),
 		"snp": Color("d7263d"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("5c6784"),
@@ -100,6 +106,8 @@ const THEMES := {
 		"aa_alt_bg": Color("2c333d"),
 		"genome": Color("7aa2f7"),
 		"read": Color("4fb6c2"),
+		"gc_plot": Color("58a6ff"),
+		"depth_plot": Color("7aa2f7"),
 		"snp": Color("ff7b72"),
 		"snp_text": Color("111111"),
 		"aa_forward": Color("b392f0"),
@@ -126,6 +134,8 @@ const THEMES := {
 		"aa_alt_bg": Color("eee8d5"),
 		"genome": Color("268bd2"),
 		"read": Color("2aa198"),
+		"gc_plot": Color("2aa198"),
+		"depth_plot": Color("268bd2"),
 		"snp": Color("d33682"),
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
@@ -152,6 +162,8 @@ const THEMES := {
 		"aa_alt_bg": Color("073642"),
 		"genome": Color("268bd2"),
 		"read": Color("2aa198"),
+		"gc_plot": Color("2aa198"),
+		"depth_plot": Color("268bd2"),
 		"snp": Color("d33682"),
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
@@ -173,7 +185,7 @@ func has_theme(theme_name: String) -> bool:
 func palette(theme_name: String) -> Dictionary:
 	var resolved := _resolve_theme_name(theme_name)
 	if not THEMES.has(resolved):
-		resolved = "Dawn"
+		resolved = "Light"
 	return (THEMES[resolved] as Dictionary).duplicate(true)
 
 func genome_palette(theme_name: String) -> Dictionary:
@@ -186,6 +198,8 @@ func genome_palette(theme_name: String) -> Dictionary:
 		"aa_alt_bg": p["aa_alt_bg"],
 		"genome": p["genome"],
 		"read": p["read"],
+		"gc_plot": p["gc_plot"],
+		"depth_plot": p["depth_plot"],
 		"snp": p["snp"],
 		"snp_text": p["snp_text"],
 		"aa_forward": p["aa_forward"],

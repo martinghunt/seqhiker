@@ -11,6 +11,7 @@ signal region_selected(start_bp: int, end_bp: int)
 
 const AA_ROW_H := 26.0
 const AA_ROW_GAP := 3.0
+const PLOT_H := 120.0
 const GENOME_H := 86.0
 const TRACK_LEFT_PAD := 64.0
 const TRACK_RIGHT_PAD := 28.0
@@ -23,7 +24,12 @@ const SNP_MARK_MAX_BP_PER_PX := 1.5
 const NUC_TEXT_MAX_BASES := 3000
 const TRACK_ID_READS := "reads"
 const TRACK_ID_AA := "aa"
+const TRACK_ID_GC_PLOT := "gc_plot"
+const TRACK_ID_DEPTH_PLOT := "depth_plot"
 const TRACK_ID_GENOME := "genome"
+const PLOT_Y_UNIT := 0
+const PLOT_Y_AUTOSCALE := 1
+const PLOT_Y_FIXED := 2
 const READ_VIEW_STACK := 0
 const READ_VIEW_STRAND := 1
 const READ_VIEW_PAIRED := 2
@@ -74,6 +80,8 @@ var max_bp_per_px := 120.0
 
 var reads: Array[Dictionary] = []
 var coverage_tiles: Array[Dictionary] = []
+var gc_plot_tiles: Array[Dictionary] = []
+var depth_plot_tiles: Array[Dictionary] = []
 var features: Array[Dictionary] = []
 var loaded_files: PackedStringArray = PackedStringArray()
 var reference_start_bp := 0
@@ -88,6 +96,8 @@ var palette: Dictionary = {
 	"aa_alt_bg": Color("ececec"),
 	"genome": Color("3f5a7a"),
 	"read": Color("0f8b8d"),
+	"gc_plot": Color("2aa198"),
+	"depth_plot": Color("345995"),
 	"snp": Color("d7263d"),
 	"snp_text": Color("ffffff"),
 	"aa_forward": Color("8a4fff"),
@@ -116,10 +126,18 @@ var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
 var _show_full_length_regions := false
 var _colorize_nucleotides := true
-var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GENOME])
+var _gc_plot_y_mode := PLOT_Y_UNIT
+var _gc_plot_y_min := 0.0
+var _gc_plot_y_max := 1.0
+var _depth_plot_y_mode := PLOT_Y_UNIT
+var _depth_plot_y_min := 0.0
+var _depth_plot_y_max := 1.0
+var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_DEPTH_PLOT, TRACK_ID_GC_PLOT, TRACK_ID_AA, TRACK_ID_GENOME])
 var _track_visible := {
 	TRACK_ID_READS: false,
 	TRACK_ID_AA: true,
+	TRACK_ID_GC_PLOT: false,
+	TRACK_ID_DEPTH_PLOT: false,
 	TRACK_ID_GENOME: true
 }
 var _track_close_hitboxes: Array[Dictionary] = []
@@ -167,6 +185,14 @@ func set_coverage_tiles(next_tiles: Array[Dictionary]) -> void:
 	coverage_tiles = next_tiles
 	queue_redraw()
 
+func set_gc_plot_tiles(next_tiles: Array[Dictionary]) -> void:
+	gc_plot_tiles = next_tiles
+	queue_redraw()
+
+func set_depth_plot_tiles(next_tiles: Array[Dictionary]) -> void:
+	depth_plot_tiles = next_tiles
+	queue_redraw()
+
 func set_features(next_features: Array[Dictionary]) -> void:
 	features = next_features
 	queue_redraw()
@@ -189,6 +215,8 @@ func clear_all_data() -> void:
 	_read_row_count = 0
 	_strand_split_lock_y = -1.0
 	coverage_tiles.clear()
+	gc_plot_tiles.clear()
+	depth_plot_tiles.clear()
 	features.clear()
 	concat_segments.clear()
 	loaded_files = PackedStringArray()
@@ -240,6 +268,22 @@ func set_colorize_nucleotides(enabled: bool) -> void:
 	_colorize_nucleotides = enabled
 	queue_redraw()
 
+func set_gc_plot_y_scale(mode: int, min_v: float, max_v: float) -> void:
+	_gc_plot_y_mode = clampi(mode, PLOT_Y_UNIT, PLOT_Y_FIXED)
+	_gc_plot_y_min = min_v
+	_gc_plot_y_max = max_v
+	if _gc_plot_y_max <= _gc_plot_y_min:
+		_gc_plot_y_max = _gc_plot_y_min + 1.0
+	queue_redraw()
+
+func set_depth_plot_y_scale(mode: int, min_v: float, max_v: float) -> void:
+	_depth_plot_y_mode = clampi(mode, PLOT_Y_UNIT, PLOT_Y_FIXED)
+	_depth_plot_y_min = min_v
+	_depth_plot_y_max = max_v
+	if _depth_plot_y_max <= _depth_plot_y_min:
+		_depth_plot_y_max = _depth_plot_y_min + 1.0
+	queue_redraw()
+
 func center_strand_scroll() -> void:
 	if _read_view_mode != READ_VIEW_STRAND or _reads_scrollbar == null:
 		return
@@ -275,7 +319,7 @@ func set_track_visible(track_id: String, show_track: bool) -> void:
 
 func set_track_order(order: PackedStringArray) -> void:
 	var prev := _track_order
-	var valid := PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GENOME])
+	var valid := PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GC_PLOT, TRACK_ID_DEPTH_PLOT, TRACK_ID_GENOME])
 	var seen: Dictionary = {}
 	var next := PackedStringArray()
 	for id_any in order:
@@ -397,6 +441,10 @@ func _draw() -> void:
 				_draw_read_tracks(area)
 			TRACK_ID_AA:
 				_draw_aa_tracks(area)
+			TRACK_ID_GC_PLOT:
+				_draw_plot_track(area, gc_plot_tiles, _gc_plot_y_mode, _gc_plot_y_min, _gc_plot_y_max, palette.get("gc_plot", palette["read"]))
+			TRACK_ID_DEPTH_PLOT:
+				_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]))
 			TRACK_ID_GENOME:
 				_draw_genome_track(area)
 		_draw_track_header(track_id, area)
@@ -456,6 +504,10 @@ func _track_label_for_id(track_id: String) -> String:
 			return "Reads"
 		TRACK_ID_AA:
 			return "AA / Annotation"
+		TRACK_ID_GC_PLOT:
+			return "GC Plot"
+		TRACK_ID_DEPTH_PLOT:
+			return "Depth Plot"
 		TRACK_ID_GENOME:
 			return "Genome"
 		_:
@@ -758,6 +810,110 @@ func _draw_coverage_tiles(area: Rect2) -> void:
 			if h <= 0.0:
 				continue
 			draw_rect(Rect2(x0, chart_bottom - h, w, h), cov_color, true)
+
+func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_fixed: float, y_max_fixed: float, line_color: Color) -> void:
+	if area.size.y <= 24.0:
+		return
+	draw_rect(area, palette["bg"], true)
+	_draw_grid(area)
+	if tiles.is_empty():
+		return
+	var visible_start := int(view_start_bp)
+	var visible_end := int(_viewport_end_bp())
+	var top := area.position.y + 10.0
+	var bottom := area.position.y + area.size.y - 8.0
+	var h := maxf(1.0, bottom - top)
+	var y_min := 0.0
+	var y_max := 1.0
+	if y_mode == PLOT_Y_FIXED:
+		y_min = y_min_fixed
+		y_max = y_max_fixed
+	elif y_mode == PLOT_Y_AUTOSCALE:
+		var found := false
+		var auto_min := 0.0
+		var auto_max := 0.0
+		for tile in tiles:
+			if typeof(tile) != TYPE_DICTIONARY:
+				continue
+			var tile_start := int(tile.get("start", 0))
+			var tile_end := int(tile.get("end", 0))
+			if tile_end <= visible_start or tile_start >= visible_end:
+				continue
+			var vals_auto: PackedFloat32Array = tile.get("values", PackedFloat32Array())
+			for v_raw in vals_auto:
+				var v := float(v_raw)
+				if v < 0.0 or is_nan(v):
+					continue
+				if not found:
+					auto_min = v
+					auto_max = v
+					found = true
+				else:
+					auto_min = minf(auto_min, v)
+					auto_max = maxf(auto_max, v)
+		if found:
+			if is_equal_approx(auto_min, auto_max):
+				auto_min -= 0.05
+				auto_max += 0.05
+			y_min = auto_min
+			y_max = auto_max
+	if y_max <= y_min:
+		y_max = y_min + 1.0
+	var y_span := y_max - y_min
+	_draw_plot_scale(area, top, bottom, y_min, y_max)
+	for tile in tiles:
+		if typeof(tile) != TYPE_DICTIONARY:
+			continue
+		var tile_start := int(tile.get("start", 0))
+		var tile_end := int(tile.get("end", 0))
+		if tile_end <= visible_start or tile_start >= visible_end:
+			continue
+		var vals: PackedFloat32Array = tile.get("values", PackedFloat32Array())
+		if vals.is_empty():
+			continue
+		var prev := Vector2.ZERO
+		var have_prev := false
+		var count := vals.size()
+		for i in range(count):
+			var v := float(vals[i])
+			if v < 0.0 or is_nan(v):
+				have_prev = false
+				continue
+			var bp := float(tile_start) + (float(i) + 0.5) * float(tile_end - tile_start) / float(count)
+			if bp < visible_start or bp > visible_end:
+				continue
+			var x := _bp_to_screen_center(bp)
+			var norm := (v - y_min) / y_span
+			var y := bottom - clampf(norm, 0.0, 1.0) * h
+			var p := Vector2(x, y)
+			if have_prev:
+				draw_line(prev, p, line_color, 1.5)
+			prev = p
+			have_prev = true
+
+func _draw_plot_scale(area: Rect2, top: float, bottom: float, y_min: float, y_max: float) -> void:
+	var tick_x := TRACK_LEFT_PAD - 6.0
+	var label_x := 8.0
+	var text_col: Color = _axis_text_color()
+	var font := get_theme_default_font()
+	var font_size := 11
+	var guide_col: Color = palette["grid"]
+	guide_col.a *= 0.45
+	draw_line(Vector2(TRACK_LEFT_PAD, top), Vector2(area.position.x + area.size.x - TRACK_RIGHT_PAD, top), guide_col, 1.0)
+	draw_line(Vector2(TRACK_LEFT_PAD, bottom), Vector2(area.position.x + area.size.x - TRACK_RIGHT_PAD, bottom), guide_col, 1.0)
+	draw_line(Vector2(tick_x, top), Vector2(tick_x + 5.0, top), palette["grid"], 1.0)
+	draw_line(Vector2(tick_x, bottom), Vector2(tick_x + 5.0, bottom), palette["grid"], 1.0)
+	var top_label := _format_plot_value(y_max)
+	var bottom_label := _format_plot_value(y_min)
+	draw_string(font, Vector2(label_x, top + 10.0), top_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+	draw_string(font, Vector2(label_x, bottom), bottom_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+
+func _format_plot_value(v: float) -> String:
+	if absf(v) >= 10.0:
+		return "%.1f" % v
+	if absf(v) >= 1.0:
+		return "%.2f" % v
+	return "%.3f" % v
 
 func _draw_aa_tracks(area: Rect2) -> void:
 	var area_start := area.position.y
@@ -1430,6 +1586,8 @@ func _track_fixed_height(track_id: String) -> float:
 	match track_id:
 		TRACK_ID_AA:
 			return 6.0 * (AA_ROW_H + AA_ROW_GAP)
+		TRACK_ID_GC_PLOT, TRACK_ID_DEPTH_PLOT:
+			return PLOT_H
 		TRACK_ID_GENOME:
 			return GENOME_H
 		_:
