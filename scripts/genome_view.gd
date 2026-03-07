@@ -160,6 +160,9 @@ var _region_select_dragging := false
 var _region_select_has_selection := false
 var _region_select_start_edge := 0
 var _region_select_end_edge := 0
+var _font_size_small := 11
+var _font_size_medium := 13
+var _font_size_large := 14
 var _annotation_debug_stats := {
 	"seen": 0,
 	"drawn": 0,
@@ -259,6 +262,12 @@ func set_trackpad_pan_sensitivity(value: float) -> void:
 
 func set_trackpad_pinch_sensitivity(value: float) -> void:
 	_trackpad_pinch_sensitivity = clampf(value, 0.5, 20.0)
+
+func set_base_font_size(base_size: int) -> void:
+	_font_size_medium = clampi(base_size, 9, 24)
+	_font_size_small = maxi(8, _font_size_medium - 2)
+	_font_size_large = _font_size_medium + 1
+	queue_redraw()
 
 func set_read_view_mode(mode: int) -> void:
 	_read_view_mode = clampi(mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
@@ -534,7 +543,7 @@ func _draw_track_header(track_id: String, area: Rect2) -> void:
 		draw_line(Vector2(grab_rect.position.x + 3.0, ly), Vector2(grab_rect.position.x + grab_rect.size.x - 3.0, ly), palette["text"], 1.0)
 	draw_rect(settings_rect, Color(1, 1, 1, 0.35), true)
 	draw_rect(settings_rect, palette["grid"], false, 1.0)
-	draw_string(get_theme_default_font(), Vector2(settings_rect.position.x + 3.0, settings_rect.position.y + 11.0), "S", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, palette["text"])
+	draw_string(get_theme_default_font(), Vector2(settings_rect.position.x + 3.0, settings_rect.position.y + 11.0), "S", HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_small, palette["text"])
 	_track_close_hitboxes.append({"rect": close_rect, "track_id": track_id})
 	_track_grab_hitboxes.append({"rect": grab_rect, "track_id": track_id})
 	_track_settings_hitboxes.append({"rect": settings_rect, "track_id": track_id})
@@ -602,7 +611,7 @@ func _draw_read_tracks(area: Rect2) -> void:
 	var drawn_pairs: Dictionary = {}
 	var draw_snp_text := _can_draw_read_snp_letters()
 	var snp_font := get_theme_default_font()
-	var snp_font_size := clampi(int(floor(_read_row_h - 1.0)), 8, 14)
+	var snp_font_size := _read_text_font_size()
 	for read in _laid_out_reads:
 		var read_start: int = read["start"]
 		var read_end: int = read["end"]
@@ -689,12 +698,16 @@ func _can_draw_read_snp_letters() -> bool:
 	if _read_row_h < 10.0:
 		return false
 	var font := get_theme_default_font()
-	var font_size := clampi(int(floor(_read_row_h - 1.0)), 8, 14)
+	var font_size := _read_text_font_size()
 	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	if char_px <= 0.0:
 		return false
 	var pixels_per_bp := 1.0 / bp_per_px
 	return pixels_per_bp >= char_px + 1.0
+
+func _read_text_font_size() -> int:
+	var row_cap := clampi(int(floor(_read_row_h - 1.0)), 8, _font_size_large)
+	return mini(_font_size_medium, row_cap)
 
 func _draw_indel_markers(read: Dictionary, y: float) -> void:
 	var mid_y := y + _read_row_h * 0.5
@@ -854,7 +867,7 @@ func _draw_coverage_tiles(area: Rect2, show_y_ticks: bool = false) -> void:
 		var axis_col: Color = palette["grid"]
 		var text_col: Color = _axis_text_color()
 		var font := get_theme_default_font()
-		var font_size := 11
+		var font_size := _font_size_small
 		var tick_x := TRACK_LEFT_PAD - 8.0
 		var label_x := 8.0
 		draw_line(Vector2(tick_x, chart_top), Vector2(tick_x, chart_bottom), axis_col, 1.0)
@@ -1001,7 +1014,7 @@ func _draw_plot_scale(area: Rect2, top: float, bottom: float, y_min: float, y_ma
 	var label_x := 8.0
 	var text_col: Color = _axis_text_color()
 	var font := get_theme_default_font()
-	var font_size := 11
+	var font_size := _font_size_small
 	var guide_col: Color = palette["grid"]
 	guide_col.a *= 0.45
 	draw_line(Vector2(TRACK_LEFT_PAD, top), Vector2(area.position.x + area.size.x - TRACK_RIGHT_PAD, top), guide_col, 1.0)
@@ -1099,7 +1112,7 @@ func _draw_aa_tracks(area: Rect2) -> void:
 			var label := _feature_annotation_label(feature, label_w)
 			if not label.is_empty():
 				var font := get_theme_default_font()
-				var font_size := 12
+				var font_size := _font_size_medium
 				var text_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 				var draw_w := minf(label_w, text_w)
 				var label_rect := Rect2(Vector2(rect.position.x + 4.0, rect.position.y + 2.0), Vector2(draw_w, AA_ROW_H - 8.0))
@@ -1131,7 +1144,7 @@ func _can_draw_aa_letters_without_reference() -> bool:
 	if _zoom_tween != null and _zoom_tween.is_running():
 		return false
 	var font := get_theme_default_font()
-	var nuc_font_size := 14
+	var nuc_font_size := _font_size_large
 	var nuc_char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, nuc_font_size).x
 	if nuc_char_px <= 0.0:
 		return false
@@ -1139,7 +1152,7 @@ func _can_draw_aa_letters_without_reference() -> bool:
 	var min_nuc_px := maxf(4.0, nuc_char_px * 0.45)
 	if pixels_per_bp < min_nuc_px:
 		return false
-	var aa_font_size := 12
+	var aa_font_size := _font_size_medium
 	var aa_char_px := font.get_string_size("M", HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size).x
 	if aa_char_px <= 0.0:
 		return false
@@ -1148,7 +1161,7 @@ func _can_draw_aa_letters_without_reference() -> bool:
 
 func _can_draw_nucleotide_letters() -> bool:
 	var font := get_theme_default_font()
-	var font_size := 14
+	var font_size := _font_size_large
 	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	if char_px <= 0.0:
 		return false
@@ -1159,7 +1172,7 @@ func _draw_aa_translation_letters(area_start: float) -> void:
 	if not _can_draw_aa_letters():
 		return
 	var font := get_theme_default_font()
-	var aa_font_size := 12
+	var aa_font_size := _font_size_medium
 	var aa_char_px := font.get_string_size("M", HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size).x
 
 	var seq_len := reference_sequence.length()
@@ -1264,13 +1277,13 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 		var label_x := x0 + 4.0
 		var label_w := maxf(0.0, x1 - x0 - 8.0)
 		if label_w > 12.0:
-			draw_string(get_theme_default_font(), Vector2(label_x, top_y + 16.0), chr_label, HORIZONTAL_ALIGNMENT_LEFT, label_w, 12, _axis_text_color())
+			draw_string(get_theme_default_font(), Vector2(label_x, top_y + 16.0), chr_label, HORIZONTAL_ALIGNMENT_LEFT, label_w, _font_size_medium, _axis_text_color())
 
 	var span := _plot_width() * bp_per_px
 	if span <= 0:
 		return
 	var font := get_theme_default_font()
-	var font_size := 11
+	var font_size := _font_size_small
 	var max_tick_labels := 8
 	var tick_step := _axis_tick_step(span)
 	var segment_tick_labels: Array = []
@@ -1363,7 +1376,7 @@ func _draw_ticks(top_y: float, line_y: float) -> void:
 			draw_line(Vector2(x, line_y - 8), Vector2(x, line_y + 8), palette["grid"], 1.0)
 			var label := _format_axis_bp(tick, int(tick_step))
 			var font := get_theme_default_font()
-			var font_size := 11
+			var font_size := _font_size_small
 			var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 			draw_string(font, Vector2(x - label_w * 0.5, top_y + 54), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
 		tick += int(tick_step)
@@ -1383,9 +1396,9 @@ func _draw_grid(area: Rect2) -> void:
 
 func _draw_file_status() -> void:
 	if loaded_files.is_empty():
-		draw_string(get_theme_default_font(), Vector2(16, size.y - 10), "Drop genome/BAM/annotation files anywhere to load", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, palette["text"])
+		draw_string(get_theme_default_font(), Vector2(16, size.y - 10), "Drop genome/BAM/annotation files anywhere to load", HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
 	else:
-		draw_string(get_theme_default_font(), Vector2(16, size.y - 10), "Loaded files: %d" % loaded_files.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, palette["text"])
+		draw_string(get_theme_default_font(), Vector2(16, size.y - 10), "Loaded files: %d" % loaded_files.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
 
 func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 	if reference_sequence.is_empty():
@@ -1393,7 +1406,7 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 	if not _can_draw_nucleotide_letters():
 		return
 	var font := get_theme_default_font()
-	var font_size := 14
+	var font_size := _font_size_large
 
 	var base_count: int = reference_sequence.length()
 	if base_count <= 0:
@@ -1446,7 +1459,7 @@ func _feature_annotation_label(feature: Dictionary, max_width: float) -> String:
 	if max_width <= 0.0:
 		return ""
 	var font := get_theme_default_font()
-	var font_size := 12
+	var font_size := _font_size_medium
 	var label_name := str(feature.get("name", "")).strip_edges()
 	var id := str(feature.get("id", "")).strip_edges()
 	if label_name.is_empty():

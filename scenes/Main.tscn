@@ -203,11 +203,11 @@ layout_mode = 2
 min_value = 0.75
 max_value = 2.0
 step = 0.05
-value = 1.0
+value = 1.55
 
 [node name="UIScaleValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
-text = "1.00x"
+text = "1.55x"
 
 [node name="TrackpadPanLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2

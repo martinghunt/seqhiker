@@ -37,7 +37,9 @@ const TOPBAR_MIN_HEIGHT := 48.0
 const ROOT_VERTICAL_GAP := 8.0
 const CONTENT_MARGIN_BOTTOM := 10.0
 const READS_TRACK_MIN_HEIGHT := 140.0
-const UI_FONT_SIZE := 13
+const DEFAULT_UI_FONT_SIZE := 15
+const MIN_UI_FONT_SIZE := 9
+const MAX_UI_FONT_SIZE := 24
 
 @onready var background: ColorRect = $Background
 @onready var genome_view: Control = $Root/ContentMargin/GenomeView
@@ -126,6 +128,9 @@ var _show_full_region_checkbox: CheckBox
 var _track_order_label: Label
 var _track_order_list: ItemList
 var _track_visibility_box: VBoxContainer
+var _font_size_label: Label
+var _font_size_spin: SpinBox
+var _ui_font_size := DEFAULT_UI_FONT_SIZE
 var _track_dragging := false
 var _track_drag_index := -1
 var _track_drop_index := -1
@@ -176,6 +181,7 @@ func _ready() -> void:
 	_themes_lib = ThemesLibScript.new()
 	_disable_button_focus()
 	_setup_theme_selector()
+	_setup_font_size_control()
 	_setup_read_view_controls()
 	_setup_sequence_controls()
 	_setup_track_order_controls()
@@ -189,6 +195,7 @@ func _ready() -> void:
 	_apply_depth_plot_height()
 	_update_window_min_height()
 	_apply_theme(theme_option.get_item_text(theme_option.selected))
+	_on_ui_scale_changed(ui_scale_slider.value)
 	_on_trackpad_pan_changed(trackpad_pan_slider.value)
 	_on_trackpad_pinch_changed(trackpad_pinch_slider.value)
 	_on_play_speed_changed(play_speed_slider.value)
@@ -243,6 +250,18 @@ func _setup_theme_selector() -> void:
 		if theme_option.get_item_text(i) == "Light":
 			theme_option.select(i)
 			break
+
+func _setup_font_size_control() -> void:
+	_font_size_label = Label.new()
+	_font_size_label.text = "Font Size"
+	_font_size_spin = SpinBox.new()
+	_font_size_spin.min_value = MIN_UI_FONT_SIZE
+	_font_size_spin.max_value = MAX_UI_FONT_SIZE
+	_font_size_spin.step = 1
+	_font_size_spin.value = _ui_font_size
+	_font_size_spin.value_changed.connect(_on_font_size_changed)
+	settings_content.add_child(_font_size_label)
+	settings_content.add_child(_font_size_spin)
 
 func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
@@ -432,6 +451,12 @@ func _on_trackpad_pinch_changed(value: float) -> void:
 
 func _on_play_speed_changed(value: float) -> void:
 	play_speed_value.text = "%.2f widths/s" % value
+
+func _on_font_size_changed(value: float) -> void:
+	_ui_font_size = clampi(int(round(value)), MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
+	if _font_size_spin != null and int(_font_size_spin.value) != _ui_font_size:
+		_font_size_spin.value = _ui_font_size
+	_apply_theme(theme_option.get_item_text(theme_option.selected))
 
 func _start_auto_play() -> void:
 	if _current_chr_len <= 0:
@@ -1062,11 +1087,12 @@ func _apply_theme(theme_name: String) -> void:
 	if not _themes_lib.has_theme(theme_name):
 		return
 	var palette: Dictionary = _themes_lib.palette(theme_name)
-	self.theme = _themes_lib.make_theme(theme_name, UI_FONT_SIZE)
+	self.theme = _themes_lib.make_theme(theme_name, _ui_font_size)
 	_theme_text_color = palette["text"]
 	_theme_error_color = palette["status_error"]
 	background.color = palette["bg"]
 	genome_view.set_palette(_themes_lib.genome_palette(theme_name))
+	genome_view.set_base_font_size(_ui_font_size)
 	feature_name_label.add_theme_color_override("default_color", palette["text"])
 	feature_type_label.add_theme_color_override("default_color", palette["text"])
 	feature_range_label.add_theme_color_override("default_color", palette["text"])
@@ -2029,6 +2055,9 @@ func _load_or_init_config() -> void:
 		play_speed_slider.value = 0.3
 	trackpad_pan_slider.value = float(cfg.get_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value))
 	trackpad_pinch_slider.value = float(cfg.get_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value))
+	_ui_font_size = clampi(int(cfg.get_value("ui", "font_size", DEFAULT_UI_FONT_SIZE)), MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
+	if _font_size_spin != null:
+		_font_size_spin.value = _ui_font_size
 
 	var theme_name := str(cfg.get_value("ui", "theme", theme_option.get_item_text(theme_option.selected)))
 	_select_theme_option(theme_name)
@@ -2093,6 +2122,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "scale", ui_scale_slider.value)
 	cfg.set_value("ui", "play_speed_widths_per_sec", play_speed_slider.value)
 	cfg.set_value("ui", "theme", theme_option.get_item_text(theme_option.selected))
+	cfg.set_value("ui", "font_size", _ui_font_size)
 	cfg.set_value("ui", "sequence_view_mode", _seq_view_option.selected)
 	cfg.set_value("ui", "concat_gap_bp", _concat_gap_bp)
 	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)
