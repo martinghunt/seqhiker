@@ -371,8 +371,48 @@ func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	theme.set_stylebox("slider", "HSlider", track)
 	theme.set_stylebox("grabber_area", "HSlider", track)
 	theme.set_stylebox("grabber_area_highlight", "HSlider", track)
+	theme.set_stylebox("slider", "VSlider", track)
+	theme.set_stylebox("grabber_area", "VSlider", track)
+	theme.set_stylebox("grabber_area_highlight", "VSlider", track)
 
 	theme.set_constant("grabber_size", "HSlider", grabber_size)
+	theme.set_constant("grabber_size", "VSlider", grabber_size)
+
+	var sb_scroll := StyleBoxFlat.new()
+	sb_scroll.bg_color = p["panel_alt"]
+	sb_scroll.set_corner_radius_all(5)
+	sb_scroll.content_margin_left = 2
+	sb_scroll.content_margin_right = 2
+	sb_scroll.content_margin_top = 2
+	sb_scroll.content_margin_bottom = 2
+
+	var sb_grabber := StyleBoxFlat.new()
+	sb_grabber.bg_color = p["button_bg"]
+	sb_grabber.border_color = p["field_border"]
+	sb_grabber.set_border_width_all(1)
+	sb_grabber.set_corner_radius_all(5)
+
+	var sb_grabber_h := sb_grabber.duplicate()
+	sb_grabber_h.bg_color = p["button_hover"]
+
+	var sb_grabber_p := sb_grabber.duplicate()
+	sb_grabber_p.bg_color = p["button_pressed"]
+
+	theme.set_stylebox("scroll", "VScrollBar", sb_scroll)
+	theme.set_stylebox("scroll_focus", "VScrollBar", sb_scroll)
+	theme.set_stylebox("grabber", "VScrollBar", sb_grabber)
+	theme.set_stylebox("grabber_highlight", "VScrollBar", sb_grabber_h)
+	theme.set_stylebox("grabber_pressed", "VScrollBar", sb_grabber_p)
+	theme.set_constant("scroll_size", "VScrollBar", 12)
+	theme.set_constant("min_grab_thickness", "VScrollBar", 18)
+
+	theme.set_stylebox("scroll", "HScrollBar", sb_scroll)
+	theme.set_stylebox("scroll_focus", "HScrollBar", sb_scroll)
+	theme.set_stylebox("grabber", "HScrollBar", sb_grabber)
+	theme.set_stylebox("grabber_highlight", "HScrollBar", sb_grabber_h)
+	theme.set_stylebox("grabber_pressed", "HScrollBar", sb_grabber_p)
+	theme.set_constant("scroll_size", "HScrollBar", 12)
+	theme.set_constant("min_grab_thickness", "HScrollBar", 18)
 
 func _resolve_theme_name(theme_name: String) -> String:
 	if THEMES.has(theme_name):
