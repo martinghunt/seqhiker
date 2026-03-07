@@ -157,7 +157,7 @@ var _region_select_end_edge := 0
 
 func _ready() -> void:
 	clip_contents = true
-	custom_minimum_size = Vector2(900, 560)
+	custom_minimum_size = Vector2.ZERO
 	_reads_scrollbar = VScrollBar.new()
 	_reads_scrollbar.visible = false
 	_reads_scrollbar.step = 1.0
@@ -1614,6 +1614,26 @@ func _track_rect(track_id: String) -> Rect2:
 	if rects.has(track_id):
 		return rects[track_id]
 	return Rect2(0.0, 0.0, size.x, 0.0)
+
+func minimum_required_height(reads_min_height: float = 24.0) -> float:
+	if _track_order.is_empty():
+		return TOP_PAD + BOTTOM_PAD
+	var fixed_sum := 0.0
+	var flex_sum := 0.0
+	var visible_track_count := 0
+	for track_id in _track_order:
+		if not is_track_visible(track_id):
+			continue
+		visible_track_count += 1
+		var h := _track_fixed_height(track_id)
+		if h >= 0.0:
+			fixed_sum += h
+		elif track_id == TRACK_ID_READS:
+			flex_sum += maxf(24.0, reads_min_height)
+		else:
+			flex_sum += 24.0
+	var gap_total := PANEL_GAP * maxf(0.0, float(visible_track_count - 1))
+	return TOP_PAD + BOTTOM_PAD + gap_total + fixed_sum + flex_sum
 
 func _can_start_region_selection(mouse_pos: Vector2) -> bool:
 	if mouse_pos.x < TRACK_LEFT_PAD or mouse_pos.x > size.x - TRACK_RIGHT_PAD:

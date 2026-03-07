@@ -24,21 +24,25 @@ const PLOT_Y_FIXED := 2
 const DEFAULT_PLOT_HEIGHT := 100.0
 const MIN_PLOT_HEIGHT := 50.0
 const MAX_PLOT_HEIGHT := 360.0
+const TOPBAR_MIN_HEIGHT := 48.0
+const ROOT_VERTICAL_GAP := 8.0
+const CONTENT_MARGIN_BOTTOM := 10.0
+const READS_TRACK_MIN_HEIGHT := 140.0
 const UI_FONT_SIZE := 13
 
 @onready var background: ColorRect = $Background
 @onready var genome_view: Control = $Root/ContentMargin/GenomeView
 @onready var settings_panel: PanelContainer = $SettingsPanel
 @onready var settings_toggle_button: Button = $Root/TopBar/SettingsToggleButton
-@onready var pan_left_button: Button = $Root/TopBar/PanLeftButton
-@onready var pan_right_button: Button = $Root/TopBar/PanRightButton
-@onready var zoom_out_button: Button = $Root/TopBar/ZoomOutButton
-@onready var zoom_in_button: Button = $Root/TopBar/ZoomInButton
-@onready var play_button: Button = $Root/TopBar/PlayButton
-@onready var play_left_button: Button = $Root/TopBar/PlayLeftButton
-@onready var stop_button: Button = $Root/TopBar/StopButton
-@onready var viewport_label: Label = $Root/TopBar/ViewportLabel
-@onready var server_status_label: Label = $Root/TopBar/ServerStatusLabel
+@onready var pan_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanLeftButton
+@onready var pan_right_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanRightButton
+@onready var zoom_out_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ZoomOutButton
+@onready var zoom_in_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ZoomInButton
+@onready var play_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PlayButton
+@onready var play_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PlayLeftButton
+@onready var stop_button: Button = $Root/TopBar/ActionClipper/ActionStrip/StopButton
+@onready var viewport_label: Label = $Root/TopBar/ActionClipper/ActionStrip/ViewportLabel
+@onready var server_status_label: Label = $Root/TopBar/ActionClipper/ActionStrip/ServerStatusLabel
 @onready var feature_panel: PanelContainer = $FeaturePanel
 @onready var feature_close_button: Button = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureCloseButton
 @onready var feature_name_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureNameLabel
@@ -148,6 +152,7 @@ func _ready() -> void:
 	_apply_depth_plot_y_scale()
 	_apply_gc_plot_height()
 	_apply_depth_plot_height()
+	_update_window_min_height()
 	_apply_theme(theme_option.get_item_text(theme_option.selected))
 	_on_trackpad_pan_changed(trackpad_pan_slider.value)
 	_on_trackpad_pinch_changed(trackpad_pinch_slider.value)
@@ -429,10 +434,22 @@ func _apply_depth_plot_y_scale() -> void:
 func _apply_gc_plot_height() -> void:
 	_gc_plot_height = clampf(_gc_plot_height, MIN_PLOT_HEIGHT, MAX_PLOT_HEIGHT)
 	genome_view.set_gc_plot_height(_gc_plot_height)
+	_update_window_min_height()
 
 func _apply_depth_plot_height() -> void:
 	_depth_plot_height = clampf(_depth_plot_height, MIN_PLOT_HEIGHT, MAX_PLOT_HEIGHT)
 	genome_view.set_depth_plot_height(_depth_plot_height)
+	_update_window_min_height()
+
+func _update_window_min_height() -> void:
+	var reads_min_h := 24.0
+	if genome_view.is_track_visible(TRACK_READS):
+		reads_min_h = READS_TRACK_MIN_HEIGHT
+	var tracks_h: float = genome_view.minimum_required_height(reads_min_h)
+	var min_h: float = TOPBAR_MIN_HEIGHT + ROOT_VERTICAL_GAP + CONTENT_MARGIN_BOTTOM + tracks_h
+	var w := get_window()
+	if w != null:
+		w.min_size.y = maxi(200, ceili(min_h))
 
 func _on_track_order_list_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
@@ -512,9 +529,11 @@ func _refresh_track_visibility_controls(order: PackedStringArray) -> void:
 
 func _on_track_order_changed(order: PackedStringArray) -> void:
 	_refresh_track_order_list(order)
+	_update_window_min_height()
 
 func _on_track_visibility_changed(_track_id: String, _visible: bool) -> void:
 	_refresh_track_visibility_controls(genome_view.get_track_order())
+	_update_window_min_height()
 	_invalidate_cache()
 	if _current_chr_len > 0:
 		_schedule_fetch()

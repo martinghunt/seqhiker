@@ -43,47 +43,61 @@ tooltip_text = "Open settings"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "C"
 
-[node name="PanLeftButton" type="Button" parent="Root/TopBar"]
+[node name="ActionClipper" type="Control" parent="Root/TopBar"]
+clip_contents = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ActionStrip" type="HBoxContainer" parent="Root/TopBar/ActionClipper"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="PanLeftButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 text = "Pan Left"
 
-[node name="PanRightButton" type="Button" parent="Root/TopBar"]
+[node name="PanRightButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 text = "Pan Right"
 
-[node name="ZoomOutButton" type="Button" parent="Root/TopBar"]
+[node name="ZoomOutButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 text = "Zoom -"
 
-[node name="ZoomInButton" type="Button" parent="Root/TopBar"]
+[node name="ZoomInButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 text = "Zoom +"
 
-[node name="PlayLeftButton" type="Button" parent="Root/TopBar"]
+[node name="PlayLeftButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Play left"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "B"
 
-[node name="StopButton" type="Button" parent="Root/TopBar"]
+[node name="StopButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 text = "Stop"
 
-[node name="PlayButton" type="Button" parent="Root/TopBar"]
+[node name="PlayButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Play right"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "A"
 
-[node name="Spacer" type="Control" parent="Root/TopBar"]
+[node name="Spacer" type="Control" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="ViewportLabel" type="Label" parent="Root/TopBar"]
+[node name="ViewportLabel" type="Label" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 text = "0 - 0 bp"
 
-[node name="ServerStatusLabel" type="Label" parent="Root/TopBar"]
+[node name="ServerStatusLabel" type="Label" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 text = "Disconnected"
 
