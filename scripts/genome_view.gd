@@ -27,7 +27,7 @@ const SNP_MARK_MAX_BP_PER_PX := 1.5
 const NUC_TEXT_MAX_BASES := 3000
 const FEATURE_MIN_DRAW_PX := 3.0
 const FEATURE_DETAIL_MAX_BP_PER_PX := 1.25
-const FEATURE_LABEL_MIN_CHARS := 10
+const FEATURE_LABEL_MIN_CHARS := 6
 const TRACK_ID_READS := "reads"
 const TRACK_ID_AA := "aa"
 const TRACK_ID_GC_PLOT := "gc_plot"
@@ -1056,6 +1056,7 @@ func _draw_aa_tracks(area: Rect2) -> void:
 	var use_density_bins := bp_per_px >= 2.0
 	var density_bins := {}
 	var frame_label_boxes: Array = []
+	var pending_labels: Array[Dictionary] = []
 	frame_label_boxes.resize(6)
 	for i in range(6):
 		frame_label_boxes[i] = []
@@ -1109,22 +1110,41 @@ func _draw_aa_tracks(area: Rect2) -> void:
 			"feature": feature
 		})
 		if not show_aa_letters:
-			var label_w := rect.size.x - 8.0
+			var label_x_min := maxf(rect.position.x + 4.0, TRACK_LEFT_PAD + 2.0)
+			var label_x_max := minf(rect.position.x + rect.size.x - 4.0, size.x - TRACK_RIGHT_PAD - 2.0)
+			var label_w := maxf(0.0, label_x_max - label_x_min)
 			var label := _feature_annotation_label(feature, label_w)
 			if not label.is_empty():
 				var font := get_theme_default_font()
-				var font_size := _font_size_medium
+				var font_size := _font_size_small
 				var text_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 				var draw_w := minf(label_w, text_w)
-				var label_rect := Rect2(Vector2(rect.position.x + 4.0, rect.position.y + 2.0), Vector2(draw_w, AA_ROW_H - 8.0))
+				var label_rect := Rect2(Vector2(label_x_min, rect.position.y + 2.0), Vector2(draw_w, AA_ROW_H - 8.0))
 				if not _intersects_any(label_rect, frame_label_boxes[frame]):
 					var ann_text_col: Color = palette.get("feature_text", _axis_text_color())
-					draw_string(font, Vector2(rect.position.x + 4.0, rect.position.y + 14.0), label, HORIZONTAL_ALIGNMENT_LEFT, label_w, font_size, ann_text_col)
+					pending_labels.append({
+						"pos": Vector2(label_x_min, rect.position.y + 14.0),
+						"text": label,
+						"max_w": label_w,
+						"font_size": font_size,
+						"color": ann_text_col
+					})
 					frame_label_boxes[frame].append(label_rect)
 					labels += 1
 
 	if show_aa_letters:
 		_draw_aa_translation_letters(area_start)
+	var label_font := get_theme_default_font()
+	for entry in pending_labels:
+		draw_string(
+			label_font,
+			entry.get("pos", Vector2.ZERO),
+			str(entry.get("text", "")),
+			HORIZONTAL_ALIGNMENT_LEFT,
+			float(entry.get("max_w", -1.0)),
+			int(entry.get("font_size", _font_size_small)),
+			entry.get("color", _axis_text_color())
+		)
 	_annotation_debug_stats = {
 		"seen": seen,
 		"drawn": drawn,
@@ -1461,7 +1481,7 @@ func _feature_annotation_label(feature: Dictionary, max_width: float) -> String:
 	if max_width <= 0.0:
 		return ""
 	var font := get_theme_default_font()
-	var font_size := _font_size_medium
+	var font_size := _font_size_small
 	var label_name := str(feature.get("name", "")).strip_edges()
 	var id := str(feature.get("id", "")).strip_edges()
 	if label_name.is_empty():
