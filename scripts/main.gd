@@ -188,7 +188,6 @@ func _ready() -> void:
 	_apply_gc_plot_height()
 	_apply_depth_plot_height()
 	_update_window_min_height()
-	_ensure_local_zem_installed()
 	_apply_theme(theme_option.get_item_text(theme_option.selected))
 	_on_trackpad_pan_changed(trackpad_pan_slider.value)
 	_on_trackpad_pinch_changed(trackpad_pinch_slider.value)
@@ -213,6 +212,16 @@ func _startup_connect_local_zem() -> void:
 		port = ZEM_DEFAULT_PORT
 	if not _should_try_local_zem(host):
 		return
+	_set_status("Preparing local zem...")
+	await get_tree().process_frame
+	if not _ensure_local_zem_installed():
+		if not _last_connect_error.is_empty():
+			_set_status(_last_connect_error, true)
+		else:
+			_set_status("Local zem missing and install failed.", true)
+		return
+	_set_status("Starting local zem...")
+	await get_tree().process_frame
 	# Keep startup connect snappy so first frame/UI does not stall.
 	if _connect_with_local_fallback(host, port, 100, 2, 80):
 		_set_status("Connected %s:%d" % [host, port])
@@ -1171,23 +1180,31 @@ func _ensure_local_zem_installed() -> bool:
 	var user_bin_dir_abs := OS.get_user_data_dir().path_join(ZEM_BIN_SUBDIR)
 	var mk_err := DirAccess.make_dir_recursive_absolute(user_bin_dir_abs)
 	if mk_err != OK and not DirAccess.dir_exists_absolute(user_bin_dir_abs):
+		_last_connect_error = "Failed to create local bin dir: %s" % user_bin_dir_abs
 		return false
 	var target_abs := user_bin_dir_abs.path_join(bin_name)
 	_local_zem_path = target_abs
 	var source := _find_zem_source(bin_name)
 	if source.is_empty():
-		return FileAccess.file_exists(target_abs)
+		if FileAccess.file_exists(target_abs):
+			_last_connect_error = ""
+			return true
+		_last_connect_error = "No bundled zem found at res://bin/%s" % bin_name
+		return false
 	if not FileAccess.file_exists(target_abs):
 		if not _copy_file_any_to_abs(source, target_abs):
+			_last_connect_error = "Failed to copy zem into %s" % target_abs
 			return false
 	else:
 		var src_hash := FileAccess.get_sha256(source)
 		var dst_hash := FileAccess.get_sha256(target_abs)
 		if src_hash.is_empty() or dst_hash.is_empty() or src_hash != dst_hash:
 			if not _copy_file_any_to_abs(source, target_abs):
+				_last_connect_error = "Failed to update zem in %s" % target_abs
 				return false
 	if not OS.has_feature("windows"):
 		OS.execute("chmod", ["+x", target_abs], [], true)
+	_last_connect_error = ""
 	return true
 
 func _find_zem_source(bin_name: String) -> String:
