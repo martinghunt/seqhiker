@@ -11,6 +11,7 @@ const MSG_ACK := 7
 const MSG_ERROR := 8
 const MSG_GET_CHROMOSOMES := 10
 const MSG_GET_GC_PLOT_TILE := 11
+const MSG_GET_ANNOTATION_COUNTS := 12
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -73,6 +74,13 @@ func get_chromosomes() -> Dictionary:
 	resp["chromosomes"] = _parse_chromosomes(resp["payload"])
 	return resp
 
+func get_annotation_counts() -> Dictionary:
+	var resp := _send_request(MSG_GET_ANNOTATION_COUNTS, PackedByteArray())
+	if not resp.get("ok", false):
+		return resp
+	resp["counts"] = _parse_annotation_counts(resp["payload"])
+	return resp
+
 func get_tile(chr_id: int, zoom: int, tile_index: int) -> Dictionary:
 	var payload := PackedByteArray()
 	payload.resize(7)
@@ -110,13 +118,14 @@ func get_gc_plot_tile(chr_id: int, zoom: int, tile_index: int, window_len_bp: in
 	resp["plot"] = _parse_gc_plot_tile(resp["payload"])
 	return resp
 
-func get_annotations(chr_id: int, start_bp: int, end_bp: int, max_records: int = 2000) -> Dictionary:
+func get_annotations(chr_id: int, start_bp: int, end_bp: int, max_records: int = 2000, min_feature_len_bp: int = 1) -> Dictionary:
 	var payload := PackedByteArray()
-	payload.resize(12)
+	payload.resize(16)
 	payload.encode_u16(0, chr_id)
 	payload.encode_u32(2, start_bp)
 	payload.encode_u32(6, end_bp)
 	payload.encode_u16(10, max_records)
+	payload.encode_u32(12, max(min_feature_len_bp, 1))
 	var resp := _send_request(MSG_GET_ANNOTATIONS, payload)
 	if not resp.get("ok", false):
 		return resp
@@ -227,6 +236,21 @@ func _parse_chromosomes(payload: PackedByteArray) -> Array[Dictionary]:
 		var name := payload.slice(off, off + name_len).get_string_from_utf8()
 		off += name_len
 		out.append({"id": chr_id, "length": length, "name": name})
+	return out
+
+func _parse_annotation_counts(payload: PackedByteArray) -> Dictionary:
+	var out := {}
+	if payload.size() < 2:
+		return out
+	var count := payload.decode_u16(0)
+	var off := 2
+	for _i in range(count):
+		if off + 6 > payload.size():
+			break
+		var chr_id := payload.decode_u16(off)
+		var n := payload.decode_u32(off + 2)
+		out[chr_id] = int(n)
+		off += 6
 	return out
 
 func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:

@@ -24,6 +24,9 @@ const READ_ROW_H := 8.0
 const READ_ROW_GAP := 4.0
 const SNP_MARK_MAX_BP_PER_PX := 1.5
 const NUC_TEXT_MAX_BASES := 3000
+const FEATURE_MIN_DRAW_PX := 3.0
+const FEATURE_DETAIL_MAX_BP_PER_PX := 1.25
+const FEATURE_LABEL_MIN_CHARS := 10
 const TRACK_ID_READS := "reads"
 const TRACK_ID_AA := "aa"
 const TRACK_ID_GC_PLOT := "gc_plot"
@@ -126,6 +129,7 @@ var _strand_split_lock_y := -1.0
 var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
+var _annotation_max_on_screen := 4400
 var _show_full_length_regions := false
 var _colorize_nucleotides := true
 var _gc_plot_y_mode := PLOT_Y_UNIT
@@ -154,6 +158,13 @@ var _region_select_dragging := false
 var _region_select_has_selection := false
 var _region_select_start_edge := 0
 var _region_select_end_edge := 0
+var _annotation_debug_stats := {
+	"seen": 0,
+	"drawn": 0,
+	"labels": 0,
+	"hitboxes": 0,
+	"draw_ms": 0.0
+}
 
 func _ready() -> void:
 	clip_contents = true
@@ -205,6 +216,13 @@ func set_reference_slice(start_bp: int, sequence: String) -> void:
 	reference_start_bp = start_bp
 	reference_sequence = sequence
 	queue_redraw()
+
+func needs_reference_data(show_aa_track: bool, show_genome_track: bool) -> bool:
+	if show_genome_track and _can_draw_nucleotide_letters():
+		return true
+	if show_aa_track and _can_draw_aa_letters_without_reference():
+		return true
+	return false
 
 func set_concat_segments(segments: Array) -> void:
 	concat_segments.clear()
@@ -266,6 +284,10 @@ func set_read_thickness(value: float) -> void:
 
 func set_show_full_length_regions(enabled: bool) -> void:
 	_show_full_length_regions = enabled
+	queue_redraw()
+
+func set_annotation_max_on_screen(max_count: int) -> void:
+	_annotation_max_on_screen = clampi(max_count, 200, 50000)
 	queue_redraw()
 
 func set_colorize_nucleotides(enabled: bool) -> void:
@@ -930,8 +952,26 @@ func _format_plot_value(v: float) -> String:
 	return "%.3f" % v
 
 func _draw_aa_tracks(area: Rect2) -> void:
+	var t0 := Time.get_ticks_usec()
+	var seen := 0
+	var drawn := 0
+	var labels := 0
+	var culled_density := 0
 	var area_start := area.position.y
 	var show_aa_letters := _can_draw_aa_letters()
+	var show_feature_detail := bp_per_px <= FEATURE_DETAIL_MAX_BP_PER_PX
+	var max_ann := clampi(_annotation_max_on_screen, 200, 50000)
+	var draw_cap := maxi(200, int(round(float(max_ann) * 0.5)))
+	if bp_per_px >= 10.0:
+		draw_cap = maxi(120, int(round(float(max_ann) * 0.18)))
+	elif bp_per_px >= 5.0:
+		draw_cap = maxi(220, int(round(float(max_ann) * 0.33)))
+	elif bp_per_px >= 2.0:
+		draw_cap = maxi(320, int(round(float(max_ann) * 0.64)))
+	else:
+		draw_cap = max_ann
+	var use_density_bins := bp_per_px >= 2.0
+	var density_bins := {}
 	var frame_label_boxes: Array = []
 	frame_label_boxes.resize(6)
 	for i in range(6):
@@ -949,6 +989,7 @@ func _draw_aa_tracks(area: Rect2) -> void:
 	draw_line(Vector2(0.0, split_y), Vector2(size.x, split_y), Color(0.15, 0.15, 0.15, 0.45), 1.0)
 
 	for feature in features:
+		seen += 1
 		if _is_hidden_full_length_region(feature):
 			continue
 		var frame := _feature_to_frame(feature)
@@ -961,15 +1002,30 @@ func _draw_aa_tracks(area: Rect2) -> void:
 		var fy := area_start + frame * (AA_ROW_H + AA_ROW_GAP) + 4.0
 		var fx0 := TRACK_LEFT_PAD + _bp_to_x(f_start)
 		var fx1 := TRACK_LEFT_PAD + _bp_to_x(f_end)
-		var rect := Rect2(Vector2(fx0, fy), Vector2(maxf(2.0, fx1 - fx0), AA_ROW_H - 8.0))
+		var feature_w := fx1 - fx0
+		if feature_w < FEATURE_MIN_DRAW_PX:
+			continue
+		if drawn >= draw_cap:
+			culled_density += 1
+			continue
+		if use_density_bins:
+			var bin_x := int(floor((fx0 - TRACK_LEFT_PAD) / 2.0))
+			var dkey := "%d|%d" % [frame, bin_x]
+			if density_bins.get(dkey, false):
+				culled_density += 1
+				continue
+			density_bins[dkey] = true
+		var rect := Rect2(Vector2(fx0, fy), Vector2(feature_w, AA_ROW_H - 8.0))
 		var feature_col: Color = (palette["feature"] as Color).lerp(Color.WHITE, 0.45)
 		feature_col.a = 0.4
 		draw_rect(rect, feature_col, true)
+		drawn += 1
+		var click_rect := rect.grow(3.0) if show_feature_detail else rect
 		_feature_hitboxes.append({
-			"rect": rect,
+			"rect": click_rect,
 			"feature": feature
 		})
-		if rect.size.x > 60 and not show_aa_letters:
+		if not show_aa_letters:
 			var label_w := rect.size.x - 8.0
 			var label := _feature_annotation_label(feature, label_w)
 			if not label.is_empty():
@@ -981,13 +1037,28 @@ func _draw_aa_tracks(area: Rect2) -> void:
 				if not _intersects_any(label_rect, frame_label_boxes[frame]):
 					draw_string(font, Vector2(rect.position.x + 4.0, rect.position.y + 14.0), label, HORIZONTAL_ALIGNMENT_LEFT, label_w, font_size, _axis_text_color())
 					frame_label_boxes[frame].append(label_rect)
+					labels += 1
 
 	if show_aa_letters:
 		_draw_aa_translation_letters(area_start)
+	_annotation_debug_stats = {
+		"seen": seen,
+		"drawn": drawn,
+		"labels": labels,
+		"hitboxes": _feature_hitboxes.size(),
+		"culled_density": culled_density,
+		"draw_ms": float(Time.get_ticks_usec() - t0) / 1000.0
+	}
+
+func annotation_debug_stats() -> Dictionary:
+	return _annotation_debug_stats.duplicate()
 
 func _can_draw_aa_letters() -> bool:
 	if reference_sequence.is_empty():
 		return false
+	return _can_draw_aa_letters_without_reference()
+
+func _can_draw_aa_letters_without_reference() -> bool:
 	if _zoom_tween != null and _zoom_tween.is_running():
 		return false
 	var font := get_theme_default_font()
@@ -1003,6 +1074,15 @@ func _can_draw_aa_letters() -> bool:
 	if aa_char_px <= 0.0:
 		return false
 	return 3.0 * pixels_per_bp >= aa_char_px + 1.0
+
+func _can_draw_nucleotide_letters() -> bool:
+	var font := get_theme_default_font()
+	var font_size := 14
+	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	if char_px <= 0.0:
+		return false
+	var pixels_per_bp := 1.0 / bp_per_px
+	return pixels_per_bp >= char_px + 1.0
 
 func _draw_aa_translation_letters(area_start: float) -> void:
 	if not _can_draw_aa_letters():
@@ -1239,12 +1319,10 @@ func _draw_file_status() -> void:
 func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 	if reference_sequence.is_empty():
 		return
+	if not _can_draw_nucleotide_letters():
+		return
 	var font := get_theme_default_font()
 	var font_size := 14
-	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	var pixels_per_bp := 1.0 / bp_per_px
-	if pixels_per_bp < char_px + 1.0:
-		return
 
 	var base_count: int = reference_sequence.length()
 	if base_count <= 0:
@@ -1305,12 +1383,39 @@ func _feature_annotation_label(feature: Dictionary, max_width: float) -> String:
 	if label_name.is_empty() and id.is_empty():
 		return ""
 	if id.is_empty() or id == label_name:
-		return label_name
+		return _truncate_label_to_width(label_name, max_width, FEATURE_LABEL_MIN_CHARS, font, font_size)
 	var combined := "%s / %s" % [label_name, id]
 	var combined_w := font.get_string_size(combined, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	if combined_w <= max_width:
 		return combined
-	return label_name
+	return _truncate_label_to_width(label_name, max_width, FEATURE_LABEL_MIN_CHARS, font, font_size)
+
+func _truncate_label_to_width(text: String, max_width: float, min_chars: int, font: Font, font_size: int) -> String:
+	if text.is_empty() or max_width <= 0.0:
+		return ""
+	var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	if full_w <= max_width:
+		return text
+	var ellipsis := "..."
+	var n := text.length()
+	var min_n := mini(maxi(1, min_chars), n)
+	var min_candidate := text.substr(0, min_n) + ellipsis
+	var min_w := font.get_string_size(min_candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	if min_w > max_width:
+		return ""
+	var lo := min_n
+	var hi := n
+	var best := min_n
+	while lo <= hi:
+		var mid := lo + ((hi - lo) >> 1)
+		var candidate := text.substr(0, mid) + ellipsis
+		var w := font.get_string_size(candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		if w <= max_width:
+			best = mid
+			lo = mid + 1
+		else:
+			hi = mid - 1
+	return text.substr(0, best) + ellipsis
 
 func _intersects_any(rect: Rect2, existing: Array) -> bool:
 	for r_any in existing:

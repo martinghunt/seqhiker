@@ -6,10 +6,16 @@ const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const READ_DETAIL_MAX_ZOOM := 7
 const DEFAULT_CONCAT_GAP_BP := 50
 const DEFAULT_READ_THICKNESS := 8.0
-const ANNOT_CHUNK_TARGET_BP := 120000
-const ANNOT_MAX_CHUNKS := 24
-const ANNOT_MAX_PER_CHUNK := 2500
+const ANNOT_TILE_BASE_BP := 1024
+const ANNOT_MAX_TILES := 64
+const ANNOT_MIN_TOTAL := 800
 const ANNOT_MAX_TOTAL := 12000
+const ANNOT_TILE_CACHE_MAX_ENTRIES := 512
+const ANNOT_PRELOAD_THRESHOLD_DEFAULT := 20000
+const ANNOT_PRELOAD_MAX_RECORDS := 65000
+const ANNOT_MAX_ON_SCREEN_DEFAULT := 4400
+const ANNOT_MAX_ON_SCREEN_MIN := 200
+const ANNOT_MAX_ON_SCREEN_MAX := 50000
 const TRACK_READS := "reads"
 const TRACK_AA := "aa"
 const TRACK_GC_PLOT := "gc_plot"
@@ -91,7 +97,10 @@ var _cache_start := -1
 var _cache_end := -1
 var _cache_zoom := -1
 var _cache_mode := -1
+var _cache_need_reference := false
 var _cache_scope_key := ""
+var _annotation_tile_cache: Dictionary = {}
+var _annotation_preload_cache: Dictionary = {}
 var _theme_text_color: Color = Color.BLACK
 var _theme_error_color: Color = Color("8b0000")
 var _themes_lib: RefCounted
@@ -136,6 +145,20 @@ var _concat_segments: Array[Dictionary] = []
 var _track_settings_box: VBoxContainer
 var _track_settings_open := false
 var _active_track_settings_id := ""
+var _debug_enabled := false
+var _debug_toggle: CheckBox
+var _debug_stats_label: Label
+var _annot_preload_label: Label
+var _annot_preload_spin: SpinBox
+var _annotation_preload_threshold := ANNOT_PRELOAD_THRESHOLD_DEFAULT
+var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
+var _annotation_counts_by_chr := {}
+var _dbg_ann_tile_requests := 0
+var _dbg_ann_tile_cache_hits := 0
+var _dbg_ann_tile_queries := 0
+var _dbg_ann_features_examined := 0
+var _dbg_ann_features_out := 0
+var _dbg_ann_fetch_time_ms := 0.0
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -145,6 +168,7 @@ func _ready() -> void:
 	_setup_read_view_controls()
 	_setup_sequence_controls()
 	_setup_track_order_controls()
+	_setup_debug_controls()
 	_setup_track_settings_panel()
 	_connect_ui()
 	_load_or_init_config()
@@ -251,9 +275,12 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	if genome_view.is_zoom_animating():
 		return
 	if _current_chr_len > 0:
+		var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
+		var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
+		var need_reference: bool = bool(genome_view.needs_reference_data(show_aa, show_genome))
 		var zoom := _compute_tile_zoom(bp_per_px)
 		var mode := 0 if (_has_bam_loaded and zoom <= READ_DETAIL_MAX_ZOOM) else 1
-		var needs_fetch := not _is_viewport_cached(start_bp, end_bp, zoom, mode, _scope_cache_key())
+		var needs_fetch := not _is_viewport_cached(start_bp, end_bp, zoom, mode, need_reference, _scope_cache_key())
 		if _auto_play_enabled and _is_near_cache_right_edge(start_bp, end_bp):
 			needs_fetch = true
 		if needs_fetch:
@@ -396,6 +423,41 @@ func _setup_track_order_controls() -> void:
 	_refresh_track_order_list(genome_view.get_track_order(), 0)
 	_refresh_track_visibility_controls(genome_view.get_track_order())
 
+func _setup_debug_controls() -> void:
+	_annot_preload_label = Label.new()
+	_annot_preload_label.text = "Annotation Preload Threshold"
+	settings_content.add_child(_annot_preload_label)
+	_annot_preload_spin = SpinBox.new()
+	_annot_preload_spin.min_value = 0
+	_annot_preload_spin.max_value = ANNOT_PRELOAD_MAX_RECORDS
+	_annot_preload_spin.step = 1000
+	_annot_preload_spin.value = _annotation_preload_threshold
+	_annot_preload_spin.value_changed.connect(_on_annotation_preload_threshold_changed)
+	settings_content.add_child(_annot_preload_spin)
+	_debug_toggle = CheckBox.new()
+	_debug_toggle.text = "Debug"
+	_debug_toggle.button_pressed = _debug_enabled
+	_debug_toggle.toggled.connect(_on_debug_toggled)
+	settings_content.add_child(_debug_toggle)
+	_debug_stats_label = Label.new()
+	_debug_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_stats_label.visible = _debug_enabled
+	_debug_stats_label.text = ""
+	settings_content.add_child(_debug_stats_label)
+
+func _on_annotation_preload_threshold_changed(value: float) -> void:
+	_annotation_preload_threshold = clampi(int(value), 0, ANNOT_PRELOAD_MAX_RECORDS)
+	_invalidate_cache()
+	if _current_chr_len > 0:
+		_schedule_fetch()
+
+func _on_annotation_max_on_screen_changed(value: float) -> void:
+	_annotation_max_on_screen = clampi(int(value), ANNOT_MAX_ON_SCREEN_MIN, ANNOT_MAX_ON_SCREEN_MAX)
+	genome_view.set_annotation_max_on_screen(_annotation_max_on_screen)
+	_invalidate_cache()
+	if _current_chr_len > 0:
+		_schedule_fetch()
+
 func _setup_track_settings_panel() -> void:
 	_track_settings_box = VBoxContainer.new()
 	_track_settings_box.visible = false
@@ -450,6 +512,51 @@ func _update_window_min_height() -> void:
 	var w := get_window()
 	if w != null:
 		w.min_size.y = maxi(200, ceili(min_h))
+
+func _on_debug_toggled(enabled: bool) -> void:
+	_debug_enabled = enabled
+	if _debug_stats_label != null:
+		_debug_stats_label.visible = enabled
+	if enabled:
+		_update_debug_stats_label()
+
+func _reset_debug_annotation_counters() -> void:
+	_dbg_ann_tile_requests = 0
+	_dbg_ann_tile_cache_hits = 0
+	_dbg_ann_tile_queries = 0
+	_dbg_ann_features_examined = 0
+	_dbg_ann_features_out = 0
+	_dbg_ann_fetch_time_ms = 0.0
+
+func _update_debug_stats_label() -> void:
+	if _debug_stats_label == null:
+		return
+	if not _debug_enabled:
+		_debug_stats_label.text = ""
+		return
+	var hit_pct := 0.0
+	if _dbg_ann_tile_requests > 0:
+		hit_pct = 100.0 * float(_dbg_ann_tile_cache_hits) / float(_dbg_ann_tile_requests)
+	var draw_stats: Dictionary = genome_view.annotation_debug_stats()
+	var scope_count := _annotation_scope_count(_current_chr_id)
+	var preload_active := _annotation_preload_threshold > 0 and scope_count > 0 and scope_count <= _annotation_preload_threshold
+	_debug_stats_label.text = "Ann tiles req=%d, cache_hit=%d (%.1f%%), queried=%d\nAnn feats in=%d, out=%d, fetch=%.2fms\nAnn draw seen=%d, drawn=%d, labels=%d, hitboxes=%d, draw=%.2fms" % [
+		_dbg_ann_tile_requests,
+		_dbg_ann_tile_cache_hits,
+		hit_pct,
+		_dbg_ann_tile_queries,
+		_dbg_ann_features_examined,
+		_dbg_ann_features_out,
+		_dbg_ann_fetch_time_ms,
+		int(draw_stats.get("seen", 0)),
+		int(draw_stats.get("drawn", 0)),
+		int(draw_stats.get("labels", 0)),
+		int(draw_stats.get("hitboxes", 0)),
+		float(draw_stats.get("draw_ms", 0.0))
+	]
+	_debug_stats_label.text += "\nAnn preload=%s threshold=%d scope_count=%d" % [str(preload_active), _annotation_preload_threshold, scope_count]
+	if int(draw_stats.get("culled_density", 0)) > 0:
+		_debug_stats_label.text += "\nAnn draw culled_density=%d" % int(draw_stats.get("culled_density", 0))
 
 func _on_track_order_list_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
@@ -611,7 +718,17 @@ func _on_track_settings_requested(track_id: String) -> void:
 			region_cb.text = "Show full-length region annotations"
 			region_cb.button_pressed = _show_full_length_regions
 			region_cb.toggled.connect(_on_show_full_region_toggled)
+			var max_ann_label := Label.new()
+			max_ann_label.text = "Max annotations on screen"
+			var max_ann_spin := SpinBox.new()
+			max_ann_spin.min_value = ANNOT_MAX_ON_SCREEN_MIN
+			max_ann_spin.max_value = ANNOT_MAX_ON_SCREEN_MAX
+			max_ann_spin.step = 100
+			max_ann_spin.value = _annotation_max_on_screen
+			max_ann_spin.value_changed.connect(_on_annotation_max_on_screen_changed)
 			_track_settings_box.add_child(region_cb)
+			_track_settings_box.add_child(max_ann_label)
+			_track_settings_box.add_child(max_ann_spin)
 		"genome":
 			var seq_view_label := Label.new()
 			seq_view_label.text = "Sequence View"
@@ -930,6 +1047,12 @@ func _refresh_chromosomes() -> void:
 		_set_status("No chromosomes loaded", true)
 		return
 	_chromosomes = chroms
+	var counts_resp: Dictionary = _zem.get_annotation_counts()
+	if counts_resp.get("ok", false):
+		_annotation_counts_by_chr = counts_resp.get("counts", {})
+	else:
+		_annotation_counts_by_chr = {}
+		_set_status("Annotation preload disabled: counts unavailable (restart zem)", true)
 	_rebuild_concat_segments()
 	_refresh_sequence_options()
 	_apply_sequence_view(true)
@@ -1016,17 +1139,22 @@ func _invalidate_cache() -> void:
 	_cache_end = -1
 	_cache_zoom = -1
 	_cache_mode = -1
+	_cache_need_reference = false
 	_cache_scope_key = ""
+	_annotation_tile_cache.clear()
+	_annotation_preload_cache.clear()
 
 func _refresh_visible_data() -> void:
 	if _current_chr_len <= 0:
 		return
+	if _debug_enabled:
+		_reset_debug_annotation_counters()
 	var show_reads: bool = bool(genome_view.is_track_visible(TRACK_READS))
 	var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
 	var show_gc_plot: bool = bool(genome_view.is_track_visible(TRACK_GC_PLOT))
 	var show_depth_plot: bool = bool(genome_view.is_track_visible(TRACK_DEPTH_PLOT))
 	var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
-	var need_reference: bool = show_aa or show_genome
+	var need_reference: bool = genome_view.needs_reference_data(show_aa, show_genome)
 	var span: int = maxi(1, _last_end - _last_start)
 	var right_span_mult := 3 if _auto_play_enabled else 1
 	var query_start: int = maxi(0, _last_start - span)
@@ -1083,7 +1211,7 @@ func _refresh_visible_data() -> void:
 				all_depth_plot_tiles.append(_coverage_to_plot_tile(cov_resp_plot.get("coverage", {})))
 
 		if show_aa:
-			var ann_resp := _get_annotations_window_paged(_current_chr_id, query_start, query_end)
+			var ann_resp := _get_annotations_window_preloaded(_current_chr_id, query_start, query_end)
 			if not ann_resp.get("ok", false):
 				_set_status("Annotation query failed: %s" % ann_resp.get("error", "error"), true)
 				return
@@ -1154,7 +1282,7 @@ func _refresh_visible_data() -> void:
 			var a_offset := int(aov["offset"])
 			var a_local_start := int(aov["local_start"])
 			var a_local_end := int(aov["local_end"])
-			var ann_resp_part := _get_annotations_window_paged(a_chr_id, a_local_start, a_local_end)
+			var ann_resp_part := _get_annotations_window_preloaded(a_chr_id, a_local_start, a_local_end)
 			if not ann_resp_part.get("ok", false):
 				_set_status("Annotation query failed: %s" % ann_resp_part.get("error", "error"), true)
 				return
@@ -1177,32 +1305,195 @@ func _refresh_visible_data() -> void:
 	_cache_end = query_end
 	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)
 	_cache_mode = 0 if (_has_bam_loaded and _cache_zoom <= READ_DETAIL_MAX_ZOOM) else 1
+	_cache_need_reference = need_reference
 	_cache_scope_key = _scope_cache_key()
+	if _debug_enabled:
+		_update_debug_stats_label()
 
-func _get_annotations_window_paged(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
-	if end_bp <= start_bp:
-		return {"ok": true, "features": []}
-	var span := end_bp - start_bp
-	var chunk_count := clampi(int(ceil(float(span) / float(ANNOT_CHUNK_TARGET_BP))), 1, ANNOT_MAX_CHUNKS)
-	var chunk_span := maxi(1, int(ceil(float(span) / float(chunk_count))))
-	var out: Array[Dictionary] = []
-	var seen: Dictionary = {}
-	for i in range(chunk_count):
-		var chunk_start := start_bp + i * chunk_span
-		if chunk_start >= end_bp:
+func _annotation_pixel_budget() -> int:
+	var span := maxi(1, _last_end - _last_start)
+	var px := int(ceil(float(span) / maxf(0.001, _last_bp_per_px)))
+	var max_budget := clampi(_annotation_max_on_screen, ANNOT_MAX_ON_SCREEN_MIN, ANNOT_MAX_ON_SCREEN_MAX)
+	if _last_bp_per_px >= 20.0:
+		return maxi(120, int(round(float(max_budget) * 0.18)))
+	if _last_bp_per_px >= 10.0:
+		return maxi(220, int(round(float(max_budget) * 0.33)))
+	if _last_bp_per_px >= 5.0:
+		return maxi(320, int(round(float(max_budget) * 0.5)))
+	return clampi(px * 2, ANNOT_MIN_TOTAL, max_budget)
+
+func _annotation_min_feature_len_bp() -> int:
+	return maxi(1, int(ceil(3.0 * _last_bp_per_px)))
+
+func _annotation_tile_key(chr_id: int, zoom: int, tile_index: int, min_len_bp: int) -> String:
+	return "%s|%d|%d|%d|%d" % [_scope_cache_key(), chr_id, zoom, tile_index, min_len_bp]
+
+func _annotation_scope_count(chr_id: int) -> int:
+	if _seq_view_mode == SEQ_VIEW_SINGLE:
+		return int(_annotation_counts_by_chr.get(chr_id, 0))
+	var total := 0
+	for seg in _concat_segments:
+		total += int(_annotation_counts_by_chr.get(int(seg.get("id", -1)), 0))
+	return total
+
+func _annotation_preload_key(chr_id: int, min_len_bp: int) -> String:
+	return "%s|%d|%d|full" % [_scope_cache_key(), chr_id, min_len_bp]
+
+func _annotation_first_end_gt(ends: PackedInt32Array, target_start: int) -> int:
+	var lo := 0
+	var hi := ends.size()
+	while lo < hi:
+		var mid := lo + ((hi - lo) >> 1)
+		if int(ends[mid]) > target_start:
+			hi = mid
+		else:
+			lo = mid + 1
+	return lo
+
+func _annotation_first_start_ge(full: Array[Dictionary], target_end: int) -> int:
+	var lo := 0
+	var hi := full.size()
+	while lo < hi:
+		var mid := lo + ((hi - lo) >> 1)
+		if int(full[mid].get("start", 0)) >= target_end:
+			hi = mid
+		else:
+			lo = mid + 1
+	return lo
+
+func _annotation_select_spread(features_in: Array[Dictionary], start_bp: int, end_bp: int, cap_total: int) -> Array[Dictionary]:
+	if cap_total <= 0 or features_in.is_empty() or end_bp <= start_bp:
+		return []
+	var span := maxi(1, end_bp - start_bp)
+	var bin_w := maxi(1, int(ceil(float(span) / float(cap_total))))
+	var seen_bins := {}
+	var primary: Array[Dictionary] = []
+	var overflow: Array[Dictionary] = []
+	for feat in features_in:
+		var s := int(feat.get("start", 0))
+		var anchor := clampi(s, start_bp, end_bp - 1)
+		var bin_idx := int(floor(float(anchor - start_bp) / float(bin_w)))
+		var bkey := str(bin_idx)
+		if not seen_bins.get(bkey, false):
+			seen_bins[bkey] = true
+			primary.append(feat)
+		else:
+			overflow.append(feat)
+	if primary.size() >= cap_total:
+		primary.resize(cap_total)
+		return primary
+	for feat in overflow:
+		primary.append(feat)
+		if primary.size() >= cap_total:
 			break
-		var chunk_end := mini(end_bp, chunk_start + chunk_span)
-		var resp: Dictionary = _zem.get_annotations(chr_id, chunk_start, chunk_end, ANNOT_MAX_PER_CHUNK)
+	return primary
+
+func _get_annotations_window_preloaded(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
+	var min_len_bp := _annotation_min_feature_len_bp()
+	var full_count := _annotation_scope_count(chr_id)
+	if _annotation_preload_threshold <= 0 or full_count <= 0 or full_count > _annotation_preload_threshold or full_count > ANNOT_PRELOAD_MAX_RECORDS:
+		return _get_annotations_window_tiled(chr_id, start_bp, end_bp)
+	var key := _annotation_preload_key(chr_id, min_len_bp)
+	var full: Array[Dictionary] = []
+	var ends := PackedInt32Array()
+	if _annotation_preload_cache.has(key):
+		var cached_any = _annotation_preload_cache[key]
+		if typeof(cached_any) == TYPE_DICTIONARY:
+			var cached_dict: Dictionary = cached_any
+			full = cached_dict.get("features", [])
+			ends = cached_dict.get("ends", PackedInt32Array())
+		else:
+			full = cached_any
+	else:
+		var resp: Dictionary = _zem.get_annotations(chr_id, 0, 0x7fffffff, clampi(full_count + 16, 1, ANNOT_PRELOAD_MAX_RECORDS), min_len_bp)
 		if not resp.get("ok", false):
 			return resp
-		for f in resp.get("features", []):
+		full = resp.get("features", [])
+		full.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return int(a.get("start", 0)) < int(b.get("start", 0))
+		)
+		ends.resize(full.size())
+		var running_max_end := -2147483648
+		for i in range(full.size()):
+			running_max_end = maxi(running_max_end, int(full[i].get("end", 0)))
+			ends[i] = running_max_end
+		_annotation_preload_cache[key] = {"features": full, "ends": ends}
+	if ends.size() != full.size() or (ends.size() > 1 and int(ends[ends.size() - 1]) < int(ends[0])):
+		ends.resize(full.size())
+		var running_max_end_fix := -2147483648
+		for i in range(full.size()):
+			running_max_end_fix = maxi(running_max_end_fix, int(full[i].get("end", 0)))
+			ends[i] = running_max_end_fix
+	var cap_total := _annotation_pixel_budget()
+	var i0 := _annotation_first_end_gt(ends, start_bp)
+	var i1 := _annotation_first_start_ge(full, end_bp)
+	if i1 <= i0:
+		return {"ok": true, "features": []}
+	var overlap: Array[Dictionary] = []
+	for i in range(i0, i1):
+		var feat := full[i]
+		var feat_start := int(feat.get("start", 0))
+		var feat_end := int(feat.get("end", feat_start))
+		if feat_end <= start_bp or feat_start >= end_bp:
+			continue
+		overlap.append(feat)
+	var out := _annotation_select_spread(overlap, start_bp, end_bp, cap_total)
+	return {"ok": true, "features": out}
+
+func _get_annotations_window_tiled(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
+	var t0 := Time.get_ticks_usec()
+	if end_bp <= start_bp:
+		return {"ok": true, "features": []}
+	var zoom := _compute_tile_zoom(_last_bp_per_px)
+	var tile_w := ANNOT_TILE_BASE_BP << zoom
+	var tile_start := int(floor(float(start_bp) / float(tile_w)))
+	var tile_end := int(floor(float(maxi(end_bp - 1, start_bp)) / float(tile_w)))
+	if tile_end < tile_start:
+		tile_end = tile_start
+	var tile_count := tile_end - tile_start + 1
+	if tile_count > ANNOT_MAX_TILES:
+		tile_count = ANNOT_MAX_TILES
+		tile_end = tile_start + tile_count - 1
+	var min_len_bp := _annotation_min_feature_len_bp()
+	var cap_total := _annotation_pixel_budget()
+	var cap_per_tile := clampi(int(ceil(float(cap_total) / float(maxi(1, tile_count)) * 1.5)), 128, cap_total)
+	var out: Array[Dictionary] = []
+	var seen: Dictionary = {}
+	for t in range(tile_start, tile_end + 1):
+		if _debug_enabled:
+			_dbg_ann_tile_requests += 1
+		var t_start := t * tile_w
+		var t_end := t_start + tile_w
+		var key := _annotation_tile_key(chr_id, zoom, t, min_len_bp)
+		var cached: Array[Dictionary] = []
+		if _annotation_tile_cache.has(key):
+			cached = _annotation_tile_cache[key]
+			if _debug_enabled:
+				_dbg_ann_tile_cache_hits += 1
+		if cached.is_empty():
+			var resp: Dictionary = _zem.get_annotations(chr_id, t_start, t_end, cap_per_tile, min_len_bp)
+			if not resp.get("ok", false):
+				return resp
+			cached = resp.get("features", [])
+			if _debug_enabled:
+				_dbg_ann_tile_queries += 1
+			if _annotation_tile_cache.size() >= ANNOT_TILE_CACHE_MAX_ENTRIES:
+				_annotation_tile_cache.clear()
+			_annotation_tile_cache[key] = cached
+		if _debug_enabled:
+			_dbg_ann_features_examined += cached.size()
+		for f in cached:
 			var feat: Dictionary = f
-			var key := _feature_dedupe_key(feat)
-			if seen.get(key, false):
+			var feat_start := int(feat.get("start", 0))
+			var feat_end := int(feat.get("end", feat_start))
+			if feat_end <= start_bp or feat_start >= end_bp:
 				continue
-			seen[key] = true
+			var key_f := _feature_dedupe_key(feat)
+			if seen.get(key_f, false):
+				continue
+			seen[key_f] = true
 			out.append(feat)
-			if out.size() >= ANNOT_MAX_TOTAL:
+			if out.size() >= cap_total:
 				out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 					var sa := int(a.get("start", 0))
 					var sb := int(b.get("start", 0))
@@ -1210,6 +1501,9 @@ func _get_annotations_window_paged(chr_id: int, start_bp: int, end_bp: int) -> D
 						return int(a.get("end", sa)) < int(b.get("end", sb))
 					return sa < sb
 				)
+				if _debug_enabled:
+					_dbg_ann_features_out += out.size()
+					_dbg_ann_fetch_time_ms += float(Time.get_ticks_usec() - t0) / 1000.0
 				return {"ok": true, "features": out}
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var sa := int(a.get("start", 0))
@@ -1218,6 +1512,9 @@ func _get_annotations_window_paged(chr_id: int, start_bp: int, end_bp: int) -> D
 			return int(a.get("end", sa)) < int(b.get("end", sb))
 		return sa < sb
 	)
+	if _debug_enabled:
+		_dbg_ann_features_out += out.size()
+		_dbg_ann_fetch_time_ms += float(Time.get_ticks_usec() - t0) / 1000.0
 	return {"ok": true, "features": out}
 
 func _feature_dedupe_key(feature: Dictionary) -> String:
@@ -1383,6 +1680,7 @@ func _reset_loaded_state() -> void:
 	_has_bam_loaded = false
 	_has_fasta_loaded = false
 	_chromosomes.clear()
+	_annotation_counts_by_chr.clear()
 	_concat_segments.clear()
 	_seq_option.clear()
 	_selected_seq_id = -1
@@ -1392,10 +1690,12 @@ func _reset_loaded_state() -> void:
 	_slide_feature_panel(false, false)
 	genome_view.clear_all_data()
 
-func _is_viewport_cached(start_bp: int, end_bp: int, zoom: int, mode: int, scope_key: String) -> bool:
+func _is_viewport_cached(start_bp: int, end_bp: int, zoom: int, mode: int, need_reference: bool, scope_key: String) -> bool:
 	if _cache_start < 0 || _cache_end < 0:
 		return false
 	if _cache_zoom != zoom or _cache_mode != mode:
+		return false
+	if _cache_need_reference != need_reference:
 		return false
 	if _cache_scope_key != scope_key:
 		return false
@@ -1464,6 +1764,11 @@ func _load_or_init_config() -> void:
 	genome_view.set_colorize_nucleotides(_colorize_nucleotides)
 	_gc_window_bp = int(cfg.get_value("ui", "gc_window_bp", DEFAULT_GC_WINDOW_BP))
 	_gc_window_bp = clampi(_gc_window_bp, 1, 1000000)
+	_annotation_preload_threshold = clampi(int(cfg.get_value("ui", "annotation_preload_threshold", ANNOT_PRELOAD_THRESHOLD_DEFAULT)), 0, ANNOT_PRELOAD_MAX_RECORDS)
+	if _annot_preload_spin != null:
+		_annot_preload_spin.value = _annotation_preload_threshold
+	_annotation_max_on_screen = clampi(int(cfg.get_value("ui", "annotation_max_on_screen", ANNOT_MAX_ON_SCREEN_DEFAULT)), ANNOT_MAX_ON_SCREEN_MIN, ANNOT_MAX_ON_SCREEN_MAX)
+	genome_view.set_annotation_max_on_screen(_annotation_max_on_screen)
 	_gc_plot_y_mode = clampi(int(cfg.get_value("ui", "gc_plot_y_mode", PLOT_Y_UNIT)), PLOT_Y_UNIT, PLOT_Y_FIXED)
 	_gc_plot_y_min = float(cfg.get_value("ui", "gc_plot_y_min", 0.0))
 	_gc_plot_y_max = float(cfg.get_value("ui", "gc_plot_y_max", 1.0))
@@ -1475,6 +1780,11 @@ func _load_or_init_config() -> void:
 	var frag_log := bool(cfg.get_value("ui", "fragment_log_scale", false))
 	_fragment_log_checkbox.button_pressed = frag_log
 	genome_view.set_fragment_log_scale(frag_log)
+	_debug_enabled = bool(cfg.get_value("ui", "debug_enabled", false))
+	if _debug_toggle != null:
+		_debug_toggle.button_pressed = _debug_enabled
+	if _debug_stats_label != null:
+		_debug_stats_label.visible = _debug_enabled
 	_refresh_track_order_list(genome_view.get_track_order())
 
 func _select_theme_option(theme_name: String) -> void:
@@ -1498,6 +1808,8 @@ func _save_config() -> void:
 	cfg.set_value("ui", "show_full_length_regions", _show_full_length_regions)
 	cfg.set_value("ui", "colorize_nucleotides", _colorize_nucleotides)
 	cfg.set_value("ui", "gc_window_bp", _gc_window_bp)
+	cfg.set_value("ui", "annotation_preload_threshold", _annotation_preload_threshold)
+	cfg.set_value("ui", "annotation_max_on_screen", _annotation_max_on_screen)
 	cfg.set_value("ui", "gc_plot_y_mode", _gc_plot_y_mode)
 	cfg.set_value("ui", "gc_plot_y_min", _gc_plot_y_min)
 	cfg.set_value("ui", "gc_plot_y_max", _gc_plot_y_max)
@@ -1505,6 +1817,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "depth_plot_y_min", _depth_plot_y_min)
 	cfg.set_value("ui", "depth_plot_y_max", _depth_plot_y_max)
 	cfg.set_value("ui", "fragment_log_scale", _fragment_log_checkbox.button_pressed)
+	cfg.set_value("ui", "debug_enabled", _debug_enabled)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
 	cfg.set_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value)
 	cfg.save(CONFIG_PATH)
