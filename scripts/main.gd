@@ -1211,7 +1211,7 @@ func _find_zem_source(bin_name: String) -> String:
 	var packaged := "res://bin/%s" % bin_name
 	if FileAccess.file_exists(packaged):
 		return packaged
-	var dev_abs := ProjectSettings.globalize_path("res://../zem/%s" % bin_name)
+	var dev_abs := ProjectSettings.globalize_path("res://zem/%s" % bin_name)
 	if FileAccess.file_exists(dev_abs):
 		return dev_abs
 	return ""

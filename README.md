@@ -11,7 +11,7 @@ On startup, seqhiker now installs `zem` into Godot user data:
 Startup install source order:
 
 1. `res://bin/zem` (or `zem.exe`) for packaged builds
-2. `../zem/zem` (or `zem.exe`) when running from the repo
+2. `res://zem/zem` (or `zem.exe`) when running from the repo
 
 When connecting to `localhost`/`127.0.0.1`, seqhiker will auto-start the installed local `zem` if not already running.
 
