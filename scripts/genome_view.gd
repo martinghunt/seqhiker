@@ -109,7 +109,8 @@ var palette: Dictionary = {
 	"snp_text": Color("ffffff"),
 	"aa_forward": Color("8a4fff"),
 	"aa_reverse": Color("f39237"),
-	"feature": Color("c53211")
+	"feature": Color("dce8f7"),
+	"feature_text": Color("1e3557")
 }
 
 var _pan_tween: Tween
@@ -1098,8 +1099,8 @@ func _draw_aa_tracks(area: Rect2) -> void:
 				continue
 			density_bins[dkey] = true
 		var rect := Rect2(Vector2(fx0, fy), Vector2(feature_w, AA_ROW_H - 8.0))
-		var feature_col: Color = (palette["feature"] as Color).lerp(Color.WHITE, 0.45)
-		feature_col.a = 0.4
+		var feature_col: Color = palette["feature"]
+		feature_col.a = 1.0
 		draw_rect(rect, feature_col, true)
 		drawn += 1
 		var click_rect := rect.grow(3.0) if show_feature_detail else rect
@@ -1117,7 +1118,8 @@ func _draw_aa_tracks(area: Rect2) -> void:
 				var draw_w := minf(label_w, text_w)
 				var label_rect := Rect2(Vector2(rect.position.x + 4.0, rect.position.y + 2.0), Vector2(draw_w, AA_ROW_H - 8.0))
 				if not _intersects_any(label_rect, frame_label_boxes[frame]):
-					draw_string(font, Vector2(rect.position.x + 4.0, rect.position.y + 14.0), label, HORIZONTAL_ALIGNMENT_LEFT, label_w, font_size, _axis_text_color())
+					var ann_text_col: Color = palette.get("feature_text", _axis_text_color())
+					draw_string(font, Vector2(rect.position.x + 4.0, rect.position.y + 14.0), label, HORIZONTAL_ALIGNMENT_LEFT, label_w, font_size, ann_text_col)
 					frame_label_boxes[frame].append(label_rect)
 					labels += 1
 

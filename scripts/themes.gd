@@ -28,7 +28,8 @@ const THEMES := {
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("8a4fff"),
 		"aa_reverse": Color("f39237"),
-		"feature": Color("c53211")
+		"feature": Color("dce8f7"),
+		"feature_text": Color("1e3557")
 	},
 	"Forest": {
 		"bg": Color("eaf4e5"),
@@ -56,7 +57,8 @@ const THEMES := {
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("588157"),
 		"aa_reverse": Color("bc4749"),
-		"feature": Color("6f1d1b")
+		"feature": Color("c8dfc0"),
+		"feature_text": Color("1f3a24")
 	},
 	"Slate": {
 		"bg": Color("e8edf2"),
@@ -84,7 +86,8 @@ const THEMES := {
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("5c6784"),
 		"aa_reverse": Color("f4a259"),
-		"feature": Color("d7263d")
+		"feature": Color("c6d6ec"),
+		"feature_text": Color("1f3654")
 	},
 	"Dark": {
 		"bg": Color("1a1d22"),
@@ -112,7 +115,8 @@ const THEMES := {
 		"snp_text": Color("111111"),
 		"aa_forward": Color("b392f0"),
 		"aa_reverse": Color("ffb86b"),
-		"feature": Color("ff7b72")
+		"feature": Color("2e466e"),
+		"feature_text": Color("eaf2ff")
 	},
 	"Solarized Light": {
 		"bg": Color("fdf6e3"),
@@ -140,7 +144,8 @@ const THEMES := {
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
 		"aa_reverse": Color("cb4b16"),
-		"feature": Color("dc322f")
+		"feature": Color("dcecf6"),
+		"feature_text": Color("1f5d85")
 	},
 	"Solarized Dark": {
 		"bg": Color("002b36"),
@@ -168,7 +173,8 @@ const THEMES := {
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
 		"aa_reverse": Color("cb4b16"),
-		"feature": Color("dc322f")
+		"feature": Color("12455f"),
+		"feature_text": Color("dceef8")
 	}
 }
 
@@ -204,7 +210,8 @@ func genome_palette(theme_name: String) -> Dictionary:
 		"snp_text": p["snp_text"],
 		"aa_forward": p["aa_forward"],
 		"aa_reverse": p["aa_reverse"],
-		"feature": p["feature"]
+		"feature": p["feature"],
+		"feature_text": p["feature_text"]
 	}
 
 func make_theme(theme_name: String, font_size: int) -> Theme:
