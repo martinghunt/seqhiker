@@ -281,7 +281,8 @@ func _connect_ui() -> void:
 	genome_view.track_settings_requested.connect(_on_track_settings_requested)
 	genome_view.track_order_changed.connect(_on_track_order_changed)
 	genome_view.track_visibility_changed.connect(_on_track_visibility_changed)
-	ui_scale_slider.value_changed.connect(_on_ui_scale_changed)
+	ui_scale_slider.value_changed.connect(_on_ui_scale_value_changed)
+	ui_scale_slider.drag_ended.connect(_on_ui_scale_drag_ended)
 	trackpad_pan_slider.value_changed.connect(_on_trackpad_pan_changed)
 	trackpad_pinch_slider.value_changed.connect(_on_trackpad_pinch_changed)
 	play_speed_slider.value_changed.connect(_on_play_speed_changed)
@@ -436,6 +437,12 @@ func _slide_feature_panel(open: bool, animated: bool) -> void:
 	else:
 		feature_panel.offset_left = target_left
 		feature_panel.offset_right = target_right
+
+func _on_ui_scale_value_changed(value: float) -> void:
+	ui_scale_value.text = "%.2fx" % value
+
+func _on_ui_scale_drag_ended(_value_changed: bool) -> void:
+	_on_ui_scale_changed(ui_scale_slider.value)
 
 func _on_ui_scale_changed(value: float) -> void:
 	get_window().content_scale_factor = value
