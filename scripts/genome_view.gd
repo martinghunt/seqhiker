@@ -1279,7 +1279,7 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 		var label_x := x0 + 4.0
 		var label_w := maxf(0.0, x1 - x0 - 8.0)
 		if label_w > 12.0:
-			draw_string(get_theme_default_font(), Vector2(label_x, top_y + 16.0), chr_label, HORIZONTAL_ALIGNMENT_LEFT, label_w, _font_size_medium, _axis_text_color())
+			draw_string(get_theme_default_font(), Vector2(label_x, top_y + 10.0), chr_label, HORIZONTAL_ALIGNMENT_LEFT, label_w, _font_size_medium, _axis_text_color())
 
 	var span := _plot_width() * bp_per_px
 	if span <= 0:
@@ -1355,7 +1355,7 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 		var label := str(tick_info.get("label", ""))
 		var x := float(tick_info.get("x", 0.0))
 		var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		draw_string(font, Vector2(x - label_w * 0.5, top_y + 54.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
+		draw_string(font, Vector2(x - label_w * 0.5, top_y + 49.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
 
 func _bp_in_concat_segment(bp: int) -> bool:
 	for seg in concat_segments:
@@ -1380,7 +1380,7 @@ func _draw_ticks(top_y: float, line_y: float) -> void:
 			var font := get_theme_default_font()
 			var font_size := _font_size_small
 			var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-			draw_string(font, Vector2(x - label_w * 0.5, top_y + 54), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
+			draw_string(font, Vector2(x - label_w * 0.5, top_y + 49), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
 		tick += int(tick_step)
 
 func _draw_grid(area: Rect2) -> void:
