@@ -8,6 +8,7 @@ signal track_settings_requested(track_id: String)
 signal track_order_changed(order: PackedStringArray)
 signal track_visibility_changed(track_id: String, visible: bool)
 signal region_selected(start_bp: int, end_bp: int)
+signal region_selection_changed(active: bool, start_bp: int, end_bp: int)
 
 const AA_ROW_H := 26.0
 const AA_ROW_GAP := 3.0
@@ -503,6 +504,8 @@ func _draw_region_selection(track_rects: Dictionary) -> void:
 		return
 	var bp0 := mini(_region_select_start_edge, _region_select_end_edge)
 	var bp1 := maxi(_region_select_start_edge, _region_select_end_edge)
+	if bp1 <= bp0:
+		return
 	var x0 := clampf(_bp_to_screen_edge(bp0), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
 	var x1 := clampf(_bp_to_screen_edge(bp1), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
 	var w := maxf(1.0, x1 - x0)
@@ -1549,15 +1552,15 @@ func _gui_input(event: InputEvent) -> void:
 					emit_signal("feature_clicked", hit_any["feature"])
 					accept_event()
 					return
-		if _can_start_region_selection(mouse_pos):
-			var edge := _x_to_bp_edge(mouse_pos.x)
-			_region_select_dragging = true
-			_region_select_has_selection = true
-			_region_select_start_edge = edge
-			_region_select_end_edge = edge
-			queue_redraw()
-			accept_event()
-			return
+			if _can_start_region_selection(mouse_pos):
+				var edge := _x_to_bp_edge(mouse_pos.x)
+				_region_select_dragging = true
+				_region_select_has_selection = false
+				_region_select_start_edge = edge
+				_region_select_end_edge = edge
+				queue_redraw()
+				accept_event()
+				return
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 		if _track_drag_active:
 			var from_idx := _track_order.find(_track_drag_track_id)
@@ -1576,13 +1579,7 @@ func _gui_input(event: InputEvent) -> void:
 			accept_event()
 			return
 		if _region_select_dragging:
-			_region_select_dragging = false
-			var bp0 := mini(_region_select_start_edge, _region_select_end_edge)
-			var bp1 := maxi(_region_select_start_edge, _region_select_end_edge)
-			if bp1 <= bp0:
-				_region_select_has_selection = false
-			else:
-				emit_signal("region_selected", bp0, bp1)
+			_finish_region_selection_drag()
 			queue_redraw()
 			accept_event()
 			return
@@ -1592,7 +1589,22 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 		return
 	elif event is InputEventMouseMotion and _region_select_dragging:
+		var motion := event as InputEventMouseMotion
+		if (motion.button_mask & MOUSE_BUTTON_MASK_LEFT) == 0:
+			_finish_region_selection_drag()
+			queue_redraw()
+			accept_event()
+			return
 		_region_select_end_edge = _x_to_bp_edge(event.position.x)
+		var bp0 := mini(_region_select_start_edge, _region_select_end_edge)
+		var bp1 := maxi(_region_select_start_edge, _region_select_end_edge)
+		if bp1 > bp0:
+			var end_inclusive := bp1 - 1
+			_region_select_has_selection = true
+			emit_signal("region_selection_changed", true, bp0, end_inclusive)
+		else:
+			_region_select_has_selection = false
+			emit_signal("region_selection_changed", false, 0, 0)
 		queue_redraw()
 		accept_event()
 		return
@@ -1617,6 +1629,21 @@ func _pan_by_pixels(delta_x: float) -> void:
 	view_start_bp = _clamp_start(view_start_bp + delta_x * bp_per_px)
 	queue_redraw()
 	_emit_viewport_changed()
+
+func _finish_region_selection_drag() -> void:
+	_region_select_dragging = false
+	var bp0 := mini(_region_select_start_edge, _region_select_end_edge)
+	var bp1 := maxi(_region_select_start_edge, _region_select_end_edge)
+	if bp1 > bp0:
+		_region_select_has_selection = true
+		_region_select_start_edge = bp0
+		_region_select_end_edge = bp1
+		var end_inclusive := bp1 - 1
+		emit_signal("region_selected", bp0, end_inclusive)
+		emit_signal("region_selection_changed", true, bp0, end_inclusive)
+	else:
+		_region_select_has_selection = false
+		emit_signal("region_selection_changed", false, 0, 0)
 
 func auto_scroll_bp(delta_bp: float) -> bool:
 	if _plot_width() <= 0:

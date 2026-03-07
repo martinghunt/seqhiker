@@ -98,6 +98,9 @@ var _current_chr_len := 0
 var _last_start := 0
 var _last_end := 0
 var _last_bp_per_px := 8.0
+var _selection_active := false
+var _selection_start := 0
+var _selection_end := 0
 var _has_bam_loaded := false
 var _center_strand_scroll_pending := false
 var _has_fasta_loaded := false
@@ -246,6 +249,7 @@ func _connect_ui() -> void:
 	genome_view.viewport_changed.connect(_on_viewport_changed)
 	genome_view.feature_clicked.connect(_on_feature_clicked)
 	genome_view.read_clicked.connect(_on_read_clicked)
+	genome_view.region_selection_changed.connect(_on_region_selection_changed)
 	genome_view.track_settings_requested.connect(_on_track_settings_requested)
 	genome_view.track_order_changed.connect(_on_track_order_changed)
 	genome_view.track_visibility_changed.connect(_on_track_visibility_changed)
@@ -299,7 +303,7 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_start = start_bp
 	_last_end = end_bp
 	_last_bp_per_px = bp_per_px
-	viewport_label.text = "%s:%d - %d bp  |  %.2f bp/px" % [_current_chr_name, start_bp, end_bp, bp_per_px]
+	viewport_label.text = _format_viewport_label(start_bp, end_bp, bp_per_px)
 	var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
 	var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
 	var need_reference: bool = bool(genome_view.needs_reference_data(show_aa, show_genome))
@@ -315,6 +319,55 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 			needs_fetch = true
 		if needs_fetch:
 			_schedule_fetch()
+
+func _format_viewport_label(start_bp: int, end_bp: int, bp_per_px: float) -> String:
+	var coord_start := start_bp
+	var coord_end := end_bp
+	var span_bp := maxi(0, end_bp - start_bp)
+	var span_text := "visible"
+	if _selection_active:
+		coord_start = _selection_start
+		coord_end = _selection_end
+		span_bp = maxi(0, _selection_end - _selection_start + 1)
+		span_text = "selected"
+	if _seq_view_mode != SEQ_VIEW_CONCAT:
+		return "%s:%d - %d bp  |  %d bp %s  |  %.2f bp/px" % [_current_chr_name, coord_start, coord_end, span_bp, span_text, bp_per_px]
+	var overlaps := _segments_overlapping(coord_start, coord_end)
+	if overlaps.is_empty():
+		return "concat:%d - %d bp  |  %d bp %s  |  %.2f bp/px" % [coord_start, coord_end, span_bp, span_text, bp_per_px]
+	if overlaps.size() == 1:
+		var seg := overlaps[0]
+		return "%s:%d - %d bp  |  %d bp %s  |  %.2f bp/px" % [
+			str(seg.get("name", "chr")),
+			int(seg.get("local_start", 0)),
+			int(seg.get("local_end", 0)),
+			span_bp,
+			span_text,
+			bp_per_px
+		]
+	var first := overlaps[0]
+	var last := overlaps[overlaps.size() - 1]
+	var prefix := "%s:%d-%d | %s:%d-%d" % [
+		str(first.get("name", "chr")),
+		int(first.get("local_start", 0)),
+		int(first.get("local_end", 0)),
+		str(last.get("name", "chr")),
+		int(last.get("local_start", 0)),
+		int(last.get("local_end", 0))
+	]
+	if overlaps.size() > 2:
+		prefix += " (+%d)" % (overlaps.size() - 2)
+	return "%s  |  %d bp %s  |  %.2f bp/px" % [prefix, span_bp, span_text, bp_per_px]
+
+func _on_region_selection_changed(active: bool, start_bp: int, end_bp: int) -> void:
+	_selection_active = active
+	if active:
+		_selection_start = mini(start_bp, end_bp)
+		_selection_end = maxi(start_bp, end_bp)
+	else:
+		_selection_start = 0
+		_selection_end = 0
+	viewport_label.text = _format_viewport_label(_last_start, _last_end, _last_bp_per_px)
 
 func _toggle_settings() -> void:
 	_settings_open = not _settings_open
