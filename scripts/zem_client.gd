@@ -205,7 +205,7 @@ func _decode_error_string(payload: PackedByteArray) -> String:
 	var ln := payload.decode_u16(0)
 	if payload.size() < 2 + ln:
 		return "Malformed server error"
-	return payload.slice(2, 2 + ln).get_string_from_utf8()
+	return _decode_wire_text(payload.slice(2, 2 + ln))
 
 func _describe_stream_error(err: int) -> String:
 	match err:
@@ -233,7 +233,7 @@ func _parse_chromosomes(payload: PackedByteArray) -> Array[Dictionary]:
 		off += 8
 		if off + name_len > payload.size():
 			break
-		var name := payload.slice(off, off + name_len).get_string_from_utf8()
+		var name := _decode_wire_text(payload.slice(off, off + name_len))
 		off += name_len
 		out.append({"id": chr_id, "length": length, "name": name})
 	return out
@@ -277,7 +277,7 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 		off += 26
 		if off + name_len > payload.size():
 			break
-		var read_name := payload.slice(off, off + name_len).get_string_from_utf8()
+		var read_name := _decode_wire_text(payload.slice(off, off + name_len))
 		off += name_len
 		if off + 2 > payload.size():
 			break
@@ -285,7 +285,7 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 		off += 2
 		if off + cigar_len > payload.size():
 			break
-		var cigar := payload.slice(off, off + cigar_len).get_string_from_utf8()
+		var cigar := _decode_wire_text(payload.slice(off, off + cigar_len))
 		off += cigar_len
 		var snps := PackedInt32Array()
 		var snp_bases := PackedByteArray()
@@ -381,7 +381,7 @@ func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:
 		off += 12
 		if off + seq_name_len > payload.size():
 			break
-		var seq_name := payload.slice(off, off + seq_name_len).get_string_from_utf8()
+		var seq_name := _decode_wire_text(payload.slice(off, off + seq_name_len))
 		off += seq_name_len
 		if off + 2 > payload.size():
 			break
@@ -389,7 +389,7 @@ func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:
 		off += 2
 		if off + src_len > payload.size():
 			break
-		var source := payload.slice(off, off + src_len).get_string_from_utf8()
+		var source := _decode_wire_text(payload.slice(off, off + src_len))
 		off += src_len
 		if off + 2 > payload.size():
 			break
@@ -397,7 +397,7 @@ func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:
 		off += 2
 		if off + type_len > payload.size():
 			break
-		var feature_type := payload.slice(off, off + type_len).get_string_from_utf8()
+		var feature_type := _decode_wire_text(payload.slice(off, off + type_len))
 		off += type_len
 		if off + 2 > payload.size():
 			break
@@ -405,7 +405,7 @@ func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:
 		off += 2
 		if off + attr_len > payload.size():
 			break
-		var attrs := payload.slice(off, off + attr_len).get_string_from_utf8()
+		var attrs := _decode_wire_text(payload.slice(off, off + attr_len))
 		off += attr_len
 		var name := _extract_first_attr(attrs, DISPLAY_NAME_KEYS)
 		var feature_id := _extract_first_attr(attrs, ["ID="])
@@ -431,12 +431,16 @@ func _parse_reference_slice(payload: PackedByteArray) -> Dictionary:
 	var seq_len: int = int(payload.decode_u32(8))
 	if payload.size() < 12 + seq_len:
 		seq_len = max(0, payload.size() - 12)
-	var seq: String = payload.slice(12, 12 + seq_len).get_string_from_utf8()
+	var seq: String = _decode_wire_text(payload.slice(12, 12 + seq_len))
 	return {
 		"slice_start": start_bp,
 		"slice_end": end_bp,
 		"sequence": seq
 	}
+
+func _decode_wire_text(bytes: PackedByteArray) -> String:
+	# Protocol text fields are expected ASCII; decode permissively to avoid UTF-8 warning floods.
+	return bytes.get_string_from_ascii()
 
 func _extract_name(attrs: String, fallback: String) -> String:
 	for key: String in NAME_KEYS:

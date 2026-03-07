@@ -4,6 +4,7 @@ const ThemesLibScript = preload("res://scripts/themes.gd")
 const ZemClientScript = preload("res://scripts/zem_client.gd")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const READ_DETAIL_MAX_ZOOM := 7
+const READ_RENDER_MAX_BP_PER_PX := 128.0
 const DEFAULT_CONCAT_GAP_BP := 50
 const DEFAULT_READ_THICKNESS := 8.0
 const ANNOT_TILE_BASE_BP := 1024
@@ -272,14 +273,16 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_end = end_bp
 	_last_bp_per_px = bp_per_px
 	viewport_label.text = "%s:%d - %d bp  |  %.2f bp/px" % [_current_chr_name, start_bp, end_bp, bp_per_px]
+	var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
+	var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
+	var need_reference: bool = bool(genome_view.needs_reference_data(show_aa, show_genome))
 	if genome_view.is_zoom_animating():
+		if need_reference and not _cache_need_reference:
+			_schedule_fetch()
 		return
 	if _current_chr_len > 0:
-		var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
-		var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
-		var need_reference: bool = bool(genome_view.needs_reference_data(show_aa, show_genome))
 		var zoom := _compute_tile_zoom(bp_per_px)
-		var mode := 0 if (_has_bam_loaded and zoom <= READ_DETAIL_MAX_ZOOM) else 1
+		var mode := 0 if (_has_bam_loaded and bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
 		var needs_fetch := not _is_viewport_cached(start_bp, end_bp, zoom, mode, need_reference, _scope_cache_key())
 		if _auto_play_enabled and _is_near_cache_right_edge(start_bp, end_bp):
 			needs_fetch = true
@@ -1166,50 +1169,47 @@ func _refresh_visible_data() -> void:
 	var features: Array[Dictionary] = []
 	var ref_start := query_start
 	var ref_sequence := ""
+	var frame_read_tile_cache := {}
+	var frame_cov_tile_cache := {}
+	var frame_gc_tile_cache := {}
 
 	if _seq_view_mode == SEQ_VIEW_SINGLE:
-		if _has_bam_loaded and show_reads:
-			var zoom := _compute_tile_zoom(_last_bp_per_px)
+		var zoom := _compute_tile_zoom(_last_bp_per_px)
+		if _has_bam_loaded and show_reads and _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX:
 			var tile_width := 1024 << zoom
 			var tile_start := int(floor(float(query_start) / float(tile_width)))
-			var tile_end := int(floor(float(query_end) / float(tile_width)))
-			if zoom <= READ_DETAIL_MAX_ZOOM:
-				for t in range(tile_start, tile_end + 1):
-					var tile_resp: Dictionary = _zem.get_tile(_current_chr_id, zoom, t)
-					if not tile_resp.get("ok", false):
-						_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
-						return
-					all_reads.append_array(tile_resp.get("reads", []))
-			else:
-				for t in range(tile_start, tile_end + 1):
-					var cov_resp: Dictionary = _zem.get_coverage_tile(_current_chr_id, zoom, t)
-					if not cov_resp.get("ok", false):
-						_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
-						return
-					all_coverage_tiles.append(cov_resp.get("coverage", {}))
+			var tile_end := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width)))
+			for t in range(tile_start, tile_end + 1):
+				var tile_resp: Dictionary = _frame_get_read_tile(frame_read_tile_cache, _current_chr_id, zoom, t)
+				if not tile_resp.get("ok", false):
+					_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
+					return
+				all_reads.append_array(tile_resp.get("reads", []))
+		if _has_bam_loaded and ((show_reads and _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX) or show_depth_plot):
+			var tile_width_cov := 1024 << zoom
+			var tile_start_cov := int(floor(float(query_start) / float(tile_width_cov)))
+			var tile_end_cov := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width_cov)))
+			for t in range(tile_start_cov, tile_end_cov + 1):
+				var cov_resp: Dictionary = _frame_get_coverage_tile(frame_cov_tile_cache, _current_chr_id, zoom, t)
+				if not cov_resp.get("ok", false):
+					_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
+					return
+				var cov_tile: Dictionary = cov_resp.get("coverage", {})
+				if show_reads and _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
+					all_coverage_tiles.append(cov_tile)
+				if show_depth_plot:
+					all_depth_plot_tiles.append(_coverage_to_plot_tile(cov_tile))
 		if show_gc_plot:
 			var zoom_plot := _compute_tile_zoom(_last_bp_per_px)
 			var tile_width_plot := 1024 << zoom_plot
 			var tile_start_plot := int(floor(float(query_start) / float(tile_width_plot)))
-			var tile_end_plot := int(floor(float(query_end) / float(tile_width_plot)))
+			var tile_end_plot := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width_plot)))
 			for t in range(tile_start_plot, tile_end_plot + 1):
-				var plot_resp: Dictionary = _zem.get_gc_plot_tile(_current_chr_id, zoom_plot, t, _gc_window_bp)
+				var plot_resp: Dictionary = _frame_get_gc_plot_tile(frame_gc_tile_cache, _current_chr_id, zoom_plot, t, _gc_window_bp)
 				if not plot_resp.get("ok", false):
 					_set_status("GC plot query failed: %s" % plot_resp.get("error", "error"), true)
 					return
 				all_gc_plot_tiles.append(plot_resp.get("plot", {}))
-		if show_depth_plot and _has_bam_loaded:
-			var zoom_plot := _compute_tile_zoom(_last_bp_per_px)
-			var tile_width_plot := 1024 << zoom_plot
-			var tile_start_plot := int(floor(float(query_start) / float(tile_width_plot)))
-			var tile_end_plot := int(floor(float(query_end) / float(tile_width_plot)))
-			for t in range(tile_start_plot, tile_end_plot + 1):
-				var cov_resp_plot: Dictionary = _zem.get_coverage_tile(_current_chr_id, zoom_plot, t)
-				if not cov_resp_plot.get("ok", false):
-					_set_status("Depth query failed: %s" % cov_resp_plot.get("error", "error"), true)
-					return
-				all_depth_plot_tiles.append(_coverage_to_plot_tile(cov_resp_plot.get("coverage", {})))
-
 		if show_aa:
 			var ann_resp := _get_annotations_window_preloaded(_current_chr_id, query_start, query_end)
 			if not ann_resp.get("ok", false):
@@ -1233,50 +1233,43 @@ func _refresh_visible_data() -> void:
 			var offset := int(ov["offset"])
 			var local_start := int(ov["local_start"])
 			var local_end := int(ov["local_end"])
-			if _has_bam_loaded and show_reads:
+			if _has_bam_loaded and show_reads and _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX:
 				var tile_width := 1024 << zoom
 				var tile_start := int(floor(float(local_start) / float(tile_width)))
 				var tile_end := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width)))
-				if zoom <= READ_DETAIL_MAX_ZOOM:
-					for t in range(tile_start, tile_end + 1):
-						var tile_resp: Dictionary = _zem.get_tile(chr_id, zoom, t)
-						if not tile_resp.get("ok", false):
-							_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
-							return
-						for r in tile_resp.get("reads", []):
-							var shifted := _shift_read_coords(r, offset)
-							if int(shifted.get("end", 0)) > query_start and int(shifted.get("start", 0)) < query_end:
-								all_reads.append(shifted)
-				else:
-					for t in range(tile_start, tile_end + 1):
-						var cov_resp: Dictionary = _zem.get_coverage_tile(chr_id, zoom, t)
-						if not cov_resp.get("ok", false):
-							_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
-							return
-						var shifted_cov := _shift_coverage_coords(cov_resp.get("coverage", {}), offset)
+				for t in range(tile_start, tile_end + 1):
+					var tile_resp: Dictionary = _frame_get_read_tile(frame_read_tile_cache, chr_id, zoom, t)
+					if not tile_resp.get("ok", false):
+						_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
+						return
+					for r in tile_resp.get("reads", []):
+						var shifted := _shift_read_coords(r, offset)
+						if int(shifted.get("end", 0)) > query_start and int(shifted.get("start", 0)) < query_end:
+							all_reads.append(shifted)
+			if _has_bam_loaded and ((show_reads and _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX) or show_depth_plot):
+				var tile_width_cov := 1024 << zoom
+				var tile_start_cov := int(floor(float(local_start) / float(tile_width_cov)))
+				var tile_end_cov := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width_cov)))
+				for t in range(tile_start_cov, tile_end_cov + 1):
+					var cov_resp: Dictionary = _frame_get_coverage_tile(frame_cov_tile_cache, chr_id, zoom, t)
+					if not cov_resp.get("ok", false):
+						_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
+						return
+					var shifted_cov := _shift_coverage_coords(cov_resp.get("coverage", {}), offset)
+					if show_reads and _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
 						all_coverage_tiles.append(shifted_cov)
+					if show_depth_plot:
+						all_depth_plot_tiles.append(_coverage_to_plot_tile(shifted_cov))
 			if show_gc_plot:
 				var tile_width_plot := 1024 << zoom
 				var tile_start_plot := int(floor(float(local_start) / float(tile_width_plot)))
 				var tile_end_plot := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width_plot)))
 				for t in range(tile_start_plot, tile_end_plot + 1):
-					var plot_resp: Dictionary = _zem.get_gc_plot_tile(chr_id, zoom, t, _gc_window_bp)
+					var plot_resp: Dictionary = _frame_get_gc_plot_tile(frame_gc_tile_cache, chr_id, zoom, t, _gc_window_bp)
 					if not plot_resp.get("ok", false):
 						_set_status("GC plot query failed: %s" % plot_resp.get("error", "error"), true)
 						return
 					all_gc_plot_tiles.append(_shift_plot_coords(plot_resp.get("plot", {}), offset))
-			if show_depth_plot and _has_bam_loaded:
-				var tile_width_plot := 1024 << zoom
-				var tile_start_plot := int(floor(float(local_start) / float(tile_width_plot)))
-				var tile_end_plot := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width_plot)))
-				for t in range(tile_start_plot, tile_end_plot + 1):
-					var cov_resp_plot: Dictionary = _zem.get_coverage_tile(chr_id, zoom, t)
-					if not cov_resp_plot.get("ok", false):
-						_set_status("Depth query failed: %s" % cov_resp_plot.get("error", "error"), true)
-						return
-					var shifted_cov_plot := _shift_coverage_coords(cov_resp_plot.get("coverage", {}), offset)
-					all_depth_plot_tiles.append(_coverage_to_plot_tile(shifted_cov_plot))
-
 		for aov in ann_overlaps:
 			var a_chr_id := int(aov["id"])
 			var a_offset := int(aov["offset"])
@@ -1304,7 +1297,7 @@ func _refresh_visible_data() -> void:
 	_cache_start = query_start
 	_cache_end = query_end
 	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)
-	_cache_mode = 0 if (_has_bam_loaded and _cache_zoom <= READ_DETAIL_MAX_ZOOM) else 1
+	_cache_mode = 0 if (_has_bam_loaded and _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
 	_cache_need_reference = need_reference
 	_cache_scope_key = _scope_cache_key()
 	if _debug_enabled:
@@ -1323,7 +1316,7 @@ func _annotation_pixel_budget() -> int:
 	return clampi(px * 2, ANNOT_MIN_TOTAL, max_budget)
 
 func _annotation_min_feature_len_bp() -> int:
-	return maxi(1, int(ceil(3.0 * _last_bp_per_px)))
+	return clampi(int(ceil(1.2 * _last_bp_per_px)), 1, 200)
 
 func _annotation_tile_key(chr_id: int, zoom: int, tile_index: int, min_len_bp: int) -> String:
 	return "%s|%d|%d|%d|%d" % [_scope_cache_key(), chr_id, zoom, tile_index, min_len_bp]
@@ -1450,61 +1443,101 @@ func _get_annotations_window_tiled(chr_id: int, start_bp: int, end_bp: int) -> D
 	var tile_end := int(floor(float(maxi(end_bp - 1, start_bp)) / float(tile_w)))
 	if tile_end < tile_start:
 		tile_end = tile_start
-	var tile_count := tile_end - tile_start + 1
-	if tile_count > ANNOT_MAX_TILES:
-		tile_count = ANNOT_MAX_TILES
-		tile_end = tile_start + tile_count - 1
+	var total_tiles := tile_end - tile_start + 1
 	var min_len_bp := _annotation_min_feature_len_bp()
 	var cap_total := _annotation_pixel_budget()
-	var cap_per_tile := clampi(int(ceil(float(cap_total) / float(maxi(1, tile_count)) * 1.5)), 128, cap_total)
 	var out: Array[Dictionary] = []
 	var seen: Dictionary = {}
-	for t in range(tile_start, tile_end + 1):
-		if _debug_enabled:
-			_dbg_ann_tile_requests += 1
-		var t_start := t * tile_w
-		var t_end := t_start + tile_w
-		var key := _annotation_tile_key(chr_id, zoom, t, min_len_bp)
-		var cached: Array[Dictionary] = []
-		if _annotation_tile_cache.has(key):
-			cached = _annotation_tile_cache[key]
+	if total_tiles > ANNOT_MAX_TILES:
+		var chunk_count := ANNOT_MAX_TILES
+		var span := maxi(1, end_bp - start_bp)
+		var cap_per_chunk := clampi(int(ceil(float(cap_total) / float(maxi(1, chunk_count)) * 2.0)), 64, cap_total)
+		for i in range(chunk_count):
+			var c_start := start_bp + int(floor(float(i) * float(span) / float(chunk_count)))
+			var c_end := start_bp + int(ceil(float(i + 1) * float(span) / float(chunk_count)))
+			if c_end <= c_start:
+				c_end = c_start + 1
 			if _debug_enabled:
-				_dbg_ann_tile_cache_hits += 1
-		if cached.is_empty():
-			var resp: Dictionary = _zem.get_annotations(chr_id, t_start, t_end, cap_per_tile, min_len_bp)
-			if not resp.get("ok", false):
-				return resp
-			cached = resp.get("features", [])
-			if _debug_enabled:
+				_dbg_ann_tile_requests += 1
 				_dbg_ann_tile_queries += 1
-			if _annotation_tile_cache.size() >= ANNOT_TILE_CACHE_MAX_ENTRIES:
-				_annotation_tile_cache.clear()
-			_annotation_tile_cache[key] = cached
-		if _debug_enabled:
-			_dbg_ann_features_examined += cached.size()
-		for f in cached:
-			var feat: Dictionary = f
-			var feat_start := int(feat.get("start", 0))
-			var feat_end := int(feat.get("end", feat_start))
-			if feat_end <= start_bp or feat_start >= end_bp:
-				continue
-			var key_f := _feature_dedupe_key(feat)
-			if seen.get(key_f, false):
-				continue
-			seen[key_f] = true
-			out.append(feat)
-			if out.size() >= cap_total:
-				out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-					var sa := int(a.get("start", 0))
-					var sb := int(b.get("start", 0))
-					if sa == sb:
-						return int(a.get("end", sa)) < int(b.get("end", sb))
-					return sa < sb
-				)
+			var resp_chunk: Dictionary = _zem.get_annotations(chr_id, c_start, c_end, cap_per_chunk, min_len_bp)
+			if not resp_chunk.get("ok", false):
+				return resp_chunk
+			var chunk_feats: Array = resp_chunk.get("features", [])
+			if _debug_enabled:
+				_dbg_ann_features_examined += chunk_feats.size()
+			for f in chunk_feats:
+				var feat: Dictionary = f
+				var feat_start := int(feat.get("start", 0))
+				var feat_end := int(feat.get("end", feat_start))
+				if feat_end <= start_bp or feat_start >= end_bp:
+					continue
+				var key_f := _feature_dedupe_key(feat)
+				if seen.get(key_f, false):
+					continue
+				seen[key_f] = true
+				out.append(feat)
+				if out.size() >= cap_total:
+					out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+						var sa := int(a.get("start", 0))
+						var sb := int(b.get("start", 0))
+						if sa == sb:
+							return int(a.get("end", sa)) < int(b.get("end", sb))
+						return sa < sb
+					)
+					if _debug_enabled:
+						_dbg_ann_features_out += out.size()
+						_dbg_ann_fetch_time_ms += float(Time.get_ticks_usec() - t0) / 1000.0
+					return {"ok": true, "features": out}
+	else:
+		var tile_count := total_tiles
+		var cap_per_tile := clampi(int(ceil(float(cap_total) / float(maxi(1, tile_count)) * 1.5)), 128, cap_total)
+		for t in range(tile_start, tile_end + 1):
+			if _debug_enabled:
+				_dbg_ann_tile_requests += 1
+			var t_start := t * tile_w
+			var t_end := t_start + tile_w
+			var key := _annotation_tile_key(chr_id, zoom, t, min_len_bp)
+			var cached: Array[Dictionary] = []
+			if _annotation_tile_cache.has(key):
+				cached = _annotation_tile_cache[key]
 				if _debug_enabled:
-					_dbg_ann_features_out += out.size()
-					_dbg_ann_fetch_time_ms += float(Time.get_ticks_usec() - t0) / 1000.0
-				return {"ok": true, "features": out}
+					_dbg_ann_tile_cache_hits += 1
+			if cached.is_empty():
+				var resp: Dictionary = _zem.get_annotations(chr_id, t_start, t_end, cap_per_tile, min_len_bp)
+				if not resp.get("ok", false):
+					return resp
+				cached = resp.get("features", [])
+				if _debug_enabled:
+					_dbg_ann_tile_queries += 1
+				if _annotation_tile_cache.size() >= ANNOT_TILE_CACHE_MAX_ENTRIES:
+					_annotation_tile_cache.clear()
+				_annotation_tile_cache[key] = cached
+			if _debug_enabled:
+				_dbg_ann_features_examined += cached.size()
+			for f in cached:
+				var feat: Dictionary = f
+				var feat_start := int(feat.get("start", 0))
+				var feat_end := int(feat.get("end", feat_start))
+				if feat_end <= start_bp or feat_start >= end_bp:
+					continue
+				var key_f := _feature_dedupe_key(feat)
+				if seen.get(key_f, false):
+					continue
+				seen[key_f] = true
+				out.append(feat)
+				if out.size() >= cap_total:
+					out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+						var sa := int(a.get("start", 0))
+						var sb := int(b.get("start", 0))
+						if sa == sb:
+							return int(a.get("end", sa)) < int(b.get("end", sb))
+						return sa < sb
+					)
+					if _debug_enabled:
+						_dbg_ann_features_out += out.size()
+						_dbg_ann_fetch_time_ms += float(Time.get_ticks_usec() - t0) / 1000.0
+					return {"ok": true, "features": out}
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var sa := int(a.get("start", 0))
 		var sb := int(b.get("start", 0))
@@ -1598,6 +1631,33 @@ func _shift_plot_coords(plot: Dictionary, offset: int) -> Dictionary:
 		"values": plot.get("values", PackedFloat32Array())
 	}
 
+func _frame_tile_key(chr_id: int, zoom: int, tile_index: int, param: int = 0) -> String:
+	return "%d|%d|%d|%d" % [chr_id, zoom, tile_index, param]
+
+func _frame_get_read_tile(cache: Dictionary, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
+	var key := _frame_tile_key(chr_id, zoom, tile_index)
+	if cache.has(key):
+		return cache[key]
+	var resp: Dictionary = _zem.get_tile(chr_id, zoom, tile_index)
+	cache[key] = resp
+	return resp
+
+func _frame_get_coverage_tile(cache: Dictionary, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
+	var key := _frame_tile_key(chr_id, zoom, tile_index)
+	if cache.has(key):
+		return cache[key]
+	var resp: Dictionary = _zem.get_coverage_tile(chr_id, zoom, tile_index)
+	cache[key] = resp
+	return resp
+
+func _frame_get_gc_plot_tile(cache: Dictionary, chr_id: int, zoom: int, tile_index: int, window_len_bp: int) -> Dictionary:
+	var key := _frame_tile_key(chr_id, zoom, tile_index, window_len_bp)
+	if cache.has(key):
+		return cache[key]
+	var resp: Dictionary = _zem.get_gc_plot_tile(chr_id, zoom, tile_index, window_len_bp)
+	cache[key] = resp
+	return resp
+
 func _coverage_to_plot_tile(cov: Dictionary) -> Dictionary:
 	if cov.is_empty():
 		return {}
@@ -1647,7 +1707,7 @@ func _build_concat_reference(query_start: int, query_end: int, overlaps: Array[D
 
 func _compute_tile_zoom(bp_per_px: float) -> int:
 	var z := int(round(log(max(bp_per_px, 0.001)) / log(2.0)))
-	return clampi(z, 0, 12)
+	return clampi(z, 0, 16)
 
 func _file_list_has(path: String) -> bool:
 	for i in range(file_list.item_count):

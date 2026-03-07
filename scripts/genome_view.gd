@@ -40,6 +40,7 @@ const READ_VIEW_STRAND := 1
 const READ_VIEW_PAIRED := 2
 const READ_VIEW_FRAGMENT := 3
 const STRAND_SPLIT_LINE_WIDTH := 2.5
+const READ_RENDER_MAX_BP_PER_PX := 128.0
 const COMPLEMENT_MAP := {
 	"A": "T",
 	"T": "A",
@@ -81,7 +82,7 @@ var chromosome_length := 50000
 var view_start_bp := 0.0
 var bp_per_px := 8.0
 var min_bp_per_px := 0.02
-var max_bp_per_px := 120.0
+var max_bp_per_px := 10000.0
 
 var reads: Array[Dictionary] = []
 var coverage_tiles: Array[Dictionary] = []
@@ -467,6 +468,7 @@ func _draw() -> void:
 	_track_grab_hitboxes.clear()
 	_track_settings_hitboxes.clear()
 	_read_hitboxes.clear()
+	_feature_hitboxes.clear()
 	var track_rects := _track_layout_rects()
 	for track_id in _track_order:
 		if not track_rects.has(track_id):
@@ -565,7 +567,10 @@ func _draw_read_tracks(area: Rect2) -> void:
 		return
 	draw_rect(area, palette["bg"], true)
 	_draw_grid(area)
-	_draw_coverage_tiles(area)
+	var depth_only := bp_per_px > READ_RENDER_MAX_BP_PER_PX
+	_draw_coverage_tiles(area, depth_only)
+	if depth_only:
+		return
 
 	var content_top := area.position.y + 30.0
 	var content_bottom := area.position.y + area.size.y - 4.0
@@ -796,13 +801,13 @@ func _pair_render_key(read: Dictionary) -> String:
 		b1 = t1
 	return "%s|%d|%d|%d|%d" % [str(read.get("name", "")), a0, a1, b0, b1]
 
-func _draw_coverage_tiles(area: Rect2) -> void:
+func _draw_coverage_tiles(area: Rect2, show_y_ticks: bool = false) -> void:
 	if coverage_tiles.is_empty():
 		return
 
 	var visible_start := int(view_start_bp)
 	var visible_end := int(_viewport_end_bp())
-	var max_depth := 0
+	var vis_tiles_raw: Array[Dictionary] = []
 	for tile in coverage_tiles:
 		if typeof(tile) != TYPE_DICTIONARY:
 			continue
@@ -810,6 +815,98 @@ func _draw_coverage_tiles(area: Rect2) -> void:
 		var tile_end := int(tile.get("end", 0))
 		if tile_end <= visible_start or tile_start >= visible_end:
 			continue
+		var bins: PackedInt32Array = tile.get("bins", PackedInt32Array())
+		if bins.is_empty():
+			continue
+		vis_tiles_raw.append(tile)
+	if vis_tiles_raw.is_empty():
+		return
+	var span_counts := {}
+	for tile in vis_tiles_raw:
+		var span := maxi(1, int(tile.get("end", 0)) - int(tile.get("start", 0)))
+		span_counts[span] = int(span_counts.get(span, 0)) + 1
+	var dominant_span := 0
+	var dominant_count := -1
+	for k_any in span_counts.keys():
+		var k := int(k_any)
+		var c := int(span_counts[k])
+		if c > dominant_count:
+			dominant_count = c
+			dominant_span = k
+	var dominant_tiles: Array[Dictionary] = []
+	var fallback_tiles: Array[Dictionary] = []
+	for tile in vis_tiles_raw:
+		var t_start := int(tile.get("start", 0))
+		var t_end := int(tile.get("end", 0))
+		var span := maxi(1, t_end - t_start)
+		if span == dominant_span:
+			dominant_tiles.append(tile)
+		else:
+			fallback_tiles.append(tile)
+	dominant_tiles.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("start", 0)) < int(b.get("start", 0))
+	)
+	fallback_tiles.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var sa := absi(int(a.get("end", 0)) - int(a.get("start", 0)) - dominant_span)
+		var sb := absi(int(b.get("end", 0)) - int(b.get("start", 0)) - dominant_span)
+		if sa == sb:
+			return int(a.get("start", 0)) < int(b.get("start", 0))
+		return sa < sb
+	)
+	var coverage_intervals: Array[Dictionary] = []
+	for tile in dominant_tiles:
+		var s := maxi(visible_start, int(tile.get("start", 0)))
+		var e := mini(visible_end, int(tile.get("end", 0)))
+		if e <= s:
+			continue
+		coverage_intervals.append({"start": s, "end": e})
+	coverage_intervals.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("start", 0)) < int(b.get("start", 0))
+	)
+	var merged: Array[Dictionary] = []
+	for iv in coverage_intervals:
+		if merged.is_empty():
+			merged.append(iv)
+			continue
+		var last := merged[merged.size() - 1]
+		var ls := int(last.get("start", 0))
+		var le := int(last.get("end", ls))
+		var s := int(iv.get("start", 0))
+		var e := int(iv.get("end", s))
+		if s <= le:
+			last["end"] = maxi(le, e)
+			merged[merged.size() - 1] = last
+		else:
+			merged.append(iv)
+	var vis_tiles: Array[Dictionary] = dominant_tiles.duplicate()
+	for tile in fallback_tiles:
+		var s := maxi(visible_start, int(tile.get("start", 0)))
+		var e := mini(visible_end, int(tile.get("end", 0)))
+		if e <= s:
+			continue
+		var covered := 0
+		for iv in merged:
+			var is0 := int(iv.get("start", 0))
+			var ie0 := int(iv.get("end", is0))
+			var os := maxi(s, is0)
+			var oe := mini(e, ie0)
+			if oe > os:
+				covered += oe - os
+		if covered < (e - s):
+			vis_tiles.append(tile)
+	var seen_keys := {}
+	var unique_tiles: Array[Dictionary] = []
+	for tile in vis_tiles:
+		var key := "%d|%d" % [int(tile.get("start", 0)), int(tile.get("end", 0))]
+		if seen_keys.get(key, false):
+			continue
+		seen_keys[key] = true
+		unique_tiles.append(tile)
+	unique_tiles.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("start", 0)) < int(b.get("start", 0))
+	)
+	var max_depth := 0
+	for tile in unique_tiles:
 		var bins: PackedInt32Array = tile.get("bins", PackedInt32Array())
 		for d in bins:
 			if d > max_depth:
@@ -822,17 +919,26 @@ func _draw_coverage_tiles(area: Rect2) -> void:
 	var chart_top := area.position.y + 30.0
 	var chart_bottom := area.position.y + area.size.y - 10.0
 	var chart_height := maxf(1.0, chart_bottom - chart_top)
+	if show_y_ticks:
+		var axis_col: Color = palette["grid"]
+		var text_col: Color = _axis_text_color()
+		var font := get_theme_default_font()
+		var font_size := 11
+		var tick_x := TRACK_LEFT_PAD - 8.0
+		var label_x := 8.0
+		draw_line(Vector2(tick_x, chart_top), Vector2(tick_x, chart_bottom), axis_col, 1.0)
+		var tick_vals: Array[int] = [0, int(round(float(max_depth) * 0.5)), max_depth]
+		var tick_ys: Array[float] = [chart_bottom, (chart_top + chart_bottom) * 0.5, chart_top]
+		for i in range(3):
+			var ty: float = tick_ys[i]
+			draw_line(Vector2(tick_x, ty), Vector2(tick_x + 5.0, ty), axis_col, 1.0)
+			var label := str(tick_vals[i])
+			draw_string(font, Vector2(label_x, ty + 4.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
 
-	for tile in coverage_tiles:
-		if typeof(tile) != TYPE_DICTIONARY:
-			continue
+	for tile in unique_tiles:
 		var tile_start := int(tile.get("start", 0))
 		var tile_end := int(tile.get("end", 0))
-		if tile_end <= visible_start or tile_start >= visible_end:
-			continue
 		var bins: PackedInt32Array = tile.get("bins", PackedInt32Array())
-		if bins.is_empty():
-			continue
 		var bin_span := maxf(1.0, float(tile_end - tile_start) / float(bins.size()))
 		for i in range(bins.size()):
 			var bin_start_bp := tile_start + int(floor(float(i) * bin_span))
@@ -845,7 +951,39 @@ func _draw_coverage_tiles(area: Rect2) -> void:
 			var h := chart_height * (float(bins[i]) / float(max_depth))
 			if h <= 0.0:
 				continue
-			draw_rect(Rect2(x0, chart_bottom - h, w, h), cov_color, true)
+			if not show_y_ticks:
+				draw_rect(Rect2(x0, chart_bottom - h, w, h), cov_color, true)
+
+	if show_y_ticks:
+		var line_col: Color = palette["read"]
+		line_col.a = 0.9
+		var prev := Vector2.ZERO
+		var have_prev := false
+		var prev_end_bp := -1
+		for tile in unique_tiles:
+			var tile_start := int(tile.get("start", 0))
+			var tile_end := int(tile.get("end", 0))
+			var bins: PackedInt32Array = tile.get("bins", PackedInt32Array())
+			var bin_span := maxf(1.0, float(tile_end - tile_start) / float(bins.size()))
+			for i in range(bins.size()):
+				var bin_start_bp := tile_start + int(floor(float(i) * bin_span))
+				var bin_end_bp := tile_start + int(ceil(float(i + 1) * bin_span))
+				if bin_end_bp <= visible_start or bin_start_bp >= visible_end:
+					continue
+				var cx_bp := 0.5 * float(bin_start_bp + bin_end_bp)
+				var x := TRACK_LEFT_PAD + _bp_to_x(cx_bp)
+				var norm := float(bins[i]) / float(max_depth)
+				var y := chart_bottom - clampf(norm, 0.0, 1.0) * chart_height
+				var p := Vector2(x, y)
+				var contiguous := have_prev and bin_start_bp <= prev_end_bp + maxi(1, int(ceil(bin_span * 1.25)))
+				var monotonic := not have_prev or p.x >= prev.x
+				if have_prev and contiguous and monotonic:
+					draw_line(prev, p, line_col, 1.5)
+				elif have_prev:
+					have_prev = false
+				prev = p
+				have_prev = true
+				prev_end_bp = bin_end_bp
 
 func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_fixed: float, y_max_fixed: float, line_color: Color) -> void:
 	if area.size.y <= 24.0:
@@ -1067,13 +1205,15 @@ func _can_draw_aa_letters_without_reference() -> bool:
 	if nuc_char_px <= 0.0:
 		return false
 	var pixels_per_bp := 1.0 / bp_per_px
-	if pixels_per_bp < nuc_char_px + 1.0:
+	var min_nuc_px := maxf(4.0, nuc_char_px * 0.45)
+	if pixels_per_bp < min_nuc_px:
 		return false
 	var aa_font_size := 12
 	var aa_char_px := font.get_string_size("M", HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size).x
 	if aa_char_px <= 0.0:
 		return false
-	return 3.0 * pixels_per_bp >= aa_char_px + 1.0
+	var min_aa_codon_px := maxf(4.0, aa_char_px * 0.55)
+	return 3.0 * pixels_per_bp >= min_aa_codon_px
 
 func _can_draw_nucleotide_letters() -> bool:
 	var font := get_theme_default_font()
@@ -1082,7 +1222,7 @@ func _can_draw_nucleotide_letters() -> bool:
 	if char_px <= 0.0:
 		return false
 	var pixels_per_bp := 1.0 / bp_per_px
-	return pixels_per_bp >= char_px + 1.0
+	return pixels_per_bp >= maxf(4.0, char_px * 0.45)
 
 func _draw_aa_translation_letters(area_start: float) -> void:
 	if not _can_draw_aa_letters():
@@ -1427,6 +1567,10 @@ func _intersects_any(rect: Rect2, existing: Array) -> bool:
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		var mouse_pos: Vector2 = event.position
+		var read_rect := _track_rect(TRACK_ID_READS)
+		var aa_rect := _track_rect(TRACK_ID_AA)
+		var in_reads := read_rect.has_point(mouse_pos)
+		var in_aa := aa_rect.has_point(mouse_pos)
 		for hit in _track_close_hitboxes:
 			var close_rect: Rect2 = hit["rect"]
 			if close_rect.has_point(mouse_pos):
@@ -1447,19 +1591,36 @@ func _gui_input(event: InputEvent) -> void:
 				_track_drag_target_index = _track_order.find(_track_drag_track_id)
 				accept_event()
 				return
-		for hit in _feature_hitboxes:
-			var rect: Rect2 = hit["rect"]
-			if rect.has_point(mouse_pos):
-				emit_signal("feature_clicked", hit["feature"])
-				accept_event()
-				return
-		for i in range(_read_hitboxes.size() - 1, -1, -1):
-			var read_hit: Dictionary = _read_hitboxes[i]
-			var read_rect: Rect2 = read_hit["rect"]
-			if read_rect.has_point(mouse_pos):
-				emit_signal("read_clicked", read_hit["read"])
-				accept_event()
-				return
+		if in_reads:
+			for i in range(_read_hitboxes.size() - 1, -1, -1):
+				var read_hit: Dictionary = _read_hitboxes[i]
+				var read_rect_hit: Rect2 = read_hit["rect"]
+				if read_rect_hit.has_point(mouse_pos):
+					emit_signal("read_clicked", read_hit["read"])
+					accept_event()
+					return
+		if in_aa:
+			for hit in _feature_hitboxes:
+				var rect: Rect2 = hit["rect"]
+				if rect.has_point(mouse_pos):
+					emit_signal("feature_clicked", hit["feature"])
+					accept_event()
+					return
+		if not in_reads:
+			for i in range(_read_hitboxes.size() - 1, -1, -1):
+				var read_hit_any: Dictionary = _read_hitboxes[i]
+				var read_rect_any: Rect2 = read_hit_any["rect"]
+				if read_rect_any.has_point(mouse_pos):
+					emit_signal("read_clicked", read_hit_any["read"])
+					accept_event()
+					return
+		if not in_aa:
+			for hit_any in _feature_hitboxes:
+				var feat_rect_any: Rect2 = hit_any["rect"]
+				if feat_rect_any.has_point(mouse_pos):
+					emit_signal("feature_clicked", hit_any["feature"])
+					accept_event()
+					return
 		if _can_start_region_selection(mouse_pos):
 			var edge := _x_to_bp_edge(mouse_pos.x)
 			_region_select_dragging = true
