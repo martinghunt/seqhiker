@@ -9,6 +9,7 @@ const MSG_GET_ANNOTATIONS := 5
 const MSG_GET_REFERENCE_SLICE := 6
 const MSG_ACK := 7
 const MSG_ERROR := 8
+const MSG_SHUTDOWN := 9
 const MSG_GET_CHROMOSOMES := 10
 const MSG_GET_GC_PLOT_TILE := 11
 const MSG_GET_ANNOTATION_COUNTS := 12
@@ -143,6 +144,9 @@ func get_reference_slice(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
 		return resp
 	resp.merge(_parse_reference_slice(resp["payload"]), true)
 	return resp
+
+func shutdown_server(timeout_ms: int = 600) -> Dictionary:
+	return _send_request(MSG_SHUTDOWN, PackedByteArray(), timeout_ms)
 
 func _send_request(msg_type: int, payload: PackedByteArray, timeout_ms: int = REQUEST_TIMEOUT_MS) -> Dictionary:
 	if not ensure_connected():

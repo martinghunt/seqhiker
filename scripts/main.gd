@@ -3,6 +3,8 @@ extends Control
 const ThemesLibScript = preload("res://scripts/themes.gd")
 const ZemClientScript = preload("res://scripts/zem_client.gd")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
+const ZEM_BIN_SUBDIR := "bin"
+const ZEM_DEFAULT_PORT := 9000
 const READ_DETAIL_MAX_ZOOM := 7
 const READ_RENDER_MAX_BP_PER_PX := 128.0
 const DEFAULT_CONCAT_GAP_BP := 50
@@ -85,6 +87,11 @@ var _fetch_in_progress := false
 var _fetch_pending := false
 
 var _zem: RefCounted
+var _local_zem_path := ""
+var _local_zem_pid := -1
+var _local_zem_started_by_seqhiker := false
+var _local_zem_install_checked := false
+var _last_connect_error := ""
 var _current_chr_id := -1
 var _current_chr_name := ""
 var _current_chr_len := 0
@@ -178,12 +185,14 @@ func _ready() -> void:
 	_apply_gc_plot_height()
 	_apply_depth_plot_height()
 	_update_window_min_height()
+	_ensure_local_zem_installed()
 	_apply_theme(theme_option.get_item_text(theme_option.selected))
 	_on_trackpad_pan_changed(trackpad_pan_slider.value)
 	_on_trackpad_pinch_changed(trackpad_pinch_slider.value)
 	_on_play_speed_changed(play_speed_slider.value)
 	_setup_fetch_timer()
 	call_deferred("_initialize_settings_panel")
+	call_deferred("_startup_connect_local_zem")
 	if get_window().has_signal("files_dropped"):
 		get_window().files_dropped.connect(_on_files_dropped)
 
@@ -191,6 +200,21 @@ func _initialize_settings_panel() -> void:
 	_set_status("Disconnected")
 	_slide_settings(false, false)
 	_slide_feature_panel(false, false)
+
+func _startup_connect_local_zem() -> void:
+	var host := host_edit.text.strip_edges()
+	if host.is_empty():
+		host = "127.0.0.1"
+	var port := int(port_edit.text)
+	if port <= 0:
+		port = ZEM_DEFAULT_PORT
+	if not _should_try_local_zem(host):
+		return
+	# Keep startup connect snappy so first frame/UI does not stall.
+	if _connect_with_local_fallback(host, port, 100, 2, 80):
+		_set_status("Connected %s:%d" % [host, port])
+	elif not _last_connect_error.is_empty():
+		_set_status(_last_connect_error, true)
 
 func _setup_fetch_timer() -> void:
 	_fetch_timer = Timer.new()
@@ -260,13 +284,16 @@ func _connect_server() -> void:
 		host = "127.0.0.1"
 	var port := int(port_edit.text)
 	if port <= 0:
-		port = 9000
-	var ok: bool = _zem.connect_to_server(host, port)
+		port = ZEM_DEFAULT_PORT
+	var ok: bool = _connect_with_local_fallback(host, port)
 	if ok:
 		_set_status("Connected %s:%d" % [host, port])
 		_refresh_chromosomes()
 	else:
-		_set_status("Connection failed", true)
+		var msg := "Connection failed"
+		if not _last_connect_error.is_empty():
+			msg = _last_connect_error
+		_set_status(msg, true)
 
 func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_start = start_bp
@@ -1011,8 +1038,144 @@ func _ensure_server_connected() -> bool:
 	if _zem.ensure_connected():
 		_set_status("Connected")
 		return true
-	_set_status("Disconnected", true)
+	var host := host_edit.text.strip_edges()
+	if host.is_empty():
+		host = "127.0.0.1"
+	var port := int(port_edit.text)
+	if port <= 0:
+		port = ZEM_DEFAULT_PORT
+	if _connect_with_local_fallback(host, port):
+		_set_status("Connected %s:%d" % [host, port])
+		return true
+	var msg := "Disconnected"
+	if not _last_connect_error.is_empty():
+		msg = _last_connect_error
+	_set_status(msg, true)
 	return false
+
+func _connect_with_local_fallback(host: String, port: int, connect_timeout_ms: int = 1200, wait_attempts: int = 15, wait_step_ms: int = 120) -> bool:
+	_last_connect_error = ""
+	var try_local := _should_try_local_zem(host)
+	if try_local:
+		if not _ensure_local_zem_installed():
+			_last_connect_error = "Local zem binary missing and install failed for %s:%d" % [host, port]
+			return false
+	if _zem.connect_to_server(host, port, connect_timeout_ms):
+		var probe_existing := _probe_zem_ready()
+		if bool(probe_existing.get("ok", false)):
+			return true
+		_last_connect_error = "Connected but zem probe failed: %s" % str(probe_existing.get("error", "unknown error"))
+		_zem.disconnect_from_server()
+	if not try_local:
+		if _last_connect_error.is_empty():
+			_last_connect_error = "Unable to connect to %s:%d" % [host, port]
+		return false
+	if not _start_local_zem(host, port):
+		if _last_connect_error.is_empty():
+			_last_connect_error = "Unable to start local zem at %s:%d" % [host, port]
+		return false
+	for _i in range(maxi(1, wait_attempts)):
+		OS.delay_msec(maxi(1, wait_step_ms))
+		if _zem.connect_to_server(host, port, connect_timeout_ms):
+			var probe_started := _probe_zem_ready()
+			if bool(probe_started.get("ok", false)):
+				return true
+			_last_connect_error = "Local zem started but probe failed: %s" % str(probe_started.get("error", "unknown error"))
+			_zem.disconnect_from_server()
+	if _last_connect_error.is_empty():
+		_last_connect_error = "Local zem did not become ready at %s:%d" % [host, port]
+	return false
+
+func _probe_zem_ready() -> Dictionary:
+	var resp: Dictionary = _zem.get_annotation_counts()
+	if bool(resp.get("ok", false)):
+		return {"ok": true}
+	return {"ok": false, "error": str(resp.get("error", "probe failed"))}
+
+func _should_try_local_zem(host: String) -> bool:
+	var h := host.to_lower()
+	return h == "127.0.0.1" or h == "localhost" or h == "::1"
+
+func _start_local_zem(host: String, port: int) -> bool:
+	if not _ensure_local_zem_installed():
+		return false
+	if _local_zem_path.is_empty() or not FileAccess.file_exists(_local_zem_path):
+		return false
+	var listen_addr := "%s:%d" % [host, port]
+	var args := PackedStringArray(["-listen", listen_addr])
+	var pid := OS.create_process(_local_zem_path, args, false)
+	if pid <= 0:
+		return false
+	_local_zem_pid = pid
+	_local_zem_started_by_seqhiker = true
+	return true
+
+func _ensure_local_zem_installed() -> bool:
+	if _local_zem_install_checked and not _local_zem_path.is_empty() and FileAccess.file_exists(_local_zem_path):
+		return true
+	_local_zem_install_checked = true
+	var bin_name := _zem_binary_name()
+	var user_bin_dir_abs := OS.get_user_data_dir().path_join(ZEM_BIN_SUBDIR)
+	var mk_err := DirAccess.make_dir_recursive_absolute(user_bin_dir_abs)
+	if mk_err != OK and not DirAccess.dir_exists_absolute(user_bin_dir_abs):
+		return false
+	var target_abs := user_bin_dir_abs.path_join(bin_name)
+	_local_zem_path = target_abs
+	var source := _find_zem_source(bin_name)
+	if source.is_empty():
+		return FileAccess.file_exists(target_abs)
+	if not FileAccess.file_exists(target_abs):
+		if not _copy_file_any_to_abs(source, target_abs):
+			return false
+	else:
+		var src_hash := FileAccess.get_sha256(source)
+		var dst_hash := FileAccess.get_sha256(target_abs)
+		if src_hash.is_empty() or dst_hash.is_empty() or src_hash != dst_hash:
+			if not _copy_file_any_to_abs(source, target_abs):
+				return false
+	if not OS.has_feature("windows"):
+		OS.execute("chmod", ["+x", target_abs], [], true)
+	return true
+
+func _find_zem_source(bin_name: String) -> String:
+	var packaged := "res://bin/%s" % bin_name
+	if FileAccess.file_exists(packaged):
+		return packaged
+	var dev_abs := ProjectSettings.globalize_path("res://../zem/%s" % bin_name)
+	if FileAccess.file_exists(dev_abs):
+		return dev_abs
+	return ""
+
+func _copy_file_any_to_abs(source: String, target_abs: String) -> bool:
+	var src := FileAccess.open(source, FileAccess.READ)
+	if src == null:
+		return false
+	var dst := FileAccess.open(target_abs, FileAccess.WRITE)
+	if dst == null:
+		src.close()
+		return false
+	dst.store_buffer(src.get_buffer(src.get_length()))
+	dst.close()
+	src.close()
+	return true
+
+func _zem_binary_name() -> String:
+	if OS.has_feature("windows"):
+		return "zem.exe"
+	return "zem"
+
+func _exit_tree() -> void:
+	_shutdown_local_zem_on_exit()
+
+func _shutdown_local_zem_on_exit() -> void:
+	if not _local_zem_started_by_seqhiker:
+		return
+	var shutdown_ok := false
+	var resp: Dictionary = _zem.shutdown_server(400)
+	shutdown_ok = bool(resp.get("ok", false))
+	if not shutdown_ok and _local_zem_pid > 0:
+		OS.kill(_local_zem_pid)
+	_zem.disconnect_from_server()
 
 func _load_dropped_files(files: PackedStringArray) -> bool:
 	var genome_targets: Dictionary = {}

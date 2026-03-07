@@ -12,9 +12,15 @@ config_version=5
 
 config/name="Seqhiker"
 run/main_scene="res://scenes/Main.tscn"
+config/use_custom_user_dir=true
+config/custom_user_dir_name="seqhiker"
 config/features=PackedStringArray("4.4")
 
 [display]
 
 window/size/viewport_width=1600
 window/size/viewport_height=900
+
+[rendering]
+
+textures/vram_compression/import_etc2_astc=true
