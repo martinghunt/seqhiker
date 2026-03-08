@@ -344,7 +344,7 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 		var zoom := _compute_tile_zoom(bp_per_px)
 		var mode := 0 if (_has_bam_loaded and bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
 		var needs_fetch := not _is_viewport_cached(start_bp, end_bp, zoom, mode, need_reference, _scope_cache_key())
-		if _auto_play_enabled and _is_near_cache_right_edge(start_bp, end_bp):
+		if _is_near_cache_edge(start_bp, end_bp):
 			needs_fetch = true
 		if needs_fetch:
 			_schedule_fetch()
@@ -1425,7 +1425,7 @@ func _refresh_visible_data() -> void:
 	var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
 	var need_reference: bool = genome_view.needs_reference_data(show_aa, show_genome)
 	var span: int = maxi(1, _last_end - _last_start)
-	var right_span_mult := 3 if _auto_play_enabled else 1
+	var right_span_mult := 3 if _auto_play_enabled else 2
 	var query_start: int = maxi(0, _last_start - span)
 	var query_end: int = mini(_current_chr_len, _last_end + span * right_span_mult)
 	var all_reads: Array[Dictionary] = []
@@ -2027,12 +2027,14 @@ func _is_viewport_cached(start_bp: int, end_bp: int, zoom: int, mode: int, need_
 		return false
 	return start_bp >= _cache_start and end_bp <= _cache_end
 
-func _is_near_cache_right_edge(start_bp: int, end_bp: int) -> bool:
+func _is_near_cache_edge(start_bp: int, end_bp: int) -> bool:
 	if _cache_end < 0:
 		return true
 	var span: int = maxi(1, end_bp - start_bp)
+	var threshold: int = maxi(1, int(round(float(span) * 0.5)))
+	var remaining_left: int = start_bp - _cache_start
 	var remaining_right: int = _cache_end - end_bp
-	return remaining_right <= span
+	return remaining_left <= threshold or remaining_right <= threshold
 
 func _set_status(message: String, is_error: bool = false) -> void:
 	server_status_label.text = message
