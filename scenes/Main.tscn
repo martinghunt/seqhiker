@@ -291,6 +291,14 @@ layout_mode = 2
 size_flags_vertical = 3
 allow_reselect = true
 
+[node name="TrackVisibilityLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Track Visibility"
+
+[node name="TrackVisibilityBox" type="VBoxContainer" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
 [node name="FeaturePanel" type="PanelContainer" parent="."]
 custom_minimum_size = Vector2(340, 0)
 layout_mode = 1

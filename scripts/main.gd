@@ -77,6 +77,8 @@ const FILE_LIST_PLACEHOLDER := "none"
 @onready var theme_option: OptionButton = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ThemeOption
 @onready var settings_content: VBoxContainer = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent
 @onready var file_list: ItemList = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FileList
+@onready var _track_order_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityLabel
+@onready var _track_visibility_box: VBoxContainer = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityBox
 @onready var _annot_preload_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/AnnotationPreloadLabel
 @onready var _annot_preload_spin: SpinBox = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/AnnotationPreloadSpin
 @onready var server_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerLabel
@@ -134,9 +136,7 @@ var _fragment_log_checkbox: CheckBox
 var _read_thickness_label: Label
 var _read_thickness_spin: SpinBox
 var _show_full_region_checkbox: CheckBox
-var _track_order_label: Label
 var _track_order_list: ItemList
-var _track_visibility_box: VBoxContainer
 var _ui_font_size := DEFAULT_UI_FONT_SIZE
 var _track_dragging := false
 var _track_drag_index := -1
@@ -561,12 +561,8 @@ func _setup_sequence_controls() -> void:
 	_concat_gap_spin.value = _concat_gap_bp
 
 func _setup_track_visibility_controls() -> void:
-	_track_order_label = Label.new()
 	_track_order_label.text = "Track Visibility"
-	_track_visibility_box = VBoxContainer.new()
 	_track_visibility_box.add_theme_constant_override("separation", 4)
-	settings_content.add_child(_track_order_label)
-	settings_content.add_child(_track_visibility_box)
 	_refresh_track_visibility_controls(genome_view.get_track_order())
 
 func _setup_debug_controls() -> void:
