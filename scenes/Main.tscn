@@ -112,6 +112,18 @@ shortcut = SubResource("Shortcut_pan_right")
 shortcut_in_tooltip = false
 text = "T"
 
+[node name="JumpStartButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+layout_mode = 2
+tooltip_text = "Jump to genome start"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+text = "BB"
+
+[node name="JumpEndButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+layout_mode = 2
+tooltip_text = "Jump to genome end"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+text = "AA"
+
 [node name="ZoomOutButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Zoom out"

@@ -50,7 +50,9 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var top_bar: HBoxContainer = $Root/TopBar
 @onready var settings_toggle_button: Button = $Root/TopBar/SettingsToggleButton
 @onready var pan_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanLeftButton
+@onready var jump_start_button: Button = $Root/TopBar/ActionClipper/ActionStrip/JumpStartButton
 @onready var pan_right_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanRightButton
+@onready var jump_end_button: Button = $Root/TopBar/ActionClipper/ActionStrip/JumpEndButton
 @onready var zoom_out_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ZoomOutButton
 @onready var zoom_in_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ZoomInButton
 @onready var play_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PlayButton
@@ -299,7 +301,9 @@ func _connect_ui() -> void:
 	close_settings_button.pressed.connect(_close_settings)
 	connect_button.pressed.connect(_connect_server)
 	pan_left_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(-_pan_step_percent / 100.0))
+	jump_start_button.pressed.connect(func() -> void: genome_view.jump_to_start())
 	pan_right_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(_pan_step_percent / 100.0))
+	jump_end_button.pressed.connect(func() -> void: genome_view.jump_to_end())
 	zoom_in_button.pressed.connect(func() -> void: genome_view.zoom_by(0.78))
 	zoom_out_button.pressed.connect(func() -> void: genome_view.zoom_by(1.28))
 	play_button.pressed.connect(_start_auto_play)
@@ -331,7 +335,9 @@ func _disable_button_focus() -> void:
 	var controls := [
 		settings_toggle_button,
 		pan_left_button,
+		jump_start_button,
 		pan_right_button,
+		jump_end_button,
 		zoom_out_button,
 		zoom_in_button,
 		play_button,

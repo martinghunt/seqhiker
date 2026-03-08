@@ -414,6 +414,26 @@ func set_view_state(start_bp: float, bp_per_px_value: float) -> void:
 	queue_redraw()
 	_emit_viewport_changed()
 
+func jump_to_start() -> void:
+	if _pan_tween and _pan_tween.is_running():
+		_pan_tween.kill()
+	if _zoom_tween and _zoom_tween.is_running():
+		_zoom_tween.kill()
+	view_start_bp = 0.0
+	_layout_read_scrollbar()
+	queue_redraw()
+	_emit_viewport_changed()
+
+func jump_to_end() -> void:
+	if _pan_tween and _pan_tween.is_running():
+		_pan_tween.kill()
+	if _zoom_tween and _zoom_tween.is_running():
+		_zoom_tween.kill()
+	view_start_bp = _clamp_start(float(chromosome_length))
+	_layout_read_scrollbar()
+	queue_redraw()
+	_emit_viewport_changed()
+
 func pan_by_fraction(fraction: float, duration: float = 0.35) -> void:
 	var plot_w := _plot_width()
 	if plot_w <= 0:
