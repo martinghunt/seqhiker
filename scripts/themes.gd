@@ -245,6 +245,7 @@ func _set_font_colors(theme: Theme, p: Dictionary) -> void:
 	theme.set_color("font_color", "CheckBox", text)
 	theme.set_color("font_hover_color", "CheckBox", text)
 	theme.set_color("font_pressed_color", "CheckBox", text)
+	theme.set_color("font_hover_pressed_color", "CheckBox", text)
 	theme.set_color("font_focus_color", "CheckBox", text)
 	theme.set_color("font_disabled_color", "CheckBox", text_muted)
 	theme.set_color("font_color", "LineEdit", text)
@@ -362,6 +363,33 @@ func _set_checkbox_styles(theme: Theme, p: Dictionary) -> void:
 	theme.set_icon("checked", "CheckBox", checked)
 	theme.set_icon("unchecked_disabled", "CheckBox", unchecked)
 	theme.set_icon("checked_disabled", "CheckBox", checked)
+	theme.set_constant("h_separation", "CheckBox", 6)
+
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0, 0, 0, 0)
+	normal.border_color = Color(0, 0, 0, 0)
+	normal.set_border_width_all(0)
+	normal.set_corner_radius_all(4)
+	normal.content_margin_left = 2
+	normal.content_margin_right = 2
+	normal.content_margin_top = 2
+	normal.content_margin_bottom = 2
+	theme.set_stylebox("normal", "CheckBox", normal)
+
+	var hover := normal.duplicate()
+	hover.bg_color = (p["button_hover"] as Color)
+	hover.bg_color.a *= 0.35
+	theme.set_stylebox("hover", "CheckBox", hover)
+
+	var pressed := normal.duplicate()
+	pressed.bg_color = (p["button_pressed"] as Color)
+	pressed.bg_color.a *= 0.45
+	theme.set_stylebox("pressed", "CheckBox", pressed)
+
+	var focus := normal.duplicate()
+	focus.border_color = p["field_focus"]
+	focus.set_border_width_all(1)
+	theme.set_stylebox("focus", "CheckBox", focus)
 
 func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	var grabber_size := 18
