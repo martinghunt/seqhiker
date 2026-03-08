@@ -57,6 +57,7 @@ const FILE_LIST_PLACEHOLDER := "none"
 @onready var server_status_label: Label = $Root/TopBar/ActionClipper/ActionStrip/ServerStatusLabel
 @onready var feature_panel: PanelContainer = $FeaturePanel
 @onready var feature_close_button: Button = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader/FeatureCloseButton
+@onready var feature_title_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader/FeatureTitle
 @onready var feature_name_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureNameLabel
 @onready var feature_type_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureTypeLabel
 @onready var feature_range_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureRangeLabel
@@ -824,7 +825,8 @@ func _on_track_settings_requested(track_id: String) -> void:
 		return
 	_set_feature_labels_visible(false)
 	feature_name_label.visible = true
-	feature_name_label.text = "Track Settings: %s" % _track_label_for_id(track_id)
+	feature_title_label.text = "%s track settings" % _track_label_for_id(track_id)
+	feature_name_label.text = ""
 	for child in _track_settings_box.get_children():
 		child.queue_free()
 	_track_settings_box.visible = true
@@ -2224,6 +2226,7 @@ func _save_config() -> void:
 func _on_feature_clicked(feature: Dictionary) -> void:
 	_track_settings_open = false
 	_active_track_settings_id = ""
+	feature_title_label.text = "Feature Details"
 	_set_feature_labels_visible(true)
 	if _track_settings_box != null:
 		_track_settings_box.visible = false
@@ -2243,6 +2246,7 @@ func _on_feature_clicked(feature: Dictionary) -> void:
 func _on_read_clicked(read: Dictionary) -> void:
 	_track_settings_open = false
 	_active_track_settings_id = ""
+	feature_title_label.text = "Feature Details"
 	_set_feature_labels_visible(true)
 	if _track_settings_box != null:
 		_track_settings_box.visible = false
