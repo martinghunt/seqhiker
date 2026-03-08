@@ -193,6 +193,7 @@ func _ready() -> void:
 	_setup_font_size_control()
 	_setup_read_view_controls()
 	_setup_sequence_controls()
+	_setup_track_visibility_controls()
 	_setup_debug_controls()
 	_setup_track_settings_panel()
 	_connect_ui()
@@ -559,18 +560,13 @@ func _setup_sequence_controls() -> void:
 	_concat_gap_spin.step = 10
 	_concat_gap_spin.value = _concat_gap_bp
 
-func _setup_track_order_controls() -> void:
+func _setup_track_visibility_controls() -> void:
 	_track_order_label = Label.new()
-	_track_order_label.text = "Track Order"
-	_track_order_list = ItemList.new()
-	_track_order_list.select_mode = ItemList.SELECT_SINGLE
-	_track_order_list.custom_minimum_size = Vector2(0, 84)
+	_track_order_label.text = "Track Visibility"
 	_track_visibility_box = VBoxContainer.new()
 	_track_visibility_box.add_theme_constant_override("separation", 4)
 	settings_content.add_child(_track_order_label)
-	settings_content.add_child(_track_order_list)
 	settings_content.add_child(_track_visibility_box)
-	_refresh_track_order_list(genome_view.get_track_order(), 0)
 	_refresh_track_visibility_controls(genome_view.get_track_order())
 
 func _setup_debug_controls() -> void:
@@ -789,6 +785,7 @@ func _refresh_track_visibility_controls(order: PackedStringArray) -> void:
 
 func _on_track_order_changed(order: PackedStringArray) -> void:
 	_refresh_track_order_list(order)
+	_refresh_track_visibility_controls(order)
 	_update_window_min_height()
 
 func _on_track_visibility_changed(_track_id: String, _visible: bool) -> void:
