@@ -33,7 +33,6 @@ const PLOT_Y_FIXED := 2
 const DEFAULT_PLOT_HEIGHT := 100.0
 const MIN_PLOT_HEIGHT := 50.0
 const MAX_PLOT_HEIGHT := 360.0
-const TOPBAR_MIN_HEIGHT := 48.0
 const ROOT_VERTICAL_GAP := 8.0
 const CONTENT_MARGIN_BOTTOM := 10.0
 const READS_TRACK_MIN_HEIGHT := 140.0
@@ -45,6 +44,7 @@ const FILE_LIST_PLACEHOLDER := "none"
 @onready var background: ColorRect = $Background
 @onready var genome_view: Control = $Root/ContentMargin/GenomeView
 @onready var settings_panel: PanelContainer = $SettingsPanel
+@onready var top_bar: HBoxContainer = $Root/TopBar
 @onready var settings_toggle_button: Button = $Root/TopBar/SettingsToggleButton
 @onready var pan_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanLeftButton
 @onready var pan_right_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanRightButton
@@ -646,7 +646,10 @@ func _update_window_min_height() -> void:
 	if genome_view.is_track_visible(TRACK_READS):
 		reads_min_h = READS_TRACK_MIN_HEIGHT
 	var tracks_h: float = genome_view.minimum_required_height(reads_min_h)
-	var min_h: float = TOPBAR_MIN_HEIGHT + ROOT_VERTICAL_GAP + CONTENT_MARGIN_BOTTOM + tracks_h
+	var topbar_h := 0.0
+	if top_bar != null:
+		topbar_h = top_bar.get_combined_minimum_size().y
+	var min_h: float = topbar_h + ROOT_VERTICAL_GAP + CONTENT_MARGIN_BOTTOM + tracks_h
 	var w := get_window()
 	if w != null:
 		w.min_size.y = maxi(200, ceili(min_h))
@@ -1129,6 +1132,23 @@ func _apply_theme(theme_name: String) -> void:
 	feature_source_label.add_theme_color_override("default_color", palette["text"])
 	feature_seq_label.add_theme_color_override("default_color", palette["text"])
 	status_message_label.add_theme_color_override("font_color", palette["text"])
+	_apply_topbar_button_font_size()
+
+func _apply_topbar_button_font_size() -> void:
+	var topbar_font_size := clampi(_ui_font_size + 6, MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE + 6)
+	var topbar_buttons := [
+		settings_toggle_button,
+		pan_left_button,
+		pan_right_button,
+		zoom_out_button,
+		zoom_in_button,
+		play_left_button,
+		stop_button,
+		play_button
+	]
+	for b_any in topbar_buttons:
+		var b: Button = b_any
+		b.add_theme_font_size_override("font_size", topbar_font_size)
 
 func _on_files_dropped(files: PackedStringArray) -> void:
 	var dropped_fasta := _has_fasta(files)

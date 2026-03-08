@@ -1,5 +1,6 @@
 extends Control
 class_name GenomeView
+const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
 signal feature_clicked(feature: Dictionary)
@@ -530,21 +531,28 @@ func _draw_region_selection(track_rects: Dictionary) -> void:
 func _draw_track_header(track_id: String, area: Rect2) -> void:
 	var gx := 4.0
 	var gy := area.position.y + 4.0
-	var close_rect := Rect2(gx, gy, 14.0, 14.0)
-	var grab_rect := Rect2(gx, gy + 18.0, 14.0, 14.0)
-	var settings_rect := Rect2(gx, gy + 36.0, 14.0, 14.0)
+	var icon_font_size := _font_size_small
+	var close_text_w := MAGRATHEA_FONT.get_string_size("V", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size).x
+	var settings_text_w := MAGRATHEA_FONT.get_string_size("C", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size).x
+	var icon_w := maxf(close_text_w, settings_text_w)
+	var icon_h := MAGRATHEA_FONT.get_height(icon_font_size)
+	var button_w := maxf(14.0, ceil(icon_w + 6.0))
+	var button_h := maxf(14.0, ceil(icon_h + 4.0))
+	var button_gap := 4.0
+	var close_rect := Rect2(gx, gy, button_w, button_h)
+	var grab_rect := Rect2(gx, gy + button_h + button_gap, button_w, button_h)
+	var settings_rect := Rect2(gx, gy + 2.0 * (button_h + button_gap), button_w, button_h)
 	draw_rect(close_rect, Color(1, 1, 1, 0.35), true)
 	draw_rect(close_rect, palette["grid"], false, 1.0)
-	draw_line(close_rect.position + Vector2(3.0, 3.0), close_rect.position + Vector2(close_rect.size.x - 3.0, close_rect.size.y - 3.0), palette["text"], 1.0)
-	draw_line(close_rect.position + Vector2(close_rect.size.x - 3.0, 3.0), close_rect.position + Vector2(3.0, close_rect.size.y - 3.0), palette["text"], 1.0)
+	draw_string(MAGRATHEA_FONT, Vector2(close_rect.position.x + 3.0, close_rect.position.y + 2.0 + icon_h), "V", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size, palette["text"])
 	draw_rect(grab_rect, Color(1, 1, 1, 0.35), true)
 	draw_rect(grab_rect, palette["grid"], false, 1.0)
 	for i in range(3):
-		var ly := grab_rect.position.y + 4.0 + i * 4.0
+		var ly := grab_rect.position.y + grab_rect.size.y * 0.25 + i * (grab_rect.size.y * 0.25)
 		draw_line(Vector2(grab_rect.position.x + 3.0, ly), Vector2(grab_rect.position.x + grab_rect.size.x - 3.0, ly), palette["text"], 1.0)
 	draw_rect(settings_rect, Color(1, 1, 1, 0.35), true)
 	draw_rect(settings_rect, palette["grid"], false, 1.0)
-	draw_string(get_theme_default_font(), Vector2(settings_rect.position.x + 3.0, settings_rect.position.y + 11.0), "S", HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_small, palette["text"])
+	draw_string(MAGRATHEA_FONT, Vector2(settings_rect.position.x + 3.0, settings_rect.position.y + 2.0 + icon_h), "C", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size, palette["text"])
 	_track_close_hitboxes.append({"rect": close_rect, "track_id": track_id})
 	_track_grab_hitboxes.append({"rect": grab_rect, "track_id": track_id})
 	_track_settings_hitboxes.append({"rect": settings_rect, "track_id": track_id})

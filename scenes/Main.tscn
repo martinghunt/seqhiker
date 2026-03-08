@@ -31,11 +31,18 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/separation = 8
 
+[node name="TopBarTopSpacer" type="Control" parent="Root"]
+custom_minimum_size = Vector2(0, 2)
+layout_mode = 2
+
 [node name="TopBar" type="HBoxContainer" parent="Root"]
-custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 8
+
+[node name="TopBarLeftSpacer" type="Control" parent="Root/TopBar"]
+custom_minimum_size = Vector2(2, 0)
+layout_mode = 2
 
 [node name="SettingsToggleButton" type="Button" parent="Root/TopBar"]
 layout_mode = 2
@@ -110,6 +117,10 @@ text = "0 - 0 bp"
 [node name="ServerStatusLabel" type="Label" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 text = "Disconnected"
+
+[node name="TopBarRightSpacer" type="Control" parent="Root/TopBar"]
+custom_minimum_size = Vector2(2, 0)
+layout_mode = 2
 
 [node name="ContentMargin" type="MarginContainer" parent="Root"]
 layout_mode = 2
