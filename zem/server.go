@@ -91,11 +91,11 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		return MsgAck, ackPayload("genome loaded"), nil
 
 	case MsgLoadBAM:
-		path, err := decodePathPayload(payload)
+		path, cutoff, err := decodeLoadBAMPayload(payload)
 		if err != nil {
 			return 0, nil, err
 		}
-		sourceID, err := engine.LoadBAM(path)
+		sourceID, err := engine.LoadBAM(path, cutoff)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -174,6 +174,19 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 	default:
 		return 0, nil, fmt.Errorf("unknown message type %d", msgType)
 	}
+}
+
+func decodeLoadBAMPayload(payload []byte) (string, int, error) {
+	if len(payload) >= 7 && payload[0] == 0xFF {
+		cutoff := int(binary.LittleEndian.Uint32(payload[1:5]))
+		pathLen := int(binary.LittleEndian.Uint16(payload[5:7]))
+		if len(payload) < 7+pathLen {
+			return "", 0, fmt.Errorf("invalid load-bam payload length")
+		}
+		return string(payload[7 : 7+pathLen]), cutoff, nil
+	}
+	path, err := decodePathPayload(payload)
+	return path, 0, err
 }
 
 func sendError(conn net.Conn, requestID uint16, msg string) {

@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -93,6 +95,8 @@ type bamSource struct {
 	Generation uint64
 	Index      *bam.Index
 	Refs       map[string]*sam.Reference
+	CovPrefix  map[uint16][]uint64
+	CovReady   bool
 }
 
 type tileCacheEntry struct {
@@ -293,7 +297,7 @@ func (e *Engine) LoadGenome(path string) error {
 	return nil
 }
 
-func (e *Engine) LoadBAM(path string) (uint16, error) {
+func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 	bamFile, err := os.Open(path)
 	if err != nil {
 		return 0, err
@@ -324,12 +328,15 @@ func (e *Engine) LoadBAM(path string) (uint16, error) {
 
 	refs := make(map[string]*sam.Reference)
 	localLengths := make(map[string]int)
-	for _, ref := range reader.Header().Refs() {
+	totalRefLen := 0
+	headerRefs := reader.Header().Refs()
+	for _, ref := range headerRefs {
 		if ref == nil {
 			continue
 		}
 		refs[ref.Name()] = ref
 		localLengths[ref.Name()] = ref.Len()
+		totalRefLen += max(0, ref.Len())
 	}
 
 	e.mu.Lock()
@@ -346,6 +353,7 @@ func (e *Engine) LoadBAM(path string) (uint16, error) {
 	if e.nextBAMSourceID == 0 {
 		e.nextBAMSourceID = 1
 	}
+	shouldPrecomputeCov := precomputeCutoffBP > 0 && totalRefLen > 0 && totalRefLen <= precomputeCutoffBP
 	e.bamSources[sourceID] = &bamSource{
 		ID:         sourceID,
 		Path:       path,
@@ -353,10 +361,16 @@ func (e *Engine) LoadBAM(path string) (uint16, error) {
 		Generation: e.globalGeneration + 1,
 		Index:      idx,
 		Refs:       refs,
+		CovPrefix:  map[uint16][]uint64{},
+		CovReady:   !shouldPrecomputeCov,
 	}
 	e.bamOrder = append(e.bamOrder, sourceID)
 	e.globalGeneration++
 	e.resetTileCacheLocked()
+
+	if shouldPrecomputeCov {
+		go e.precomputeCoverageForSource(sourceID, path, headerRefs)
+	}
 
 	return sourceID, nil
 }
@@ -589,6 +603,7 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 
 	bamPath := src.Path
 	bamIdx := src.Index
+	covPrefix := src.CovPrefix[chrID]
 	maxTileRecs := e.maxTileRecs
 	if kind == readTileCacheKind && zoom >= 6 {
 		maxTileRecs *= 2
@@ -601,7 +616,12 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 	e.mu.Unlock()
 
 	includeSNPs := kind == readTileCacheKind && zoom <= snpDetailMaxZoom
-	payload, err := loadIndexedTilePayload(bamPath, bamIdx, ref, window.start, window.end, kind, maxTileRecs, includeSNPs, refSeq)
+	var payload []byte
+	if kind == covTileCacheKind && len(covPrefix) > 0 {
+		payload, err = encodeCoverageTileFromPrefix(window.start, window.end, covPrefix)
+	} else {
+		payload, err = loadIndexedTilePayload(bamPath, bamIdx, ref, window.start, window.end, kind, maxTileRecs, includeSNPs, refSeq)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -617,6 +637,164 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 	}
 
 	return payload, nil
+}
+
+func (e *Engine) precomputeCoverageForSource(sourceID uint16, bamPath string, refs []*sam.Reference) {
+	covPrefixByName, err := buildCoveragePrefixSums(bamPath, refs)
+	if err != nil {
+		log.Printf("coverage precompute failed for source %d: %v", sourceID, err)
+		e.mu.Lock()
+		if src, ok := e.bamSources[sourceID]; ok {
+			src.CovReady = true
+		}
+		e.mu.Unlock()
+		return
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	src, ok := e.bamSources[sourceID]
+	if !ok {
+		return
+	}
+	for chrName, prefix := range covPrefixByName {
+		if chrID, ok := e.chrToID[chrName]; ok {
+			src.CovPrefix[chrID] = prefix
+		}
+	}
+	src.CovReady = true
+}
+
+func buildCoveragePrefixSums(bamPath string, refs []*sam.Reference) (map[string][]uint64, error) {
+	if len(refs) == 0 {
+		return map[string][]uint64{}, nil
+	}
+	file, err := os.Open(bamPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	reader, err := bam.NewReader(file, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	diffByRefID := make(map[int][]int32, len(refs))
+	refNameByID := make(map[int]string, len(refs))
+	for _, ref := range refs {
+		if ref == nil {
+			continue
+		}
+		rid := ref.ID()
+		if rid < 0 {
+			continue
+		}
+		diffByRefID[rid] = make([]int32, ref.Len()+1)
+		refNameByID[rid] = ref.Name()
+	}
+
+	for {
+		rec, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if rec == nil || rec.Ref == nil {
+			continue
+		}
+		rid := rec.Ref.ID()
+		diff := diffByRefID[rid]
+		if len(diff) == 0 {
+			continue
+		}
+		s := rec.Start()
+		e := rec.End()
+		if s < 0 {
+			s = 0
+		}
+		if e < s {
+			e = s
+		}
+		if e > len(diff)-1 {
+			e = len(diff) - 1
+		}
+		if s >= e {
+			continue
+		}
+		diff[s]++
+		diff[e]--
+	}
+
+	out := make(map[string][]uint64, len(diffByRefID))
+	for rid, diff := range diffByRefID {
+		name := refNameByID[rid]
+		if name == "" || len(diff) == 0 {
+			continue
+		}
+		prefix := make([]uint64, len(diff))
+		var depth int64
+		for i := 0; i < len(diff)-1; i++ {
+			depth += int64(diff[i])
+			if depth < 0 {
+				depth = 0
+			}
+			prefix[i+1] = prefix[i] + uint64(depth)
+		}
+		out[name] = prefix
+	}
+	return out, nil
+}
+
+func encodeCoverageTileFromPrefix(start, end int, depthPrefix []uint64) ([]byte, error) {
+	if start < 0 {
+		start = 0
+	}
+	if end < start {
+		end = start
+	}
+	maxPos := len(depthPrefix) - 1
+	if start > maxPos {
+		start = maxPos
+	}
+	if end > maxPos {
+		end = maxPos
+	}
+	bins := make([]uint16, 256)
+	span := max(1, end-start)
+	for b := range bins {
+		bStart := start + (b*span)/len(bins)
+		bEnd := start + ((b+1)*span)/len(bins)
+		if bEnd <= bStart {
+			bEnd = bStart + 1
+		}
+		if bStart < 0 {
+			bStart = 0
+		}
+		if bEnd > maxPos {
+			bEnd = maxPos
+		}
+		binW := bEnd - bStart
+		if binW <= 0 {
+			binW = 1
+		}
+		sum := depthPrefix[bEnd] - depthPrefix[bStart]
+		avgDepth := int(math.Round(float64(sum) / float64(binW)))
+		if avgDepth == 0 && sum > 0 {
+			avgDepth = 1
+		}
+		if avgDepth < 0 {
+			avgDepth = 0
+		}
+		if avgDepth > int(^uint16(0)) {
+			avgDepth = int(^uint16(0))
+		}
+		bins[b] = uint16(avgDepth)
+	}
+	return encodeCoverageTile(start, end, bins), nil
 }
 
 func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Reference, start, end int, kind uint8, maxTileRecs uint32, includeSNPs bool, refSeq string) ([]byte, error) {

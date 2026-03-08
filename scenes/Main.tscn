@@ -399,6 +399,24 @@ max_value = 65000.0
 step = 1000.0
 value = 20000.0
 
+[node name="BAMCoverageCutoffLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+tooltip_text = "If the genome is shorter than this
+value (in bp), then when loading a
+BAM file, the read depth across the
+genome is pre-computed and stored
+in memory.
+Improves speed when zoomed out,
+but uses more memory"
+mouse_filter = 0
+text = "Depth Precompute Limit (bp)"
+
+[node name="BAMCoverageCutoffSpin" type="SpinBox" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+max_value = 5e+08
+step = 1e+06
+value = 1.5e+07
+
 [node name="FilesLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Loaded Files"

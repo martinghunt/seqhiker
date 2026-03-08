@@ -64,14 +64,25 @@ func load_genome(path: String) -> Dictionary:
 		payload[2 + i] = path_bytes[i]
 	return _send_request(MSG_LOAD_GENOME, payload, LOAD_TIMEOUT_MS)
 
-func load_bam(path: String) -> Dictionary:
+func load_bam(path: String, precompute_cutoff_bp: int = 0) -> Dictionary:
 	var path_bytes := path.to_utf8_buffer()
+	var cutoff := maxi(0, precompute_cutoff_bp)
 	var payload := PackedByteArray()
-	payload.resize(2 + path_bytes.size())
-	payload.encode_u16(0, path_bytes.size())
+	payload.resize(7 + path_bytes.size())
+	payload[0] = 0xFF
+	payload.encode_u32(1, cutoff)
+	payload.encode_u16(5, path_bytes.size())
 	for i in range(path_bytes.size()):
-		payload[2 + i] = path_bytes[i]
+		payload[7 + i] = path_bytes[i]
 	var resp := _send_request(MSG_LOAD_BAM, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		# Backward-compat fallback for older servers expecting the legacy payload.
+		payload = PackedByteArray()
+		payload.resize(2 + path_bytes.size())
+		payload.encode_u16(0, path_bytes.size())
+		for i in range(path_bytes.size()):
+			payload[2 + i] = path_bytes[i]
+		resp = _send_request(MSG_LOAD_BAM, payload, LOAD_TIMEOUT_MS)
 	if not resp.get("ok", false):
 		return resp
 	var p: PackedByteArray = resp.get("payload", PackedByteArray())

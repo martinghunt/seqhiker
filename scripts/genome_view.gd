@@ -180,6 +180,7 @@ var _annotation_debug_stats := {
 var _read_track_states := {}
 var _active_read_track_id := TRACK_ID_READS
 var _dragging_scrollbar: VScrollBar = null
+var _read_loading_message := ""
 
 func _ready() -> void:
 	clip_contents = true
@@ -317,6 +318,10 @@ func set_depth_plot_tiles(next_tiles: Array[Dictionary]) -> void:
 
 func set_depth_plot_series(next_series: Array[Dictionary]) -> void:
 	depth_plot_series = next_series
+	queue_redraw()
+
+func set_read_loading_message(message: String) -> void:
+	_read_loading_message = message
 	queue_redraw()
 
 func set_features(next_features: Array[Dictionary]) -> void:
@@ -788,6 +793,15 @@ func _draw_read_tracks(area: Rect2) -> void:
 		return
 	draw_rect(area, palette["bg"], true)
 	_draw_grid(area)
+	if not _read_loading_message.is_empty():
+		var font := get_theme_default_font()
+		var fs := _font_size_medium
+		var text_col: Color = _axis_text_color()
+		var tw := font.get_string_size(_read_loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var tx := area.position.x + (area.size.x - tw) * 0.5
+		var ty := area.position.y + area.size.y * 0.5 + float(fs) * 0.35
+		draw_string(font, Vector2(tx, ty), _read_loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, text_col)
+		return
 	var depth_only := bp_per_px > READ_RENDER_MAX_BP_PER_PX
 	_draw_coverage_tiles(area, depth_only)
 	if depth_only:

@@ -16,6 +16,7 @@ const ANNOT_MIN_TOTAL := 800
 const ANNOT_MAX_TOTAL := 12000
 const ANNOT_TILE_CACHE_MAX_ENTRIES := 512
 const ANNOT_PRELOAD_THRESHOLD_DEFAULT := 20000
+const BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT := 15000000
 const ANNOT_PRELOAD_MAX_RECORDS := 65000
 const ANNOT_MAX_ON_SCREEN_DEFAULT := 4400
 const ANNOT_MAX_ON_SCREEN_MIN := 200
@@ -96,6 +97,7 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var _track_order_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityLabel
 @onready var _track_visibility_box: VBoxContainer = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityBox
 @onready var _annot_preload_spin: SpinBox = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/AnnotationPreloadSpin
+@onready var _bam_cov_cutoff_spin: SpinBox = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/BAMCoverageCutoffSpin
 @onready var server_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerLabel
 @onready var host_edit: LineEdit = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/HostEdit
 @onready var port_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortLabel
@@ -190,6 +192,7 @@ var _debug_enabled := false
 var _debug_toggle: CheckBox
 var _debug_stats_label: Label
 var _annotation_preload_threshold := ANNOT_PRELOAD_THRESHOLD_DEFAULT
+var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
 var _annotation_counts_by_chr := {}
 var _dbg_ann_tile_requests := 0
@@ -613,6 +616,14 @@ func _setup_debug_controls() -> void:
 	_annot_preload_spin.value = _annotation_preload_threshold
 	if not _annot_preload_spin.value_changed.is_connected(_on_annotation_preload_threshold_changed):
 		_annot_preload_spin.value_changed.connect(_on_annotation_preload_threshold_changed)
+	_bam_cov_cutoff_spin.min_value = 0
+	_bam_cov_cutoff_spin.max_value = 500000000
+	_bam_cov_cutoff_spin.step = 1000000
+	_bam_cov_cutoff_spin.value = _bam_cov_precompute_cutoff_bp
+	_bam_cov_cutoff_spin.allow_greater = false
+	_bam_cov_cutoff_spin.allow_lesser = false
+	if not _bam_cov_cutoff_spin.value_changed.is_connected(_on_bam_cov_cutoff_changed):
+		_bam_cov_cutoff_spin.value_changed.connect(_on_bam_cov_cutoff_changed)
 	_debug_toggle = CheckBox.new()
 	_debug_toggle.text = "Debug"
 	_debug_toggle.button_pressed = _debug_enabled
@@ -629,6 +640,9 @@ func _on_annotation_preload_threshold_changed(value: float) -> void:
 	_invalidate_cache()
 	if _current_chr_len > 0:
 		_schedule_fetch()
+
+func _on_bam_cov_cutoff_changed(value: float) -> void:
+	_bam_cov_precompute_cutoff_bp = maxi(0, int(round(value)))
 
 func _on_annotation_max_on_screen_changed(value: float) -> void:
 	_annotation_max_on_screen = clampi(int(value), ANNOT_MAX_ON_SCREEN_MIN, ANNOT_MAX_ON_SCREEN_MAX)
@@ -893,6 +907,13 @@ func _depth_plot_color_for_track(track_id: String) -> Color:
 			idx = i
 			break
 	return DEPTH_SERIES_COLORS[idx % DEPTH_SERIES_COLORS.size()]
+
+func _existing_bam_source_id(bam_path: String) -> int:
+	for t_any in _bam_tracks:
+		var t: Dictionary = t_any
+		if str(t.get("path", "")) == bam_path:
+			return int(t.get("source_id", 0))
+	return 0
 
 func _sync_bam_read_tracks() -> void:
 	var read_ids := PackedStringArray()
@@ -1416,12 +1437,21 @@ func _load_dropped_files(files: PackedStringArray) -> bool:
 			_set_status("Load genome failed: %s" % resp.get("error", "error"), true)
 			return false
 
+	genome_view.set_read_loading_message("Loading BAMs...")
 	for bam_path in bam_targets:
-		var bam_resp: Dictionary = _zem.load_bam(bam_path)
-		if not bam_resp.get("ok", false):
-			_set_status("Load BAM failed: %s" % bam_resp.get("error", "error"), true)
-			return false
-		var source_id := int(bam_resp.get("source_id", 0))
+		var source_id := _existing_bam_source_id(bam_path)
+		if source_id <= 0:
+			var cutoff_bp := _bam_cov_precompute_cutoff_bp
+			if cutoff_bp > 0:
+				genome_view.set_read_loading_message("Loading %s and precomputing depth..." % bam_path.get_file())
+			else:
+				genome_view.set_read_loading_message("Loading %s..." % bam_path.get_file())
+			var bam_resp: Dictionary = _zem.load_bam(bam_path, cutoff_bp)
+			if not bam_resp.get("ok", false):
+				genome_view.set_read_loading_message("")
+				_set_status("Load BAM failed: %s" % bam_resp.get("error", "error"), true)
+				return false
+			source_id = int(bam_resp.get("source_id", 0))
 		_bam_track_serial += 1
 		var label := bam_path.get_file()
 		var track_id := "reads:%d" % _bam_track_serial
@@ -1439,6 +1469,7 @@ func _load_dropped_files(files: PackedStringArray) -> bool:
 		_center_strand_scroll_pending = true
 		_sync_bam_read_tracks()
 		genome_view.set_track_visible(track_id, true)
+	genome_view.set_read_loading_message("")
 	return true
 
 func _refresh_chromosomes() -> void:
@@ -2396,6 +2427,9 @@ func _load_or_init_config() -> void:
 	_annotation_preload_threshold = clampi(int(cfg.get_value("ui", "annotation_preload_threshold", ANNOT_PRELOAD_THRESHOLD_DEFAULT)), 0, ANNOT_PRELOAD_MAX_RECORDS)
 	if _annot_preload_spin != null:
 		_annot_preload_spin.value = _annotation_preload_threshold
+	_bam_cov_precompute_cutoff_bp = maxi(0, int(cfg.get_value("ui", "bam_cov_precompute_cutoff_bp", BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT)))
+	if _bam_cov_cutoff_spin != null:
+		_bam_cov_cutoff_spin.value = _bam_cov_precompute_cutoff_bp
 	_annotation_max_on_screen = clampi(int(cfg.get_value("ui", "annotation_max_on_screen", ANNOT_MAX_ON_SCREEN_DEFAULT)), ANNOT_MAX_ON_SCREEN_MIN, ANNOT_MAX_ON_SCREEN_MAX)
 	genome_view.set_annotation_max_on_screen(_annotation_max_on_screen)
 	_gc_plot_y_mode = clampi(int(cfg.get_value("ui", "gc_plot_y_mode", PLOT_Y_UNIT)), PLOT_Y_UNIT, PLOT_Y_FIXED)
@@ -2435,6 +2469,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "axis_coords_with_commas", _axis_coords_with_commas)
 	cfg.set_value("ui", "gc_window_bp", _gc_window_bp)
 	cfg.set_value("ui", "annotation_preload_threshold", _annotation_preload_threshold)
+	cfg.set_value("ui", "bam_cov_precompute_cutoff_bp", _bam_cov_precompute_cutoff_bp)
 	cfg.set_value("ui", "annotation_max_on_screen", _annotation_max_on_screen)
 	cfg.set_value("ui", "gc_plot_y_mode", _gc_plot_y_mode)
 	cfg.set_value("ui", "gc_plot_y_min", _gc_plot_y_min)
