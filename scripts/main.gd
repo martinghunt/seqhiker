@@ -40,6 +40,9 @@ const DEFAULT_UI_FONT_SIZE := 15
 const MIN_UI_FONT_SIZE := 9
 const MAX_UI_FONT_SIZE := 24
 const FILE_LIST_PLACEHOLDER := "none"
+const VIEW_SLOT_COUNT := 9
+const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
+const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 
 @onready var background: ColorRect = $Background
 @onready var genome_view: Control = $Root/ContentMargin/GenomeView
@@ -185,6 +188,8 @@ var _last_status_message := "Disconnected"
 var _last_status_is_error := false
 var _last_viewport_message := "0 - 0 bp  |  0 bp visible"
 var _last_bp_per_px_message := "0.00 bp/px"
+var _view_slots: Dictionary = {}
+var _view_slot_shortcut_buttons: Array[Button] = []
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -212,6 +217,7 @@ func _ready() -> void:
 	_on_trackpad_pinch_changed(trackpad_pinch_slider.value)
 	_on_play_speed_changed(play_speed_slider.value)
 	_setup_fetch_timer()
+	_setup_view_slot_shortcuts()
 	if server_status_label != null:
 		server_status_label.visible = false
 	if viewport_label != null:
@@ -1155,11 +1161,14 @@ func _apply_topbar_button_font_size() -> void:
 func _on_files_dropped(files: PackedStringArray) -> void:
 	var dropped_fasta := _has_fasta(files)
 	var dropped_gff3 := _has_gff3(files)
+	var dropped_sequence := _has_sequence_file(files)
 	if dropped_gff3 and not (_has_fasta_loaded or dropped_fasta):
 		_set_status("Refusing GFF3 load: drop a FASTA first.", true)
 		return
 	if dropped_fasta:
 		_reset_loaded_state()
+	elif dropped_sequence:
+		_view_slots.clear()
 	for f in files:
 		if _is_file_list_placeholder():
 			file_list.clear()
@@ -1336,7 +1345,6 @@ func _load_dropped_files(files: PackedStringArray) -> bool:
 			bam_targets[path] = true
 		else:
 			genome_targets[path] = true
-
 	for target in genome_targets.keys():
 		var resp: Dictionary = _zem.load_genome(target)
 		if not resp.get("ok", false):
@@ -2061,9 +2069,18 @@ func _has_gff3(files: PackedStringArray) -> bool:
 			return true
 	return false
 
+func _has_sequence_file(files: PackedStringArray) -> bool:
+	for path in files:
+		var ext := path.get_extension().to_lower()
+		if ext in ["bam", "gff", "gff3"]:
+			continue
+		return true
+	return false
+
 func _reset_loaded_state() -> void:
 	file_list.clear()
 	_refresh_file_list_ui()
+	_view_slots.clear()
 	_current_chr_id = -1
 	_current_chr_name = ""
 	_current_chr_len = 0
@@ -2082,6 +2099,79 @@ func _reset_loaded_state() -> void:
 	_feature_panel_open = false
 	_slide_feature_panel(false, false)
 	genome_view.clear_all_data()
+
+func _setup_view_slot_shortcuts() -> void:
+	for b in _view_slot_shortcut_buttons:
+		if is_instance_valid(b):
+			b.queue_free()
+	_view_slot_shortcut_buttons.clear()
+	for i in range(1, VIEW_SLOT_COUNT + 1):
+		_view_slot_shortcut_buttons.append(_make_view_slot_button(VIEW_SLOT_LOAD_ACTION_PREFIX + str(i), _load_view_slot.bind(i)))
+		_view_slot_shortcut_buttons.append(_make_view_slot_button(VIEW_SLOT_SAVE_ACTION_PREFIX + str(i), _save_view_slot.bind(i)))
+
+func _make_view_slot_button(action_name: String, callback: Callable) -> Button:
+	var b := Button.new()
+	b.text = ""
+	b.custom_minimum_size = Vector2.ZERO
+	b.size = Vector2.ZERO
+	b.position = Vector2(-1000.0, -1000.0)
+	b.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.focus_mode = Control.FOCUS_NONE
+	b.modulate.a = 0.0
+	var ev := InputEventAction.new()
+	ev.action = StringName(action_name)
+	var sc := Shortcut.new()
+	sc.events = [ev]
+	b.shortcut = sc
+	b.shortcut_in_tooltip = false
+	b.pressed.connect(callback)
+	add_child(b)
+	return b
+
+func _save_view_slot(slot_idx: int) -> void:
+	if _current_chr_len <= 0:
+		_set_status("No genome loaded: cannot save view slot.", true)
+		return
+	var state: Dictionary = genome_view.get_view_state()
+	_view_slots[slot_idx] = {
+		"scope_key": _scope_cache_key(),
+		"seq_view_mode": _seq_view_mode,
+		"seq_id": _selected_seq_id,
+		"start_bp": float(state.get("start_bp", _last_start)),
+		"bp_per_px": float(state.get("bp_per_px", _last_bp_per_px))
+	}
+	_set_status("Saved view slot %d." % slot_idx)
+
+func _load_view_slot(slot_idx: int) -> void:
+	if _current_chr_len <= 0:
+		_set_status("No genome loaded: cannot load view slot.", true)
+		return
+	if not _view_slots.has(slot_idx):
+		_set_status("View slot %d is empty." % slot_idx, true)
+		return
+	var slot_any = _view_slots[slot_idx]
+	if typeof(slot_any) != TYPE_DICTIONARY:
+		_set_status("View slot %d is invalid." % slot_idx, true)
+		return
+	var slot: Dictionary = slot_any
+	var slot_scope := str(slot.get("scope_key", ""))
+	if slot_scope != _scope_cache_key():
+		_set_status("View slot %d is from a different genome/session scope." % slot_idx, true)
+		return
+	var slot_mode := int(slot.get("seq_view_mode", _seq_view_mode))
+	if slot_mode != _seq_view_mode:
+		_seq_view_option.select(slot_mode)
+		_on_seq_view_selected(slot_mode)
+	if slot_mode == SEQ_VIEW_SINGLE:
+		var target_id := int(slot.get("seq_id", _selected_seq_id))
+		for i in range(_seq_option.item_count):
+			if int(_seq_option.get_item_id(i)) == target_id:
+				_seq_option.select(i)
+				_on_seq_selected(i)
+				break
+	genome_view.set_view_state(float(slot.get("start_bp", _last_start)), float(slot.get("bp_per_px", _last_bp_per_px)))
+	_schedule_fetch()
+	_set_status("Loaded view slot %d." % slot_idx)
 
 func _is_viewport_cached(start_bp: int, end_bp: int, zoom: int, mode: int, need_reference: bool, scope_key: String) -> bool:
 	if _cache_start < 0 || _cache_end < 0:

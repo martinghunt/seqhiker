@@ -391,6 +391,24 @@ func set_track_order(order: PackedStringArray) -> void:
 func is_zoom_animating() -> bool:
 	return _zoom_tween != null and _zoom_tween.is_running()
 
+func get_view_state() -> Dictionary:
+	return {
+		"start_bp": view_start_bp,
+		"bp_per_px": bp_per_px,
+		"end_bp": _viewport_end_bp()
+	}
+
+func set_view_state(start_bp: float, bp_per_px_value: float) -> void:
+	if _pan_tween and _pan_tween.is_running():
+		_pan_tween.kill()
+	if _zoom_tween and _zoom_tween.is_running():
+		_zoom_tween.kill()
+	bp_per_px = clampf(bp_per_px_value, min_bp_per_px, max_bp_per_px)
+	view_start_bp = _clamp_start(start_bp)
+	_layout_read_scrollbar()
+	queue_redraw()
+	_emit_viewport_changed()
+
 func pan_by_fraction(fraction: float, duration: float = 0.35) -> void:
 	var plot_w := _plot_width()
 	if plot_w <= 0:
