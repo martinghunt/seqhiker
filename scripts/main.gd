@@ -66,6 +66,8 @@ const FILE_LIST_PLACEHOLDER := "none"
 @onready var feature_content: VBoxContainer = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent
 @onready var ui_scale_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleSlider
 @onready var ui_scale_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleValue
+@onready var _font_size_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FontSizeLabel
+@onready var _font_size_spin: SpinBox = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FontSizeSpin
 @onready var trackpad_pan_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPanSlider
 @onready var trackpad_pan_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPanValue
 @onready var trackpad_pinch_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPinchSlider
@@ -75,6 +77,8 @@ const FILE_LIST_PLACEHOLDER := "none"
 @onready var theme_option: OptionButton = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ThemeOption
 @onready var settings_content: VBoxContainer = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent
 @onready var file_list: ItemList = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FileList
+@onready var _annot_preload_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/AnnotationPreloadLabel
+@onready var _annot_preload_spin: SpinBox = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/AnnotationPreloadSpin
 @onready var server_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerLabel
 @onready var host_edit: LineEdit = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/HostEdit
 @onready var port_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortLabel
@@ -133,8 +137,6 @@ var _show_full_region_checkbox: CheckBox
 var _track_order_label: Label
 var _track_order_list: ItemList
 var _track_visibility_box: VBoxContainer
-var _font_size_label: Label
-var _font_size_spin: SpinBox
 var _ui_font_size := DEFAULT_UI_FONT_SIZE
 var _track_dragging := false
 var _track_drag_index := -1
@@ -169,8 +171,6 @@ var _active_track_settings_id := ""
 var _debug_enabled := false
 var _debug_toggle: CheckBox
 var _debug_stats_label: Label
-var _annot_preload_label: Label
-var _annot_preload_spin: SpinBox
 var _annotation_preload_threshold := ANNOT_PRELOAD_THRESHOLD_DEFAULT
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
 var _annotation_counts_by_chr := {}
@@ -276,16 +276,12 @@ func _setup_theme_selector() -> void:
 			break
 
 func _setup_font_size_control() -> void:
-	_font_size_label = Label.new()
-	_font_size_label.text = "Font Size"
-	_font_size_spin = SpinBox.new()
 	_font_size_spin.min_value = MIN_UI_FONT_SIZE
 	_font_size_spin.max_value = MAX_UI_FONT_SIZE
 	_font_size_spin.step = 1
 	_font_size_spin.value = _ui_font_size
-	_font_size_spin.value_changed.connect(_on_font_size_changed)
-	settings_content.add_child(_font_size_label)
-	settings_content.add_child(_font_size_spin)
+	if not _font_size_spin.value_changed.is_connected(_on_font_size_changed):
+		_font_size_spin.value_changed.connect(_on_font_size_changed)
 
 func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
@@ -578,16 +574,12 @@ func _setup_track_order_controls() -> void:
 	_refresh_track_visibility_controls(genome_view.get_track_order())
 
 func _setup_debug_controls() -> void:
-	_annot_preload_label = Label.new()
-	_annot_preload_label.text = "Annotation Preload Threshold"
-	settings_content.add_child(_annot_preload_label)
-	_annot_preload_spin = SpinBox.new()
 	_annot_preload_spin.min_value = 0
 	_annot_preload_spin.max_value = ANNOT_PRELOAD_MAX_RECORDS
 	_annot_preload_spin.step = 1000
 	_annot_preload_spin.value = _annotation_preload_threshold
-	_annot_preload_spin.value_changed.connect(_on_annotation_preload_threshold_changed)
-	settings_content.add_child(_annot_preload_spin)
+	if not _annot_preload_spin.value_changed.is_connected(_on_annotation_preload_threshold_changed):
+		_annot_preload_spin.value_changed.connect(_on_annotation_preload_threshold_changed)
 	_debug_toggle = CheckBox.new()
 	_debug_toggle.text = "Debug"
 	_debug_toggle.button_pressed = _debug_enabled
