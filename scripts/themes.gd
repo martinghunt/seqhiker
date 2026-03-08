@@ -318,22 +318,35 @@ func _set_field_styles(theme: Theme, p: Dictionary) -> void:
 
 func _set_item_list_styles(theme: Theme, p: Dictionary) -> void:
 	var panel := StyleBoxFlat.new()
-	panel.bg_color = p["field_bg"]
-	panel.border_color = p["field_border"]
+	panel.bg_color = p["button_bg"]
+	panel.border_color = p["border"]
 	panel.set_border_width_all(1)
 	panel.set_corner_radius_all(6)
 	theme.set_stylebox("panel", "ItemList", panel)
 
 	var focus := panel.duplicate()
+	focus.bg_color = Color(0, 0, 0, 0)
 	focus.border_color = p["field_focus"]
 	focus.set_border_width_all(2)
 	theme.set_stylebox("focus", "ItemList", focus)
 
+	var selected_bg: Color = p["button_pressed"]
+	var selected_border: Color = p["border"]
+	var cursor := StyleBoxFlat.new()
+	cursor.bg_color = selected_bg
+	cursor.border_color = selected_border
+	cursor.set_border_width_all(1)
+	cursor.set_corner_radius_all(4)
+	theme.set_stylebox("cursor", "ItemList", cursor)
+	theme.set_stylebox("cursor_unfocused", "ItemList", cursor.duplicate())
+
 	theme.set_color("font_selected_color", "ItemList", p["text"])
 	theme.set_color("font_hovered_color", "ItemList", p["text"])
+	theme.set_color("font_hovered_selected_color", "ItemList", p["text"])
+	theme.set_color("font_disabled_color", "ItemList", p["text_muted"])
 	theme.set_color("font_outline_color", "ItemList", Color(0, 0, 0, 0))
-	theme.set_color("selection_fill", "ItemList", p["button_hover"])
-	theme.set_color("selection_rect", "ItemList", p["accent"])
+	theme.set_color("selection_fill", "ItemList", selected_bg)
+	theme.set_color("selection_rect", "ItemList", selected_border)
 
 func _set_popup_menu_styles(theme: Theme, p: Dictionary) -> void:
 	var panel := StyleBoxFlat.new()

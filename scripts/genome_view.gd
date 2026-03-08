@@ -2002,6 +2002,23 @@ func _finish_region_selection_drag() -> void:
 		_region_select_has_selection = false
 		emit_signal("region_selection_changed", false, 0, 0)
 
+func set_region_selection(start_bp: int, end_bp: int) -> void:
+	_region_select_dragging = false
+	var bp0 := mini(start_bp, end_bp)
+	var bp1 := maxi(start_bp, end_bp)
+	# Internal selection stores [start_edge, end_edge) while emitted/visible is inclusive.
+	_region_select_start_edge = bp0
+	_region_select_end_edge = bp1 + 1
+	_region_select_has_selection = true
+	emit_signal("region_selection_changed", true, bp0, bp1)
+	queue_redraw()
+
+func clear_region_selection() -> void:
+	_region_select_dragging = false
+	_region_select_has_selection = false
+	emit_signal("region_selection_changed", false, 0, 0)
+	queue_redraw()
+
 func auto_scroll_bp(delta_bp: float) -> bool:
 	if _plot_width() <= 0:
 		return true
