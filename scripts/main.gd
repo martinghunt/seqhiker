@@ -76,6 +76,8 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var trackpad_pan_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPanValue
 @onready var trackpad_pinch_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPinchSlider
 @onready var trackpad_pinch_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPinchValue
+@onready var pan_step_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PanStepSlider
+@onready var pan_step_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PanStepValue
 @onready var play_speed_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PlaySpeedSlider
 @onready var play_speed_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PlaySpeedValue
 @onready var theme_option: OptionButton = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ThemeOption
@@ -190,6 +192,7 @@ var _last_viewport_message := "0 - 0 bp  |  0 bp visible"
 var _last_bp_per_px_message := "0.00 bp/px"
 var _view_slots: Dictionary = {}
 var _view_slot_shortcut_buttons: Array[Button] = []
+var _pan_step_percent := 75.0
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -215,6 +218,7 @@ func _ready() -> void:
 	_on_ui_scale_changed(ui_scale_slider.value)
 	_on_trackpad_pan_changed(trackpad_pan_slider.value)
 	_on_trackpad_pinch_changed(trackpad_pinch_slider.value)
+	_on_pan_step_changed(pan_step_slider.value)
 	_on_play_speed_changed(play_speed_slider.value)
 	_setup_fetch_timer()
 	_setup_view_slot_shortcuts()
@@ -295,8 +299,8 @@ func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
 	close_settings_button.pressed.connect(_close_settings)
 	connect_button.pressed.connect(_connect_server)
-	pan_left_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(-0.35))
-	pan_right_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(0.35))
+	pan_left_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(-_pan_step_percent / 100.0))
+	pan_right_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(_pan_step_percent / 100.0))
 	zoom_in_button.pressed.connect(func() -> void: genome_view.zoom_by(0.78))
 	zoom_out_button.pressed.connect(func() -> void: genome_view.zoom_by(1.28))
 	play_button.pressed.connect(_start_auto_play)
@@ -313,6 +317,7 @@ func _connect_ui() -> void:
 	ui_scale_slider.drag_ended.connect(_on_ui_scale_drag_ended)
 	trackpad_pan_slider.value_changed.connect(_on_trackpad_pan_changed)
 	trackpad_pinch_slider.value_changed.connect(_on_trackpad_pinch_changed)
+	pan_step_slider.value_changed.connect(_on_pan_step_changed)
 	play_speed_slider.value_changed.connect(_on_play_speed_changed)
 	theme_option.item_selected.connect(_on_theme_selected)
 	feature_close_button.pressed.connect(_close_feature_panel)
@@ -324,7 +329,7 @@ func _connect_ui() -> void:
 	_concat_gap_spin.value_changed.connect(_on_concat_gap_changed)
 
 func _disable_button_focus() -> void:
-	var buttons := [
+	var controls := [
 		settings_toggle_button,
 		pan_left_button,
 		pan_right_button,
@@ -335,10 +340,16 @@ func _disable_button_focus() -> void:
 		stop_button,
 		connect_button,
 		close_settings_button,
-		feature_close_button
+		feature_close_button,
+		ui_scale_slider,
+		trackpad_pan_slider,
+		trackpad_pinch_slider,
+		pan_step_slider,
+		play_speed_slider
 	]
-	for b in buttons:
-		b.focus_mode = Control.FOCUS_NONE
+	for c in controls:
+		if c != null:
+			c.focus_mode = Control.FOCUS_NONE
 
 func _connect_server() -> void:
 	var host := host_edit.text.strip_edges()
@@ -489,6 +500,12 @@ func _on_trackpad_pan_changed(value: float) -> void:
 func _on_trackpad_pinch_changed(value: float) -> void:
 	trackpad_pinch_value.text = "%.2fx" % value
 	genome_view.set_trackpad_pinch_sensitivity(value)
+
+func _on_pan_step_changed(value: float) -> void:
+	_pan_step_percent = clampf(value, 1.0, 100.0)
+	if pan_step_slider != null and absf(pan_step_slider.value - _pan_step_percent) > 0.0001:
+		pan_step_slider.value = _pan_step_percent
+	pan_step_value.text = "%d%%" % int(round(_pan_step_percent))
 
 func _on_play_speed_changed(value: float) -> void:
 	play_speed_value.text = "%.2f widths/s" % value
@@ -2223,6 +2240,8 @@ func _load_or_init_config() -> void:
 		play_speed_slider.value = 0.3
 	trackpad_pan_slider.value = float(cfg.get_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value))
 	trackpad_pinch_slider.value = float(cfg.get_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value))
+	pan_step_slider.value = clampf(float(cfg.get_value("input", "pan_step_percent", 75.0)), 1.0, 100.0)
+	_on_pan_step_changed(pan_step_slider.value)
 	_ui_font_size = clampi(int(cfg.get_value("ui", "font_size", DEFAULT_UI_FONT_SIZE)), MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
 	if _font_size_spin != null:
 		_font_size_spin.value = _ui_font_size
@@ -2311,6 +2330,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "debug_enabled", _debug_enabled)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
 	cfg.set_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value)
+	cfg.set_value("input", "pan_step_percent", _pan_step_percent)
 	cfg.save(CONFIG_PATH)
 
 func _on_feature_clicked(feature: Dictionary) -> void:

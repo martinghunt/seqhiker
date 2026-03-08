@@ -319,6 +319,19 @@ value = 8.0
 layout_mode = 2
 text = "1.00x"
 
+[node name="PanStepLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "Pan Step (% screen width)"
+
+[node name="PanStepSlider" type="HSlider" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+min_value = 1.0
+value = 75.0
+
+[node name="PanStepValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+layout_mode = 2
+text = "75%"
+
 [node name="PlaySpeedLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Play Speed (screen widths/sec)"
