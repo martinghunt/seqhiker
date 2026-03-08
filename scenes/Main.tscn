@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://b8x31srh18cqr"]
+[gd_scene load_steps=20 format=3 uid="uid://b8x31srh18cqr"]
 
 [ext_resource type="Script" uid="uid://blioyr3uu4r8n" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="FontFile" uid="uid://c7lxavioxfnbo" path="res://fonts/magrathea.ttf" id="2_0bbpv"]
@@ -45,6 +45,12 @@ action = &"seqhiker_zoom_in"
 
 [sub_resource type="Shortcut" id="Shortcut_zoom_in"]
 events = [SubResource("InputEventAction_zoom_in")]
+
+[sub_resource type="InputEventAction" id="InputEventAction_close_right_panel"]
+action = &"seqhiker_close_right_panel"
+
+[sub_resource type="Shortcut" id="Shortcut_close_right_panel"]
+events = [SubResource("InputEventAction_close_right_panel")]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -442,6 +448,8 @@ text = "Feature Details"
 layout_mode = 2
 tooltip_text = "Close panel"
 theme_override_fonts/font = ExtResource("2_0bbpv")
+shortcut = SubResource("Shortcut_close_right_panel")
+shortcut_in_tooltip = false
 text = "V"
 
 [node name="FeatureSeparator" type="HSeparator" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]

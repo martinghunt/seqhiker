@@ -2438,3 +2438,9 @@ func _process(delta: float) -> void:
 			_set_status("Reached start of sequence. Autoplay stopped.")
 		else:
 			_set_status("Reached end of sequence. Autoplay stopped.")
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("seqhiker_close_right_panel"):
+		if _feature_panel_open:
+			_close_feature_panel()
+			get_viewport().set_input_as_handled()
