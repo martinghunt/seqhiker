@@ -9,6 +9,7 @@ const READ_DETAIL_MAX_ZOOM := 7
 const READ_RENDER_MAX_BP_PER_PX := 128.0
 const DEFAULT_CONCAT_GAP_BP := 50
 const DEFAULT_READ_THICKNESS := 8.0
+const DEFAULT_READ_MAX_ROWS := 500
 const ANNOT_TILE_BASE_BP := 1024
 const ANNOT_MAX_TILES := 64
 const ANNOT_MIN_TOTAL := 800
@@ -39,6 +40,14 @@ const READS_TRACK_MIN_HEIGHT := 140.0
 const DEFAULT_UI_FONT_SIZE := 15
 const MIN_UI_FONT_SIZE := 9
 const MAX_UI_FONT_SIZE := 24
+const DEPTH_SERIES_COLORS := [
+	Color("345995"),
+	Color("2a9d8f"),
+	Color("e76f51"),
+	Color("6d597a"),
+	Color("4f772d"),
+	Color("b56576")
+]
 const FILE_LIST_PLACEHOLDER := "none"
 const VIEW_SLOT_COUNT := 9
 const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
@@ -876,10 +885,14 @@ func _any_visible_read_track() -> bool:
 			return true
 	return false
 
-func _first_bam_source_id() -> int:
-	if _bam_tracks.is_empty():
-		return 0
-	return int((_bam_tracks[0] as Dictionary).get("source_id", 0))
+func _depth_plot_color_for_track(track_id: String) -> Color:
+	var idx := 0
+	for i in range(_bam_tracks.size()):
+		var t: Dictionary = _bam_tracks[i]
+		if str(t.get("track_id", "")) == track_id:
+			idx = i
+			break
+	return DEPTH_SERIES_COLORS[idx % DEPTH_SERIES_COLORS.size()]
 
 func _sync_bam_read_tracks() -> void:
 	var read_ids := PackedStringArray()
@@ -943,8 +956,19 @@ func _on_track_settings_requested(track_id: String) -> void:
 		thickness_spin.max_value = 24
 		thickness_spin.step = 1
 		thickness_spin.value = float(track_meta.get("thickness", DEFAULT_READ_THICKNESS))
+		var max_rows_label := Label.new()
+		max_rows_label.text = "Max Visible Rows (0 = unlimited)"
+		var max_rows_spin := SpinBox.new()
+		max_rows_spin.min_value = 0
+		max_rows_spin.max_value = 5000
+		max_rows_spin.step = 10
+		max_rows_spin.allow_greater = false
+		max_rows_spin.allow_lesser = false
+		max_rows_spin.value = float(int(track_meta.get("max_rows", DEFAULT_READ_MAX_ROWS)))
 		_track_settings_box.add_child(thickness_label)
 		_track_settings_box.add_child(thickness_spin)
+		_track_settings_box.add_child(max_rows_label)
+		_track_settings_box.add_child(max_rows_spin)
 		view_option.item_selected.connect(func(index: int) -> void:
 			frag_cb.visible = index == 3
 			for i in range(_bam_tracks.size()):
@@ -969,6 +993,15 @@ func _on_track_settings_requested(track_id: String) -> void:
 				var t: Dictionary = _bam_tracks[i]
 				if str(t.get("track_id", "")) == track_id:
 					t["thickness"] = clampf(value, 2.0, 24.0)
+					_bam_tracks[i] = t
+					break
+			_schedule_fetch()
+		)
+		max_rows_spin.value_changed.connect(func(value: float) -> void:
+			for i in range(_bam_tracks.size()):
+				var t: Dictionary = _bam_tracks[i]
+				if str(t.get("track_id", "")) == track_id:
+					t["max_rows"] = maxi(0, int(round(value)))
 					_bam_tracks[i] = t
 					break
 			_schedule_fetch()
@@ -1094,6 +1127,28 @@ func _on_track_settings_requested(track_id: String) -> void:
 		)
 		_track_settings_box.add_child(height_label2)
 		_track_settings_box.add_child(height_spin2)
+		var legend_title := Label.new()
+		legend_title.text = "Depth Lines"
+		_track_settings_box.add_child(legend_title)
+		if _bam_tracks.is_empty():
+			var legend_empty := Label.new()
+			legend_empty.text = "None"
+			_track_settings_box.add_child(legend_empty)
+		else:
+			for i in range(_bam_tracks.size()):
+				var t: Dictionary = _bam_tracks[i]
+				var tid := str(t.get("track_id", ""))
+				var row := HBoxContainer.new()
+				row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				var swatch := ColorRect.new()
+				swatch.custom_minimum_size = Vector2(14, 14)
+				swatch.color = _depth_plot_color_for_track(tid)
+				var name_label := Label.new()
+				name_label.text = "BAM %d: %s" % [i + 1, str(t.get("label", tid))]
+				name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				row.add_child(swatch)
+				row.add_child(name_label)
+				_track_settings_box.add_child(row)
 	else:
 		var info := Label.new()
 		info.text = "No track-specific settings yet."
@@ -1377,7 +1432,8 @@ func _load_dropped_files(files: PackedStringArray) -> bool:
 			"track_id": track_id,
 			"view_mode": 0,
 			"fragment_log": true,
-			"thickness": DEFAULT_READ_THICKNESS
+			"thickness": DEFAULT_READ_THICKNESS,
+			"max_rows": DEFAULT_READ_MAX_ROWS
 		})
 		_has_bam_loaded = true
 		_center_strand_scroll_pending = true
@@ -1514,13 +1570,14 @@ func _refresh_visible_data() -> void:
 	var read_payload_by_track := {}
 	var all_gc_plot_tiles: Array[Dictionary] = []
 	var all_depth_plot_tiles: Array[Dictionary] = []
+	var all_depth_plot_series: Array[Dictionary] = []
 	var features: Array[Dictionary] = []
 	var ref_start := query_start
 	var ref_sequence := ""
 	var frame_read_tile_cache := {}
 	var frame_cov_tile_cache := {}
 	var frame_gc_tile_cache := {}
-	var primary_source_id := _first_bam_source_id()
+	var depth_series_by_track := {}
 
 	if _seq_view_mode == SEQ_VIEW_SINGLE:
 		var zoom := _compute_tile_zoom(_last_bp_per_px)
@@ -1543,7 +1600,7 @@ func _refresh_visible_data() -> void:
 							_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
 							return
 						track_reads.append_array(tile_resp.get("reads", []))
-				if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX or (show_depth_plot and source_id == primary_source_id):
+				if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX or show_depth_plot:
 					var tile_width_cov := 1024 << zoom
 					var tile_start_cov := int(floor(float(query_start) / float(tile_width_cov)))
 					var tile_end_cov := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width_cov)))
@@ -1555,8 +1612,12 @@ func _refresh_visible_data() -> void:
 						var cov_tile: Dictionary = cov_resp.get("coverage", {})
 						if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
 							track_cov.append(cov_tile)
-						if show_depth_plot and source_id == primary_source_id:
-							all_depth_plot_tiles.append(_coverage_to_plot_tile(cov_tile))
+						if show_depth_plot:
+							if not depth_series_by_track.has(track_id):
+								depth_series_by_track[track_id] = []
+							var depth_tiles_for_track: Array = depth_series_by_track[track_id]
+							depth_tiles_for_track.append(_coverage_to_plot_tile(cov_tile))
+							depth_series_by_track[track_id] = depth_tiles_for_track
 				read_payload_by_track[track_id] = {"reads": track_reads, "coverage": track_cov}
 		if show_gc_plot:
 			var zoom_plot := _compute_tile_zoom(_last_bp_per_px)
@@ -1614,7 +1675,7 @@ func _refresh_visible_data() -> void:
 								var shifted := _shift_read_coords(r, offset)
 								if int(shifted.get("end", 0)) > query_start and int(shifted.get("start", 0)) < query_end:
 									track_reads.append(shifted)
-					if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX or (show_depth_plot and source_id == primary_source_id):
+					if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX or show_depth_plot:
 						var tile_width_cov := 1024 << zoom
 						var tile_start_cov := int(floor(float(local_start) / float(tile_width_cov)))
 						var tile_end_cov := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width_cov)))
@@ -1626,8 +1687,12 @@ func _refresh_visible_data() -> void:
 							var shifted_cov := _shift_coverage_coords(cov_resp.get("coverage", {}), offset)
 							if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
 								track_cov.append(shifted_cov)
-							if show_depth_plot and source_id == primary_source_id:
-								all_depth_plot_tiles.append(_coverage_to_plot_tile(shifted_cov))
+							if show_depth_plot:
+								if not depth_series_by_track.has(track_id):
+									depth_series_by_track[track_id] = []
+								var depth_tiles_for_track: Array = depth_series_by_track[track_id]
+								depth_tiles_for_track.append(_coverage_to_plot_tile(shifted_cov))
+								depth_series_by_track[track_id] = depth_tiles_for_track
 				read_payload_by_track[track_id] = {"reads": track_reads, "coverage": track_cov}
 		for ov in overlaps:
 			var chr_id := int(ov["id"])
@@ -1667,14 +1732,27 @@ func _refresh_visible_data() -> void:
 			track_id,
 			int(track.get("view_mode", 0)),
 			bool(track.get("fragment_log", true)),
-			float(track.get("thickness", DEFAULT_READ_THICKNESS))
+			float(track.get("thickness", DEFAULT_READ_THICKNESS)),
+			int(track.get("max_rows", DEFAULT_READ_MAX_ROWS))
 		)
 		genome_view.set_read_track_data(track_id, payload.get("reads", []), payload.get("coverage", []))
 		if _center_strand_scroll_pending and int(track.get("view_mode", 0)) == 1 and (payload.get("reads", []) as Array).size() > 0:
 			genome_view.center_strand_scroll_for_track(track_id)
 			_center_strand_scroll_pending = false
+		if show_depth_plot and depth_series_by_track.has(track_id):
+			var depth_tiles: Array[Dictionary] = []
+			for tile_any in depth_series_by_track[track_id]:
+				if typeof(tile_any) == TYPE_DICTIONARY:
+					depth_tiles.append(tile_any)
+			all_depth_plot_series.append({
+				"track_id": track_id,
+				"label": str(track.get("label", track_id)),
+				"color": _depth_plot_color_for_track(track_id),
+				"tiles": depth_tiles
+			})
 	genome_view.set_gc_plot_tiles(all_gc_plot_tiles)
 	genome_view.set_depth_plot_tiles(all_depth_plot_tiles)
+	genome_view.set_depth_plot_series(all_depth_plot_series)
 	genome_view.set_features(features)
 	genome_view.set_reference_slice(ref_start, ref_sequence)
 	_cache_start = query_start

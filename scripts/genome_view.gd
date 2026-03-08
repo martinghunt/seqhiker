@@ -92,6 +92,7 @@ var reads: Array[Dictionary] = []
 var coverage_tiles: Array[Dictionary] = []
 var gc_plot_tiles: Array[Dictionary] = []
 var depth_plot_tiles: Array[Dictionary] = []
+var depth_plot_series: Array[Dictionary] = []
 var features: Array[Dictionary] = []
 var loaded_files: PackedStringArray = PackedStringArray()
 var reference_start_bp := 0
@@ -135,6 +136,7 @@ var _strand_split_lock_y := -1.0
 var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
+var _read_row_limit := 0
 var _annotation_max_on_screen := 4400
 var _show_full_length_regions := false
 var _colorize_nucleotides := true
@@ -202,6 +204,7 @@ func _ready() -> void:
 		"read_view_mode": _read_view_mode,
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
+		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
 	}
 	_layout_read_scrollbar()
@@ -263,11 +266,12 @@ func sync_read_tracks(track_ids: PackedStringArray) -> void:
 			"strand_forward_rows": 0,
 			"strand_reverse_rows": 0,
 			"strand_split_lock_y": -1.0,
-			"read_view_mode": READ_VIEW_STACK,
-			"fragment_log_scale": false,
-			"read_row_h": READ_ROW_H,
-			"scrollbar": _reads_scrollbar
-		}
+				"read_view_mode": READ_VIEW_STACK,
+				"fragment_log_scale": false,
+				"read_row_h": READ_ROW_H,
+				"read_row_limit": 0,
+				"scrollbar": _reads_scrollbar
+			}
 	queue_redraw()
 
 func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_cov_tiles: Array[Dictionary]) -> void:
@@ -284,12 +288,13 @@ func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_c
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float) -> void:
+func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
 	_read_view_mode = clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
+	_read_row_limit = maxi(0, row_limit)
 	_layout_reads()
 	_layout_read_scrollbar()
 	_persist_active_read_track()
@@ -308,6 +313,10 @@ func set_gc_plot_tiles(next_tiles: Array[Dictionary]) -> void:
 
 func set_depth_plot_tiles(next_tiles: Array[Dictionary]) -> void:
 	depth_plot_tiles = next_tiles
+	queue_redraw()
+
+func set_depth_plot_series(next_series: Array[Dictionary]) -> void:
+	depth_plot_series = next_series
 	queue_redraw()
 
 func set_features(next_features: Array[Dictionary]) -> void:
@@ -348,6 +357,7 @@ func clear_all_data() -> void:
 	coverage_tiles.clear()
 	gc_plot_tiles.clear()
 	depth_plot_tiles.clear()
+	depth_plot_series.clear()
 	features.clear()
 	concat_segments.clear()
 	loaded_files = PackedStringArray()
@@ -363,11 +373,12 @@ func clear_all_data() -> void:
 		"strand_forward_rows": _strand_forward_rows,
 		"strand_reverse_rows": _strand_reverse_rows,
 		"strand_split_lock_y": _strand_split_lock_y,
-		"read_view_mode": _read_view_mode,
-		"fragment_log_scale": _fragment_log_scale,
-		"read_row_h": _read_row_h,
-		"scrollbar": _reads_scrollbar
-	}
+			"read_view_mode": _read_view_mode,
+			"fragment_log_scale": _fragment_log_scale,
+			"read_row_h": _read_row_h,
+			"read_row_limit": _read_row_limit,
+			"scrollbar": _reads_scrollbar
+		}
 	queue_redraw()
 	_emit_viewport_changed()
 
@@ -678,7 +689,10 @@ func _draw() -> void:
 				TRACK_ID_GC_PLOT:
 					_draw_plot_track(area, gc_plot_tiles, _gc_plot_y_mode, _gc_plot_y_min, _gc_plot_y_max, palette.get("gc_plot", palette["read"]))
 				TRACK_ID_DEPTH_PLOT:
-					_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]))
+					if not depth_plot_series.is_empty():
+						_draw_plot_track_multi(area, depth_plot_series, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max)
+					else:
+						_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]))
 				TRACK_ID_GENOME:
 					_draw_genome_track(area)
 		_draw_track_header(track_id, area)
@@ -1204,6 +1218,98 @@ func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_
 				draw_line(prev, p, line_color, 1.5)
 			prev = p
 			have_prev = true
+
+func _draw_plot_track_multi(area: Rect2, series: Array[Dictionary], y_mode: int, y_min_fixed: float, y_max_fixed: float) -> void:
+	if area.size.y <= 24.0:
+		return
+	draw_rect(area, palette["bg"], true)
+	_draw_grid(area)
+	if series.is_empty():
+		return
+	var visible_start := int(view_start_bp)
+	var visible_end := int(_viewport_end_bp())
+	var top := area.position.y + 10.0
+	var bottom := area.position.y + area.size.y - 8.0
+	var h := maxf(1.0, bottom - top)
+	var y_min := 0.0
+	var y_max := 1.0
+	if y_mode == PLOT_Y_FIXED:
+		y_min = y_min_fixed
+		y_max = y_max_fixed
+	elif y_mode == PLOT_Y_AUTOSCALE:
+		var found := false
+		var auto_min := 0.0
+		var auto_max := 0.0
+		for series_any in series:
+			if typeof(series_any) != TYPE_DICTIONARY:
+				continue
+			var tiles: Array = series_any.get("tiles", [])
+			for tile_any in tiles:
+				if typeof(tile_any) != TYPE_DICTIONARY:
+					continue
+				var tile: Dictionary = tile_any
+				var tile_start := int(tile.get("start", 0))
+				var tile_end := int(tile.get("end", 0))
+				if tile_end <= visible_start or tile_start >= visible_end:
+					continue
+				var vals_auto: PackedFloat32Array = tile.get("values", PackedFloat32Array())
+				for v_raw in vals_auto:
+					var v := float(v_raw)
+					if v < 0.0 or is_nan(v):
+						continue
+					if not found:
+						auto_min = v
+						auto_max = v
+						found = true
+					else:
+						auto_min = minf(auto_min, v)
+						auto_max = maxf(auto_max, v)
+		if found:
+			if is_equal_approx(auto_min, auto_max):
+				auto_min -= 0.05
+				auto_max += 0.05
+			y_min = auto_min
+			y_max = auto_max
+	if y_max <= y_min:
+		y_max = y_min + 1.0
+	var y_span := y_max - y_min
+	_draw_plot_scale(area, top, bottom, y_min, y_max)
+	for series_any in series:
+		if typeof(series_any) != TYPE_DICTIONARY:
+			continue
+		var series_dict: Dictionary = series_any
+		var line_color: Color = series_dict.get("color", palette.get("depth_plot", palette["read"]))
+		var tiles_any: Array = series_dict.get("tiles", [])
+		for tile_any in tiles_any:
+			if typeof(tile_any) != TYPE_DICTIONARY:
+				continue
+			var tile: Dictionary = tile_any
+			var tile_start := int(tile.get("start", 0))
+			var tile_end := int(tile.get("end", 0))
+			if tile_end <= visible_start or tile_start >= visible_end:
+				continue
+			var vals: PackedFloat32Array = tile.get("values", PackedFloat32Array())
+			if vals.is_empty():
+				continue
+			var prev := Vector2.ZERO
+			var have_prev := false
+			var count := vals.size()
+			for i in range(count):
+				var v := float(vals[i])
+				if v < 0.0 or is_nan(v):
+					have_prev = false
+					continue
+				var bp := float(tile_start) + (float(i) + 0.5) * float(tile_end - tile_start) / float(count)
+				if bp < visible_start or bp > visible_end:
+					continue
+				var x := _bp_to_screen_center(bp)
+				var norm := (v - y_min) / y_span
+				var y := bottom - clampf(norm, 0.0, 1.0) * h
+				var p := Vector2(x, y)
+				if have_prev:
+					draw_line(prev, p, line_color, 1.5)
+				prev = p
+				have_prev = true
 
 func _draw_plot_scale(area: Rect2, top: float, bottom: float, y_min: float, y_max: float) -> void:
 	var tick_x := TRACK_LEFT_PAD - 6.0
@@ -2166,13 +2272,19 @@ func _layout_reads() -> void:
 				reverse_reads.append(read)
 			else:
 				forward_reads.append(read)
-		_strand_forward_rows = _pack_reads_into_rows(forward_reads, false)
-		_strand_reverse_rows = _pack_reads_into_rows(reverse_reads, false)
+		var total_limit := maxi(0, _read_row_limit)
+		var forward_limit := 0
+		var reverse_limit := 0
+		if total_limit > 0:
+			forward_limit = int(ceil(float(total_limit) * 0.5))
+			reverse_limit = total_limit - forward_limit
+		_strand_forward_rows = _pack_reads_into_rows(forward_reads, false, forward_limit)
+		_strand_reverse_rows = _pack_reads_into_rows(reverse_reads, false, reverse_limit)
 		_read_row_count = maxi(_strand_forward_rows, _strand_reverse_rows)
 		return
 
 	var use_pair_span := _read_view_mode == READ_VIEW_PAIRED
-	_read_row_count = _pack_reads_into_rows(reads, use_pair_span)
+	_read_row_count = _pack_reads_into_rows(reads, use_pair_span, _read_row_limit)
 
 func _layout_fragment_reads() -> void:
 	var max_frag := 1.0
@@ -2192,7 +2304,7 @@ func _layout_fragment_reads() -> void:
 		_laid_out_reads.append(laid_out)
 	_read_row_count = 0
 
-func _pack_reads_into_rows(source_reads: Array, use_pair_span: bool) -> int:
+func _pack_reads_into_rows(source_reads: Array, use_pair_span: bool, row_limit: int = 0) -> int:
 	if source_reads.is_empty():
 		return 0
 	var sorted_reads: Array = source_reads.duplicate(true)
@@ -2214,6 +2326,8 @@ func _pack_reads_into_rows(source_reads: Array, use_pair_span: bool) -> int:
 				chosen = i
 				break
 		if chosen == -1:
+			if row_limit > 0 and row_ends.size() >= row_limit:
+				continue
 			chosen = row_ends.size()
 			row_ends.append(e)
 		else:
@@ -2282,6 +2396,7 @@ func _ensure_read_track_state(track_id: String) -> void:
 		"read_view_mode": READ_VIEW_STACK,
 		"fragment_log_scale": true,
 		"read_row_h": READ_ROW_H,
+		"read_row_limit": 0,
 		"scrollbar": sb
 	}
 	if not _track_visible.has(track_id):
@@ -2303,6 +2418,7 @@ func _activate_read_track(track_id: String) -> void:
 	_read_view_mode = int(state.get("read_view_mode", READ_VIEW_STACK))
 	_fragment_log_scale = bool(state.get("fragment_log_scale", true))
 	_read_row_h = float(state.get("read_row_h", READ_ROW_H))
+	_read_row_limit = int(state.get("read_row_limit", 0))
 	_reads_scrollbar = state.get("scrollbar", _reads_scrollbar)
 
 func _as_dict_array(value: Variant) -> Array[Dictionary]:
@@ -2330,6 +2446,7 @@ func _persist_active_read_track() -> void:
 		"read_view_mode": _read_view_mode,
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
+		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
 	}
 
