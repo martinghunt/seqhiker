@@ -2297,30 +2297,6 @@ func _close_feature_panel() -> void:
 		_track_settings_box.visible = false
 	_slide_feature_panel(false, true)
 
-func _input(event: InputEvent) -> void:
-	var focused := get_viewport().gui_get_focus_owner()
-	if focused is LineEdit or focused is TextEdit:
-		return
-
-	if event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_LEFT:
-				genome_view.pan_by_fraction(-0.35)
-				accept_event()
-			KEY_RIGHT:
-				genome_view.pan_by_fraction(0.35)
-				accept_event()
-			KEY_KP_ADD, KEY_PLUS:
-				genome_view.zoom_by(0.78)
-				accept_event()
-			KEY_KP_SUBTRACT, KEY_MINUS:
-				genome_view.zoom_by(1.28)
-				accept_event()
-			KEY_EQUAL:
-				if event.shift_pressed:
-					genome_view.zoom_by(0.78)
-					accept_event()
-
 func _process(delta: float) -> void:
 	if not _auto_play_enabled:
 		return

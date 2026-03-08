@@ -1,8 +1,32 @@
-[gd_scene load_steps=4 format=3 uid="uid://b8x31srh18cqr"]
+[gd_scene load_steps=12 format=3 uid="uid://b8x31srh18cqr"]
 
 [ext_resource type="Script" uid="uid://blioyr3uu4r8n" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="FontFile" uid="uid://c7lxavioxfnbo" path="res://fonts/magrathea.ttf" id="2_0bbpv"]
 [ext_resource type="Script" uid="uid://d2jyou0mxekd6" path="res://scripts/genome_view.gd" id="2_view"]
+
+[sub_resource type="InputEventAction" id="InputEventAction_pan_left"]
+action = &"seqhiker_pan_left"
+
+[sub_resource type="Shortcut" id="Shortcut_pan_left"]
+events = [SubResource("InputEventAction_pan_left")]
+
+[sub_resource type="InputEventAction" id="InputEventAction_pan_right"]
+action = &"seqhiker_pan_right"
+
+[sub_resource type="Shortcut" id="Shortcut_pan_right"]
+events = [SubResource("InputEventAction_pan_right")]
+
+[sub_resource type="InputEventAction" id="InputEventAction_zoom_out"]
+action = &"seqhiker_zoom_out"
+
+[sub_resource type="Shortcut" id="Shortcut_zoom_out"]
+events = [SubResource("InputEventAction_zoom_out")]
+
+[sub_resource type="InputEventAction" id="InputEventAction_zoom_in"]
+action = &"seqhiker_zoom_in"
+
+[sub_resource type="Shortcut" id="Shortcut_zoom_in"]
+events = [SubResource("InputEventAction_zoom_in")]
 
 [node name="Main" type="Control"]
 layout_mode = 3
@@ -68,24 +92,32 @@ theme_override_constants/separation = 8
 layout_mode = 2
 tooltip_text = "Pan left"
 theme_override_fonts/font = ExtResource("2_0bbpv")
+shortcut = SubResource("Shortcut_pan_left")
+shortcut_in_tooltip = false
 text = "U"
 
 [node name="PanRightButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Pan right"
 theme_override_fonts/font = ExtResource("2_0bbpv")
+shortcut = SubResource("Shortcut_pan_right")
+shortcut_in_tooltip = false
 text = "T"
 
 [node name="ZoomOutButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Zoom out"
 theme_override_fonts/font = ExtResource("2_0bbpv")
+shortcut = SubResource("Shortcut_zoom_out")
+shortcut_in_tooltip = false
 text = "E"
 
 [node name="ZoomInButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Zoom in"
 theme_override_fonts/font = ExtResource("2_0bbpv")
+shortcut = SubResource("Shortcut_zoom_in")
+shortcut_in_tooltip = false
 text = "D"
 
 [node name="PlayLeftButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
