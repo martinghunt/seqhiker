@@ -71,7 +71,16 @@ func load_bam(path: String) -> Dictionary:
 	payload.encode_u16(0, path_bytes.size())
 	for i in range(path_bytes.size()):
 		payload[2 + i] = path_bytes[i]
-	return _send_request(MSG_LOAD_BAM, payload, LOAD_TIMEOUT_MS)
+	var resp := _send_request(MSG_LOAD_BAM, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	var p: PackedByteArray = resp.get("payload", PackedByteArray())
+	if p.size() >= 4:
+		resp["source_id"] = int(p.decode_u16(0))
+		resp["message"] = _decode_wire_text(p.slice(4, p.size()))
+	else:
+		resp["source_id"] = 0
+	return resp
 
 func get_chromosomes() -> Dictionary:
 	var resp := _send_request(MSG_GET_CHROMOSOMES, PackedByteArray())
@@ -87,25 +96,45 @@ func get_annotation_counts() -> Dictionary:
 	resp["counts"] = _parse_annotation_counts(resp["payload"])
 	return resp
 
-func get_tile(chr_id: int, zoom: int, tile_index: int) -> Dictionary:
+func get_tile(chr_id: int, zoom: int, tile_index: int, source_id: int = 0) -> Dictionary:
 	var payload := PackedByteArray()
-	payload.resize(7)
-	payload.encode_u16(0, chr_id)
-	payload[2] = zoom
-	payload.encode_u32(3, tile_index)
+	payload.resize(9)
+	payload.encode_u16(0, source_id)
+	payload.encode_u16(2, chr_id)
+	payload[4] = zoom
+	payload.encode_u32(5, tile_index)
 	var resp := _send_request(MSG_GET_TILE, payload)
+	if not resp.get("ok", false):
+		# Backward-compat fallback for older zem servers that still expect
+		# the legacy 7-byte tile payload (no source_id prefix).
+		var legacy_payload := PackedByteArray()
+		legacy_payload.resize(7)
+		legacy_payload.encode_u16(0, chr_id)
+		legacy_payload[2] = zoom
+		legacy_payload.encode_u32(3, tile_index)
+		resp = _send_request(MSG_GET_TILE, legacy_payload)
 	if not resp.get("ok", false):
 		return resp
 	resp["reads"] = _parse_tile_reads(resp["payload"])
 	return resp
 
-func get_coverage_tile(chr_id: int, zoom: int, tile_index: int) -> Dictionary:
+func get_coverage_tile(chr_id: int, zoom: int, tile_index: int, source_id: int = 0) -> Dictionary:
 	var payload := PackedByteArray()
-	payload.resize(7)
-	payload.encode_u16(0, chr_id)
-	payload[2] = zoom
-	payload.encode_u32(3, tile_index)
+	payload.resize(9)
+	payload.encode_u16(0, source_id)
+	payload.encode_u16(2, chr_id)
+	payload[4] = zoom
+	payload.encode_u32(5, tile_index)
 	var resp := _send_request(MSG_GET_COVERAGE_TILE, payload)
+	if not resp.get("ok", false):
+		# Backward-compat fallback for older zem servers that still expect
+		# the legacy 7-byte coverage payload (no source_id prefix).
+		var legacy_payload := PackedByteArray()
+		legacy_payload.resize(7)
+		legacy_payload.encode_u16(0, chr_id)
+		legacy_payload[2] = zoom
+		legacy_payload.encode_u32(3, tile_index)
+		resp = _send_request(MSG_GET_COVERAGE_TILE, legacy_payload)
 	if not resp.get("ok", false):
 		return resp
 	resp["coverage"] = _parse_coverage_tile(resp["payload"])

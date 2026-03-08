@@ -109,3 +109,11 @@ func ackPayload(msg string) []byte {
 	copy(buf[2:], msg)
 	return buf
 }
+
+func encodeBAMLoaded(sourceID uint16, msg string) []byte {
+	buf := make([]byte, 4+len(msg))
+	binary.LittleEndian.PutUint16(buf[0:2], sourceID)
+	binary.LittleEndian.PutUint16(buf[2:4], uint16(len(msg)))
+	copy(buf[4:], msg)
+	return buf
+}

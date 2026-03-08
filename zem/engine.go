@@ -78,11 +78,21 @@ type GenomeSnapshot struct {
 
 type tileCacheKey struct {
 	Generation uint64
+	SourceID   uint16
 	Kind       uint8
 	ChrID      uint16
 	Zoom       uint8
 	TileIndex  uint32
 	Param      uint32
+}
+
+type bamSource struct {
+	ID         uint16
+	Path       string
+	IndexPath  string
+	Generation uint64
+	Index      *bam.Index
+	Refs       map[string]*sam.Reference
 }
 
 type tileCacheEntry struct {
@@ -103,14 +113,12 @@ type Engine struct {
 	gcPrefix   map[string][]uint32
 	atgcPrefix map[string][]uint32
 
-	bamPath       string
-	bamIndexPath  string
-	bamLoaded     bool
-	bamGeneration uint64
-	bamIndex      *bam.Index
-	bamRefs       map[string]*sam.Reference
-	maxTileRecs   uint32
-	maxReadZoom   uint8
+	bamSources       map[uint16]*bamSource
+	bamOrder         []uint16
+	nextBAMSourceID  uint16
+	globalGeneration uint64
+	maxTileRecs      uint32
+	maxReadZoom      uint8
 
 	tileCacheMaxBytes int64
 	tileCacheBytes    int64
@@ -129,7 +137,10 @@ func NewEngine() *Engine {
 		features:          make(map[string][]Feature),
 		gcPrefix:          make(map[string][]uint32),
 		atgcPrefix:        make(map[string][]uint32),
-		bamRefs:           make(map[string]*sam.Reference),
+		bamSources:        make(map[uint16]*bamSource),
+		bamOrder:          make([]uint16, 0, 4),
+		nextBAMSourceID:   1,
+		globalGeneration:  1,
 		maxTileRecs:       5000,
 		maxReadZoom:       7,
 		tileCacheMaxBytes: 512 << 20, // 512 MiB cap keeps backend well under 2 GiB.
@@ -282,33 +293,33 @@ func (e *Engine) LoadGenome(path string) error {
 	return nil
 }
 
-func (e *Engine) LoadBAM(path string) error {
+func (e *Engine) LoadBAM(path string) (uint16, error) {
 	bamFile, err := os.Open(path)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer bamFile.Close()
 
 	reader, err := bam.NewReader(bamFile, 0)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer reader.Close()
 
 	idxPath, err := resolveBAMIndexPath(path)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	idxFile, err := os.Open(idxPath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer idxFile.Close()
 
 	idx, err := bam.ReadIndex(idxFile)
 	if err != nil {
-		return fmt.Errorf("failed to read BAM index %s: %w", idxPath, err)
+		return 0, fmt.Errorf("failed to read BAM index %s: %w", idxPath, err)
 	}
 
 	refs := make(map[string]*sam.Reference)
@@ -330,27 +341,36 @@ func (e *Engine) LoadBAM(path string) error {
 		}
 		e.ensureChromosomeLocked(chr, e.chrLength[chr])
 	}
-	e.bamPath = path
-	e.bamIndexPath = idxPath
-	e.bamIndex = idx
-	e.bamRefs = refs
-	e.bamLoaded = true
-	e.bamGeneration++
+	sourceID := e.nextBAMSourceID
+	e.nextBAMSourceID++
+	if e.nextBAMSourceID == 0 {
+		e.nextBAMSourceID = 1
+	}
+	e.bamSources[sourceID] = &bamSource{
+		ID:         sourceID,
+		Path:       path,
+		IndexPath:  idxPath,
+		Generation: e.globalGeneration + 1,
+		Index:      idx,
+		Refs:       refs,
+	}
+	e.bamOrder = append(e.bamOrder, sourceID)
+	e.globalGeneration++
 	e.resetTileCacheLocked()
 
-	return nil
+	return sourceID, nil
 }
 
-func (e *Engine) GetTile(chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
+func (e *Engine) GetTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
 	window := tileWindow(zoom, tileIndex)
 	if zoom > e.maxReadZoom {
 		return encodeAlignmentTile(window.start, window.end, nil), nil
 	}
-	return e.getIndexedTile(chrID, zoom, tileIndex, readTileCacheKind, true)
+	return e.getIndexedTile(sourceID, chrID, zoom, tileIndex, readTileCacheKind, true)
 }
 
-func (e *Engine) GetCoverageTile(chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
-	return e.getIndexedTile(chrID, zoom, tileIndex, covTileCacheKind, false)
+func (e *Engine) GetCoverageTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
+	return e.getIndexedTile(sourceID, chrID, zoom, tileIndex, covTileCacheKind, false)
 }
 
 func (e *Engine) GetGCPlotTile(chrID uint16, zoom uint8, tileIndex uint32, windowLen uint32) ([]byte, error) {
@@ -385,7 +405,8 @@ func (e *Engine) GetGCPlotTile(chrID uint16, zoom uint8, tileIndex uint32, windo
 		windowLen = 1_000_000
 	}
 	key := tileCacheKey{
-		Generation: e.bamGeneration,
+		Generation: e.globalGeneration,
+		SourceID:   0,
 		Kind:       plotTileCacheKind,
 		ChrID:      chrID,
 		Zoom:       zoom,
@@ -398,14 +419,14 @@ func (e *Engine) GetGCPlotTile(chrID uint16, zoom uint8, tileIndex uint32, windo
 	}
 	gc := e.gcPrefix[chr]
 	atgc := e.atgcPrefix[chr]
-	generation := e.bamGeneration
+	generation := e.globalGeneration
 	e.mu.Unlock()
 
 	values := computeGCPlotValues(gc, atgc, window.start, window.end, int(windowLen), plotTileBins)
 	payload := encodeGCPlotTile(window.start, window.end, int(windowLen), values)
 
 	e.mu.Lock()
-	if e.bamGeneration == generation {
+	if e.globalGeneration == generation {
 		e.putCachedTileLocked(key, payload)
 	}
 	e.mu.Unlock()
@@ -533,11 +554,12 @@ func resolveBAMIndexPath(bamPath string) (string, error) {
 	return "", fmt.Errorf("BAM index not found; expected %s or %s", candidates[0], candidates[1])
 }
 
-func (e *Engine) getIndexedTile(chrID uint16, zoom uint8, tileIndex uint32, kind uint8, prefetch bool) ([]byte, error) {
+func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32, kind uint8, prefetch bool) ([]byte, error) {
 	e.mu.Lock()
-	if !e.bamLoaded || e.bamIndex == nil {
+	src, err := e.resolveBAMSourceLocked(sourceID)
+	if err != nil {
 		e.mu.Unlock()
-		return nil, errors.New("BAM not loaded")
+		return nil, err
 	}
 
 	chr, ok := e.idToChr[chrID]
@@ -545,14 +567,15 @@ func (e *Engine) getIndexedTile(chrID uint16, zoom uint8, tileIndex uint32, kind
 		e.mu.Unlock()
 		return nil, fmt.Errorf("unknown chromosome id %d", chrID)
 	}
-	ref := e.bamRefs[chr]
+	ref := src.Refs[chr]
 	if ref == nil {
 		e.mu.Unlock()
 		return nil, fmt.Errorf("chromosome %s is missing from BAM header", chr)
 	}
 
 	key := tileCacheKey{
-		Generation: e.bamGeneration,
+		Generation: src.Generation,
+		SourceID:   src.ID,
 		Kind:       kind,
 		ChrID:      chrID,
 		Zoom:       zoom,
@@ -564,16 +587,17 @@ func (e *Engine) getIndexedTile(chrID uint16, zoom uint8, tileIndex uint32, kind
 		return payload, nil
 	}
 
-	bamPath := e.bamPath
-	bamIdx := e.bamIndex
+	bamPath := src.Path
+	bamIdx := src.Index
 	maxTileRecs := e.maxTileRecs
 	if kind == readTileCacheKind && zoom >= 6 {
 		maxTileRecs *= 2
 	}
 	window := tileWindow(zoom, tileIndex)
-	generation := e.bamGeneration
+	generation := src.Generation
 	prefetchRadius := e.prefetchRadius
 	refSeq := e.sequences[chr]
+	selectedSourceID := src.ID
 	e.mu.Unlock()
 
 	includeSNPs := kind == readTileCacheKind && zoom <= snpDetailMaxZoom
@@ -583,13 +607,13 @@ func (e *Engine) getIndexedTile(chrID uint16, zoom uint8, tileIndex uint32, kind
 	}
 
 	e.mu.Lock()
-	if e.bamGeneration == generation {
+	if src2, ok := e.bamSources[selectedSourceID]; ok && src2.Generation == generation {
 		e.putCachedTileLocked(key, payload)
 	}
 	e.mu.Unlock()
 
 	if prefetch && prefetchRadius > 0 {
-		go e.prefetchAdjacentReadTiles(generation, chrID, zoom, tileIndex, prefetchRadius)
+		go e.prefetchAdjacentReadTiles(selectedSourceID, generation, chrID, zoom, tileIndex, prefetchRadius)
 	}
 
 	return payload, nil
@@ -1093,7 +1117,7 @@ func isLikelySameRefMate(rec *sam.Record) bool {
 	return rec.MateRef.ID() == rec.Ref.ID()
 }
 
-func (e *Engine) prefetchAdjacentReadTiles(generation uint64, chrID uint16, zoom uint8, tileIndex uint32, radius int) {
+func (e *Engine) prefetchAdjacentReadTiles(sourceID uint16, generation uint64, chrID uint16, zoom uint8, tileIndex uint32, radius int) {
 	select {
 	case e.prefetchSem <- struct{}{}:
 	default:
@@ -1104,15 +1128,16 @@ func (e *Engine) prefetchAdjacentReadTiles(generation uint64, chrID uint16, zoom
 	for offset := 1; offset <= radius; offset++ {
 		step := uint32(offset)
 		if tileIndex >= step {
-			_, _ = e.prefetchReadTile(generation, chrID, zoom, tileIndex-step)
+			_, _ = e.prefetchReadTile(sourceID, generation, chrID, zoom, tileIndex-step)
 		}
-		_, _ = e.prefetchReadTile(generation, chrID, zoom, tileIndex+step)
+		_, _ = e.prefetchReadTile(sourceID, generation, chrID, zoom, tileIndex+step)
 	}
 }
 
-func (e *Engine) prefetchReadTile(generation uint64, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
+func (e *Engine) prefetchReadTile(sourceID uint16, generation uint64, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
 	e.mu.Lock()
-	if generation != e.bamGeneration || !e.bamLoaded || e.bamIndex == nil {
+	src, ok := e.bamSources[sourceID]
+	if !ok || src.Generation != generation || src.Index == nil {
 		e.mu.Unlock()
 		return nil, nil
 	}
@@ -1125,13 +1150,14 @@ func (e *Engine) prefetchReadTile(generation uint64, chrID uint16, zoom uint8, t
 		e.mu.Unlock()
 		return nil, nil
 	}
-	ref := e.bamRefs[chr]
+	ref := src.Refs[chr]
 	if ref == nil {
 		e.mu.Unlock()
 		return nil, nil
 	}
 	key := tileCacheKey{
 		Generation: generation,
+		SourceID:   sourceID,
 		Kind:       readTileCacheKind,
 		ChrID:      chrID,
 		Zoom:       zoom,
@@ -1142,8 +1168,8 @@ func (e *Engine) prefetchReadTile(generation uint64, chrID uint16, zoom uint8, t
 		e.mu.Unlock()
 		return payload, nil
 	}
-	bamPath := e.bamPath
-	bamIdx := e.bamIndex
+	bamPath := src.Path
+	bamIdx := src.Index
 	maxTileRecs := e.maxTileRecs
 	window := tileWindow(zoom, tileIndex)
 	refSeq := e.sequences[chr]
@@ -1156,7 +1182,7 @@ func (e *Engine) prefetchReadTile(generation uint64, chrID uint16, zoom uint8, t
 	}
 
 	e.mu.Lock()
-	if generation == e.bamGeneration {
+	if src2, ok := e.bamSources[sourceID]; ok && src2.Generation == generation {
 		e.putCachedTileLocked(key, payload)
 	}
 	e.mu.Unlock()
@@ -1212,13 +1238,25 @@ func (e *Engine) resetTileCacheLocked() {
 	e.tileCacheBytes = 0
 }
 
+func (e *Engine) resolveBAMSourceLocked(sourceID uint16) (*bamSource, error) {
+	if len(e.bamOrder) == 0 {
+		return nil, errors.New("BAM not loaded")
+	}
+	if sourceID == 0 {
+		sourceID = e.bamOrder[0]
+	}
+	src, ok := e.bamSources[sourceID]
+	if !ok || src == nil || src.Index == nil {
+		return nil, fmt.Errorf("BAM source %d not loaded", sourceID)
+	}
+	return src, nil
+}
+
 func (e *Engine) resetBAMStateLocked() {
-	e.bamPath = ""
-	e.bamIndexPath = ""
-	e.bamLoaded = false
-	e.bamIndex = nil
-	e.bamRefs = make(map[string]*sam.Reference)
-	e.bamGeneration++
+	e.bamSources = make(map[uint16]*bamSource)
+	e.bamOrder = e.bamOrder[:0]
+	e.nextBAMSourceID = 1
+	e.globalGeneration++
 	e.resetTileCacheLocked()
 }
 

@@ -121,6 +121,8 @@ var _selection_active := false
 var _selection_start := 0
 var _selection_end := 0
 var _has_bam_loaded := false
+var _bam_tracks: Array[Dictionary] = []
+var _bam_track_serial := 0
 var _center_strand_scroll_pending := false
 var _has_fasta_loaded := false
 var _cache_start := -1
@@ -204,6 +206,7 @@ func _ready() -> void:
 	_setup_read_view_controls()
 	_setup_sequence_controls()
 	_setup_track_visibility_controls()
+	_sync_bam_read_tracks()
 	_setup_debug_controls()
 	_setup_track_settings_panel()
 	_connect_ui()
@@ -391,7 +394,7 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 		return
 	if _current_chr_len > 0:
 		var zoom := _compute_tile_zoom(bp_per_px)
-		var mode := 0 if (_has_bam_loaded and bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
+		var mode := 0 if (_has_bam_loaded and _any_visible_read_track() and bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
 		var needs_fetch := not _is_viewport_cached(start_bp, end_bp, zoom, mode, need_reference, _scope_cache_key())
 		if _is_near_cache_edge(start_bp, end_bp):
 			needs_fetch = true
@@ -552,7 +555,7 @@ func _setup_read_view_controls() -> void:
 	_read_view_option.select(0)
 	_fragment_log_checkbox = CheckBox.new()
 	_fragment_log_checkbox.text = "Log fragment Y scale"
-	_fragment_log_checkbox.button_pressed = false
+	_fragment_log_checkbox.button_pressed = true
 	_fragment_log_checkbox.visible = false
 	_read_thickness_label = Label.new()
 	_read_thickness_label.text = "Read Thickness"
@@ -565,7 +568,7 @@ func _setup_read_view_controls() -> void:
 	_show_full_region_checkbox.text = "Show full-length region annotations"
 	_show_full_region_checkbox.button_pressed = _show_full_length_regions
 	genome_view.set_read_view_mode(0)
-	genome_view.set_fragment_log_scale(false)
+	genome_view.set_fragment_log_scale(true)
 	genome_view.set_read_thickness(_read_thickness)
 	genome_view.set_show_full_length_regions(_show_full_length_regions)
 
@@ -676,7 +679,7 @@ func _apply_depth_plot_height() -> void:
 
 func _update_window_min_height() -> void:
 	var reads_min_h := 24.0
-	if genome_view.is_track_visible(TRACK_READS):
+	if _any_visible_read_track():
 		reads_min_h = READS_TRACK_MIN_HEIGHT
 	var tracks_h: float = genome_view.minimum_required_height(reads_min_h)
 	var topbar_h := 0.0
@@ -821,6 +824,14 @@ func _on_track_order_changed(order: PackedStringArray) -> void:
 	_update_window_min_height()
 
 func _on_track_visibility_changed(_track_id: String, _visible: bool) -> void:
+	if _track_id.begins_with("reads:") and not _visible:
+		for i in range(_bam_tracks.size() - 1, -1, -1):
+			var t: Dictionary = _bam_tracks[i]
+			if str(t.get("track_id", "")) == _track_id:
+				_bam_tracks.remove_at(i)
+				break
+		_sync_bam_read_tracks()
+		_has_bam_loaded = not _bam_tracks.is_empty()
 	_refresh_track_visibility_controls(genome_view.get_track_order())
 	_update_window_min_height()
 	_invalidate_cache()
@@ -835,6 +846,8 @@ func _on_track_visibility_toggled(checked: bool, track_id: String) -> void:
 	genome_view.set_track_visible(track_id, checked)
 
 func _track_label_for_id(track_id: String) -> String:
+	if track_id.begins_with("reads:"):
+		return "Reads"
 	match track_id:
 		"reads":
 			return "Reads"
@@ -848,6 +861,42 @@ func _track_label_for_id(track_id: String) -> String:
 			return "Genome"
 		_:
 			return track_id
+
+func _bam_track_for_id(track_id: String) -> Dictionary:
+	for t_any in _bam_tracks:
+		var t: Dictionary = t_any
+		if str(t.get("track_id", "")) == track_id:
+			return t
+	return {}
+
+func _any_visible_read_track() -> bool:
+	for t_any in _bam_tracks:
+		var track_id := str((t_any as Dictionary).get("track_id", ""))
+		if genome_view.is_track_visible(track_id):
+			return true
+	return false
+
+func _first_bam_source_id() -> int:
+	if _bam_tracks.is_empty():
+		return 0
+	return int((_bam_tracks[0] as Dictionary).get("source_id", 0))
+
+func _sync_bam_read_tracks() -> void:
+	var read_ids := PackedStringArray()
+	for t_any in _bam_tracks:
+		var t: Dictionary = t_any
+		read_ids.append(str(t.get("track_id", "")))
+	genome_view.sync_read_tracks(read_ids)
+	var order: PackedStringArray = genome_view.get_track_order()
+	var out := PackedStringArray()
+	for id in read_ids:
+		out.append(id)
+	for id_any in order:
+		var id := str(id_any)
+		if id == "reads" or id.begins_with("reads:"):
+			continue
+		out.append(id)
+	genome_view.set_track_order(out)
 
 func _on_track_settings_requested(track_id: String) -> void:
 	if _track_settings_box == null:
@@ -864,261 +913,191 @@ func _on_track_settings_requested(track_id: String) -> void:
 	_track_settings_box.visible = true
 	_track_settings_open = true
 	_active_track_settings_id = track_id
-	match track_id:
-		"reads":
-			var view_label := Label.new()
-			view_label.text = "Read View"
-			var view_option := OptionButton.new()
-			view_option.add_item("Stack", 0)
-			view_option.add_item("Strand Stack", 1)
-			view_option.add_item("Paired", 2)
-			view_option.add_item("Fragment Size", 3)
-			view_option.select(_read_view_option.selected)
-			_track_settings_box.add_child(view_label)
-			_track_settings_box.add_child(view_option)
-			var frag_cb := CheckBox.new()
-			frag_cb.text = "Log fragment Y scale"
-			frag_cb.button_pressed = _fragment_log_checkbox.button_pressed
-			frag_cb.visible = view_option.selected == 3
-			view_option.item_selected.connect(func(index: int) -> void:
-				_on_read_view_selected(index)
-				frag_cb.visible = index == 3
-			)
-			frag_cb.toggled.connect(_on_fragment_log_toggled)
-			_track_settings_box.add_child(frag_cb)
-			var thickness_label := Label.new()
-			thickness_label.text = "Read Thickness"
-			var thickness_spin := SpinBox.new()
-			thickness_spin.min_value = 2
-			thickness_spin.max_value = 24
-			thickness_spin.step = 1
-			thickness_spin.value = _read_thickness
-			thickness_spin.value_changed.connect(_on_read_thickness_changed)
-			_track_settings_box.add_child(thickness_label)
-			_track_settings_box.add_child(thickness_spin)
-		"aa":
-			var region_cb := CheckBox.new()
-			region_cb.text = "Show full-length region annotations"
-			region_cb.button_pressed = _show_full_length_regions
-			region_cb.toggled.connect(_on_show_full_region_toggled)
-			var max_ann_label := Label.new()
-			max_ann_label.text = "Max annotations on screen"
-			var max_ann_spin := SpinBox.new()
-			max_ann_spin.min_value = ANNOT_MAX_ON_SCREEN_MIN
-			max_ann_spin.max_value = ANNOT_MAX_ON_SCREEN_MAX
-			max_ann_spin.step = 100
-			max_ann_spin.value = _annotation_max_on_screen
-			max_ann_spin.value_changed.connect(_on_annotation_max_on_screen_changed)
-			_track_settings_box.add_child(region_cb)
-			_track_settings_box.add_child(max_ann_label)
-			_track_settings_box.add_child(max_ann_spin)
-		"genome":
-			var seq_view_label := Label.new()
-			seq_view_label.text = "Sequence View"
-			var seq_view_option := OptionButton.new()
-			seq_view_option.add_item("Concatenate", SEQ_VIEW_CONCAT)
-			seq_view_option.add_item("Single Sequence", SEQ_VIEW_SINGLE)
-			seq_view_option.select(_seq_view_mode)
-			_track_settings_box.add_child(seq_view_label)
-			_track_settings_box.add_child(seq_view_option)
-			var seq_label := Label.new()
-			seq_label.text = "Sequence"
-			var seq_option := OptionButton.new()
-			for i in range(_seq_option.item_count):
-				seq_option.add_item(_seq_option.get_item_text(i), _seq_option.get_item_id(i))
-			if _selected_seq_id >= 0:
-				for i in range(seq_option.item_count):
-					if seq_option.get_item_id(i) == _selected_seq_id:
-						seq_option.select(i)
-						break
-			seq_option.visible = _seq_view_mode == SEQ_VIEW_SINGLE
-			seq_label.visible = seq_option.visible
-			_track_settings_box.add_child(seq_label)
-			_track_settings_box.add_child(seq_option)
-			var gap_label := Label.new()
-			gap_label.text = "Concat Gap (bp)"
-			var gap_spin := SpinBox.new()
-			gap_spin.min_value = 0
-			gap_spin.max_value = 10000
-			gap_spin.step = 10
-			gap_spin.value = _concat_gap_bp
-			_track_settings_box.add_child(gap_label)
-			_track_settings_box.add_child(gap_spin)
-			var colorize_cb := CheckBox.new()
-			colorize_cb.text = "Color nucleotides by base"
-			colorize_cb.button_pressed = _colorize_nucleotides
-			colorize_cb.toggled.connect(_on_colorize_nucleotides_toggled)
-			_track_settings_box.add_child(colorize_cb)
-			var coord_commas_cb := CheckBox.new()
-			coord_commas_cb.text = "Use commas in axis coordinates"
-			coord_commas_cb.button_pressed = _axis_coords_with_commas
-			coord_commas_cb.toggled.connect(_on_axis_coords_commas_toggled)
-			_track_settings_box.add_child(coord_commas_cb)
-			seq_view_option.item_selected.connect(func(index: int) -> void:
-				_on_seq_view_selected(index)
-				var single := index == SEQ_VIEW_SINGLE
-				seq_option.visible = single
-				seq_label.visible = single
-			)
-			seq_option.item_selected.connect(func(index: int) -> void:
-				if index < 0 or index >= seq_option.item_count:
-					return
-				var target_id := int(seq_option.get_item_id(index))
-				for j in range(_seq_option.item_count):
-					if _seq_option.get_item_id(j) == target_id:
-						_seq_option.select(j)
-						break
-				_on_seq_selected(_seq_option.selected)
-			)
-			gap_spin.value_changed.connect(_on_concat_gap_changed)
-		"gc_plot":
-			var win_label := Label.new()
-			win_label.text = "GC Window (bp)"
-			var win_spin := SpinBox.new()
-			win_spin.min_value = 1
-			win_spin.max_value = 1000000
-			win_spin.step = 1
-			win_spin.value = _gc_window_bp
-			win_spin.value_changed.connect(func(value: float) -> void:
-				_gc_window_bp = clampi(int(value), 1, 1000000)
-				_invalidate_cache()
-				_schedule_fetch()
-			)
-			var height_label := Label.new()
-			height_label.text = "Track Height (px)"
-			var height_spin := SpinBox.new()
-			height_spin.min_value = MIN_PLOT_HEIGHT
-			height_spin.max_value = MAX_PLOT_HEIGHT
-			height_spin.step = 1
-			height_spin.value = _gc_plot_height
-			height_spin.value_changed.connect(func(value: float) -> void:
-				_gc_plot_height = value
-				_apply_gc_plot_height()
-			)
-			var y_mode_label := Label.new()
-			y_mode_label.text = "Y Scale"
-			var y_mode_option := OptionButton.new()
-			y_mode_option.add_item("0..1", PLOT_Y_UNIT)
-			y_mode_option.add_item("Autoscale Visible", PLOT_Y_AUTOSCALE)
-			y_mode_option.add_item("Fixed Min/Max", PLOT_Y_FIXED)
-			y_mode_option.select(_gc_plot_y_mode)
-			var y_min_label := Label.new()
-			y_min_label.text = "Y Min"
-			var y_min_spin := SpinBox.new()
-			y_min_spin.min_value = -10.0
-			y_min_spin.max_value = 10.0
-			y_min_spin.step = 0.01
-			y_min_spin.value = _gc_plot_y_min
-			var y_max_label := Label.new()
-			y_max_label.text = "Y Max"
-			var y_max_spin := SpinBox.new()
-			y_max_spin.min_value = -10.0
-			y_max_spin.max_value = 10.0
-			y_max_spin.step = 0.01
-			y_max_spin.value = _gc_plot_y_max
-			var fixed_visible := _gc_plot_y_mode == PLOT_Y_FIXED
-			y_min_label.visible = fixed_visible
-			y_min_spin.visible = fixed_visible
-			y_max_label.visible = fixed_visible
-			y_max_spin.visible = fixed_visible
-			y_mode_option.item_selected.connect(func(index: int) -> void:
-				_gc_plot_y_mode = clampi(index, PLOT_Y_UNIT, PLOT_Y_FIXED)
-				var show_fixed := _gc_plot_y_mode == PLOT_Y_FIXED
-				y_min_label.visible = show_fixed
-				y_min_spin.visible = show_fixed
-				y_max_label.visible = show_fixed
-				y_max_spin.visible = show_fixed
-				_apply_gc_plot_y_scale()
-			)
-			y_min_spin.value_changed.connect(func(value: float) -> void:
-				_gc_plot_y_min = value
-				_apply_gc_plot_y_scale()
-			)
-			y_max_spin.value_changed.connect(func(value: float) -> void:
-				_gc_plot_y_max = value
-				_apply_gc_plot_y_scale()
-			)
-			_track_settings_box.add_child(win_label)
-			_track_settings_box.add_child(win_spin)
-			_track_settings_box.add_child(height_label)
-			_track_settings_box.add_child(height_spin)
-			_track_settings_box.add_child(y_mode_label)
-			_track_settings_box.add_child(y_mode_option)
-			_track_settings_box.add_child(y_min_label)
-			_track_settings_box.add_child(y_min_spin)
-			_track_settings_box.add_child(y_max_label)
-			_track_settings_box.add_child(y_max_spin)
-		"depth_plot":
-			if not _has_bam_loaded:
-				var no_bam := Label.new()
-				no_bam.text = "Load BAM to enable depth plot."
-				_track_settings_box.add_child(no_bam)
-			var height_label2 := Label.new()
-			height_label2.text = "Track Height (px)"
-			var height_spin2 := SpinBox.new()
-			height_spin2.min_value = MIN_PLOT_HEIGHT
-			height_spin2.max_value = MAX_PLOT_HEIGHT
-			height_spin2.step = 1
-			height_spin2.value = _depth_plot_height
-			height_spin2.value_changed.connect(func(value: float) -> void:
-				_depth_plot_height = value
-				_apply_depth_plot_height()
-			)
-			var y_mode_label2 := Label.new()
-			y_mode_label2.text = "Y Scale"
-			var y_mode_option2 := OptionButton.new()
-			y_mode_option2.add_item("0..1", PLOT_Y_UNIT)
-			y_mode_option2.add_item("Autoscale Visible", PLOT_Y_AUTOSCALE)
-			y_mode_option2.add_item("Fixed Min/Max", PLOT_Y_FIXED)
-			y_mode_option2.select(_depth_plot_y_mode)
-			var y_min_label2 := Label.new()
-			y_min_label2.text = "Y Min"
-			var y_min_spin2 := SpinBox.new()
-			y_min_spin2.min_value = -10.0
-			y_min_spin2.max_value = 1000000.0
-			y_min_spin2.step = 1.0
-			y_min_spin2.value = _depth_plot_y_min
-			var y_max_label2 := Label.new()
-			y_max_label2.text = "Y Max"
-			var y_max_spin2 := SpinBox.new()
-			y_max_spin2.min_value = -10.0
-			y_max_spin2.max_value = 1000000.0
-			y_max_spin2.step = 1.0
-			y_max_spin2.value = _depth_plot_y_max
-			var fixed_visible2 := _depth_plot_y_mode == PLOT_Y_FIXED
-			y_min_label2.visible = fixed_visible2
-			y_min_spin2.visible = fixed_visible2
-			y_max_label2.visible = fixed_visible2
-			y_max_spin2.visible = fixed_visible2
-			y_mode_option2.item_selected.connect(func(index: int) -> void:
-				_depth_plot_y_mode = clampi(index, PLOT_Y_UNIT, PLOT_Y_FIXED)
-				var show_fixed2 := _depth_plot_y_mode == PLOT_Y_FIXED
-				y_min_label2.visible = show_fixed2
-				y_min_spin2.visible = show_fixed2
-				y_max_label2.visible = show_fixed2
-				y_max_spin2.visible = show_fixed2
-				_apply_depth_plot_y_scale()
-			)
-			y_min_spin2.value_changed.connect(func(value: float) -> void:
-				_depth_plot_y_min = value
-				_apply_depth_plot_y_scale()
-			)
-			y_max_spin2.value_changed.connect(func(value: float) -> void:
-				_depth_plot_y_max = value
-				_apply_depth_plot_y_scale()
-			)
-			_track_settings_box.add_child(height_label2)
-			_track_settings_box.add_child(height_spin2)
-			_track_settings_box.add_child(y_mode_label2)
-			_track_settings_box.add_child(y_mode_option2)
-			_track_settings_box.add_child(y_min_label2)
-			_track_settings_box.add_child(y_min_spin2)
-			_track_settings_box.add_child(y_max_label2)
-			_track_settings_box.add_child(y_max_spin2)
-		_:
-			var info := Label.new()
-			info.text = "No track-specific settings yet."
-			_track_settings_box.add_child(info)
+	if track_id.begins_with("reads:"):
+		var track_meta := _bam_track_for_id(track_id)
+		var bam_name := str(track_meta.get("label", track_meta.get("path", "BAM")))
+		var bam_label := Label.new()
+		bam_label.text = "BAM: %s" % bam_name
+		bam_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		bam_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_track_settings_box.add_child(bam_label)
+		var view_label := Label.new()
+		view_label.text = "Read View"
+		var view_option := OptionButton.new()
+		view_option.add_item("Stack", 0)
+		view_option.add_item("Strand Stack", 1)
+		view_option.add_item("Paired", 2)
+		view_option.add_item("Fragment Size", 3)
+		view_option.select(int(track_meta.get("view_mode", 0)))
+		_track_settings_box.add_child(view_label)
+		_track_settings_box.add_child(view_option)
+		var frag_cb := CheckBox.new()
+		frag_cb.text = "Log fragment Y scale"
+		frag_cb.button_pressed = bool(track_meta.get("fragment_log", true))
+		frag_cb.visible = view_option.selected == 3
+		_track_settings_box.add_child(frag_cb)
+		var thickness_label := Label.new()
+		thickness_label.text = "Read Thickness"
+		var thickness_spin := SpinBox.new()
+		thickness_spin.min_value = 2
+		thickness_spin.max_value = 24
+		thickness_spin.step = 1
+		thickness_spin.value = float(track_meta.get("thickness", DEFAULT_READ_THICKNESS))
+		_track_settings_box.add_child(thickness_label)
+		_track_settings_box.add_child(thickness_spin)
+		view_option.item_selected.connect(func(index: int) -> void:
+			frag_cb.visible = index == 3
+			for i in range(_bam_tracks.size()):
+				var t: Dictionary = _bam_tracks[i]
+				if str(t.get("track_id", "")) == track_id:
+					t["view_mode"] = index
+					_bam_tracks[i] = t
+					break
+			_schedule_fetch()
+		)
+		frag_cb.toggled.connect(func(enabled: bool) -> void:
+			for i in range(_bam_tracks.size()):
+				var t: Dictionary = _bam_tracks[i]
+				if str(t.get("track_id", "")) == track_id:
+					t["fragment_log"] = enabled
+					_bam_tracks[i] = t
+					break
+			_schedule_fetch()
+		)
+		thickness_spin.value_changed.connect(func(value: float) -> void:
+			for i in range(_bam_tracks.size()):
+				var t: Dictionary = _bam_tracks[i]
+				if str(t.get("track_id", "")) == track_id:
+					t["thickness"] = clampf(value, 2.0, 24.0)
+					_bam_tracks[i] = t
+					break
+			_schedule_fetch()
+		)
+	elif track_id == "aa":
+		var region_cb := CheckBox.new()
+		region_cb.text = "Show full-length region annotations"
+		region_cb.button_pressed = _show_full_length_regions
+		region_cb.toggled.connect(_on_show_full_region_toggled)
+		var max_ann_label := Label.new()
+		max_ann_label.text = "Max annotations on screen"
+		var max_ann_spin := SpinBox.new()
+		max_ann_spin.min_value = ANNOT_MAX_ON_SCREEN_MIN
+		max_ann_spin.max_value = ANNOT_MAX_ON_SCREEN_MAX
+		max_ann_spin.step = 100
+		max_ann_spin.value = _annotation_max_on_screen
+		max_ann_spin.value_changed.connect(_on_annotation_max_on_screen_changed)
+		_track_settings_box.add_child(region_cb)
+		_track_settings_box.add_child(max_ann_label)
+		_track_settings_box.add_child(max_ann_spin)
+	elif track_id == "genome":
+		var seq_view_label := Label.new()
+		seq_view_label.text = "Sequence View"
+		var seq_view_option := OptionButton.new()
+		seq_view_option.add_item("Concatenate", SEQ_VIEW_CONCAT)
+		seq_view_option.add_item("Single Sequence", SEQ_VIEW_SINGLE)
+		seq_view_option.select(_seq_view_mode)
+		_track_settings_box.add_child(seq_view_label)
+		_track_settings_box.add_child(seq_view_option)
+		var seq_label := Label.new()
+		seq_label.text = "Sequence"
+		var seq_option := OptionButton.new()
+		for i in range(_seq_option.item_count):
+			seq_option.add_item(_seq_option.get_item_text(i), _seq_option.get_item_id(i))
+		if _selected_seq_id >= 0:
+			for i in range(seq_option.item_count):
+				if seq_option.get_item_id(i) == _selected_seq_id:
+					seq_option.select(i)
+					break
+		seq_option.visible = _seq_view_mode == SEQ_VIEW_SINGLE
+		seq_label.visible = seq_option.visible
+		_track_settings_box.add_child(seq_label)
+		_track_settings_box.add_child(seq_option)
+		var gap_label := Label.new()
+		gap_label.text = "Concat Gap (bp)"
+		var gap_spin := SpinBox.new()
+		gap_spin.min_value = 0
+		gap_spin.max_value = 10000
+		gap_spin.step = 10
+		gap_spin.value = _concat_gap_bp
+		_track_settings_box.add_child(gap_label)
+		_track_settings_box.add_child(gap_spin)
+		var colorize_cb := CheckBox.new()
+		colorize_cb.text = "Color nucleotides by base"
+		colorize_cb.button_pressed = _colorize_nucleotides
+		colorize_cb.toggled.connect(_on_colorize_nucleotides_toggled)
+		_track_settings_box.add_child(colorize_cb)
+		var coord_commas_cb := CheckBox.new()
+		coord_commas_cb.text = "Use commas in axis coordinates"
+		coord_commas_cb.button_pressed = _axis_coords_with_commas
+		coord_commas_cb.toggled.connect(_on_axis_coords_commas_toggled)
+		_track_settings_box.add_child(coord_commas_cb)
+		seq_view_option.item_selected.connect(func(index: int) -> void:
+			_on_seq_view_selected(index)
+			var single := index == SEQ_VIEW_SINGLE
+			seq_option.visible = single
+			seq_label.visible = single
+		)
+		seq_option.item_selected.connect(func(index: int) -> void:
+			if index < 0 or index >= seq_option.item_count:
+				return
+			var target_id := int(seq_option.get_item_id(index))
+			for j in range(_seq_option.item_count):
+				if _seq_option.get_item_id(j) == target_id:
+					_seq_option.select(j)
+					break
+			_on_seq_selected(_seq_option.selected)
+		)
+		gap_spin.value_changed.connect(_on_concat_gap_changed)
+	elif track_id == "gc_plot":
+		var win_label := Label.new()
+		win_label.text = "GC Window (bp)"
+		var win_spin := SpinBox.new()
+		win_spin.min_value = 1
+		win_spin.max_value = 1000000
+		win_spin.step = 1
+		win_spin.value = _gc_window_bp
+		win_spin.value_changed.connect(func(value: float) -> void:
+			_gc_window_bp = clampi(int(value), 1, 1000000)
+			_invalidate_cache()
+			_schedule_fetch()
+		)
+		var height_label := Label.new()
+		height_label.text = "Track Height (px)"
+		var height_spin := SpinBox.new()
+		height_spin.min_value = MIN_PLOT_HEIGHT
+		height_spin.max_value = MAX_PLOT_HEIGHT
+		height_spin.step = 1
+		height_spin.value = _gc_plot_height
+		height_spin.value_changed.connect(func(value: float) -> void:
+			_gc_plot_height = value
+			_apply_gc_plot_height()
+		)
+		_track_settings_box.add_child(win_label)
+		_track_settings_box.add_child(win_spin)
+		_track_settings_box.add_child(height_label)
+		_track_settings_box.add_child(height_spin)
+	elif track_id == "depth_plot":
+		if not _has_bam_loaded:
+			var no_bam := Label.new()
+			no_bam.text = "Load BAM to enable depth plot."
+			_track_settings_box.add_child(no_bam)
+		var height_label2 := Label.new()
+		height_label2.text = "Track Height (px)"
+		var height_spin2 := SpinBox.new()
+		height_spin2.min_value = MIN_PLOT_HEIGHT
+		height_spin2.max_value = MAX_PLOT_HEIGHT
+		height_spin2.step = 1
+		height_spin2.value = _depth_plot_height
+		height_spin2.value_changed.connect(func(value: float) -> void:
+			_depth_plot_height = value
+			_apply_depth_plot_height()
+		)
+		_track_settings_box.add_child(height_label2)
+		_track_settings_box.add_child(height_spin2)
+	else:
+		var info := Label.new()
+		info.text = "No track-specific settings yet."
+		_track_settings_box.add_child(info)
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)
 
@@ -1369,11 +1348,11 @@ func _shutdown_local_zem_on_exit() -> void:
 
 func _load_dropped_files(files: PackedStringArray) -> bool:
 	var genome_targets: Dictionary = {}
-	var bam_targets: Dictionary = {}
+	var bam_targets: Array[String] = []
 	for path in files:
 		var ext := path.get_extension().to_lower()
 		if ext == "bam":
-			bam_targets[path] = true
+			bam_targets.append(path)
 		else:
 			genome_targets[path] = true
 	for target in genome_targets.keys():
@@ -1382,14 +1361,28 @@ func _load_dropped_files(files: PackedStringArray) -> bool:
 			_set_status("Load genome failed: %s" % resp.get("error", "error"), true)
 			return false
 
-	for bam_path in bam_targets.keys():
+	for bam_path in bam_targets:
 		var bam_resp: Dictionary = _zem.load_bam(bam_path)
 		if not bam_resp.get("ok", false):
 			_set_status("Load BAM failed: %s" % bam_resp.get("error", "error"), true)
 			return false
+		var source_id := int(bam_resp.get("source_id", 0))
+		_bam_track_serial += 1
+		var label := bam_path.get_file()
+		var track_id := "reads:%d" % _bam_track_serial
+		_bam_tracks.append({
+			"source_id": source_id,
+			"path": bam_path,
+			"label": label,
+			"track_id": track_id,
+			"view_mode": 0,
+			"fragment_log": true,
+			"thickness": DEFAULT_READ_THICKNESS
+		})
 		_has_bam_loaded = true
 		_center_strand_scroll_pending = true
-		genome_view.set_track_visible(TRACK_READS, true)
+		_sync_bam_read_tracks()
+		genome_view.set_track_visible(track_id, true)
 	return true
 
 func _refresh_chromosomes() -> void:
@@ -1397,7 +1390,11 @@ func _refresh_chromosomes() -> void:
 	if not resp.get("ok", false):
 		_set_status("Chrom query failed: %s" % resp.get("error", "error"), true)
 		return
-	var chroms: Array[Dictionary] = resp.get("chromosomes", [])
+	var chroms_any = resp.get("chromosomes", [])
+	var chroms: Array[Dictionary] = []
+	for c in chroms_any:
+		if typeof(c) == TYPE_DICTIONARY:
+			chroms.append(c)
 	if chroms.is_empty():
 		_set_status("No chromosomes loaded", true)
 		return
@@ -1504,7 +1501,7 @@ func _refresh_visible_data() -> void:
 		return
 	if _debug_enabled:
 		_reset_debug_annotation_counters()
-	var show_reads: bool = bool(genome_view.is_track_visible(TRACK_READS))
+	var show_reads: bool = _any_visible_read_track()
 	var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
 	var show_gc_plot: bool = bool(genome_view.is_track_visible(TRACK_GC_PLOT))
 	var show_depth_plot: bool = bool(genome_view.is_track_visible(TRACK_DEPTH_PLOT))
@@ -1514,8 +1511,7 @@ func _refresh_visible_data() -> void:
 	var right_span_mult := 3 if _auto_play_enabled else 2
 	var query_start: int = maxi(0, _last_start - span)
 	var query_end: int = mini(_current_chr_len, _last_end + span * right_span_mult)
-	var all_reads: Array[Dictionary] = []
-	var all_coverage_tiles: Array[Dictionary] = []
+	var read_payload_by_track := {}
 	var all_gc_plot_tiles: Array[Dictionary] = []
 	var all_depth_plot_tiles: Array[Dictionary] = []
 	var features: Array[Dictionary] = []
@@ -1524,33 +1520,44 @@ func _refresh_visible_data() -> void:
 	var frame_read_tile_cache := {}
 	var frame_cov_tile_cache := {}
 	var frame_gc_tile_cache := {}
+	var primary_source_id := _first_bam_source_id()
 
 	if _seq_view_mode == SEQ_VIEW_SINGLE:
 		var zoom := _compute_tile_zoom(_last_bp_per_px)
-		if _has_bam_loaded and show_reads and _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX:
-			var tile_width := 1024 << zoom
-			var tile_start := int(floor(float(query_start) / float(tile_width)))
-			var tile_end := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width)))
-			for t in range(tile_start, tile_end + 1):
-				var tile_resp: Dictionary = _frame_get_read_tile(frame_read_tile_cache, _current_chr_id, zoom, t)
-				if not tile_resp.get("ok", false):
-					_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
-					return
-				all_reads.append_array(tile_resp.get("reads", []))
-		if _has_bam_loaded and ((show_reads and _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX) or show_depth_plot):
-			var tile_width_cov := 1024 << zoom
-			var tile_start_cov := int(floor(float(query_start) / float(tile_width_cov)))
-			var tile_end_cov := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width_cov)))
-			for t in range(tile_start_cov, tile_end_cov + 1):
-				var cov_resp: Dictionary = _frame_get_coverage_tile(frame_cov_tile_cache, _current_chr_id, zoom, t)
-				if not cov_resp.get("ok", false):
-					_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
-					return
-				var cov_tile: Dictionary = cov_resp.get("coverage", {})
-				if show_reads and _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
-					all_coverage_tiles.append(cov_tile)
-				if show_depth_plot:
-					all_depth_plot_tiles.append(_coverage_to_plot_tile(cov_tile))
+		if _has_bam_loaded and show_reads:
+			for t_any in _bam_tracks:
+				var track: Dictionary = t_any
+				var track_id := str(track.get("track_id", ""))
+				if not genome_view.is_track_visible(track_id):
+					continue
+				var source_id := int(track.get("source_id", 0))
+				var track_reads: Array[Dictionary] = []
+				var track_cov: Array[Dictionary] = []
+				if _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX:
+					var tile_width := 1024 << zoom
+					var tile_start := int(floor(float(query_start) / float(tile_width)))
+					var tile_end := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width)))
+					for t in range(tile_start, tile_end + 1):
+						var tile_resp: Dictionary = _frame_get_read_tile(frame_read_tile_cache, source_id, _current_chr_id, zoom, t)
+						if not tile_resp.get("ok", false):
+							_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
+							return
+						track_reads.append_array(tile_resp.get("reads", []))
+				if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX or (show_depth_plot and source_id == primary_source_id):
+					var tile_width_cov := 1024 << zoom
+					var tile_start_cov := int(floor(float(query_start) / float(tile_width_cov)))
+					var tile_end_cov := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width_cov)))
+					for t in range(tile_start_cov, tile_end_cov + 1):
+						var cov_resp: Dictionary = _frame_get_coverage_tile(frame_cov_tile_cache, source_id, _current_chr_id, zoom, t)
+						if not cov_resp.get("ok", false):
+							_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
+							return
+						var cov_tile: Dictionary = cov_resp.get("coverage", {})
+						if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
+							track_cov.append(cov_tile)
+						if show_depth_plot and source_id == primary_source_id:
+							all_depth_plot_tiles.append(_coverage_to_plot_tile(cov_tile))
+				read_payload_by_track[track_id] = {"reads": track_reads, "coverage": track_cov}
 		if show_gc_plot:
 			var zoom_plot := _compute_tile_zoom(_last_bp_per_px)
 			var tile_width_plot := 1024 << zoom_plot
@@ -1580,38 +1587,53 @@ func _refresh_visible_data() -> void:
 		var overlaps := _segments_overlapping(query_start, query_end)
 		var ann_overlaps := _segments_overlapping(query_start, query_end) if show_aa else ([] as Array[Dictionary])
 		var zoom := _compute_tile_zoom(_last_bp_per_px)
+		if _has_bam_loaded and show_reads:
+			for t_any in _bam_tracks:
+				var track: Dictionary = t_any
+				var track_id := str(track.get("track_id", ""))
+				if not genome_view.is_track_visible(track_id):
+					continue
+				var source_id := int(track.get("source_id", 0))
+				var track_reads: Array[Dictionary] = []
+				var track_cov: Array[Dictionary] = []
+				for ov in overlaps:
+					var chr_id := int(ov["id"])
+					var offset := int(ov["offset"])
+					var local_start := int(ov["local_start"])
+					var local_end := int(ov["local_end"])
+					if _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX:
+						var tile_width := 1024 << zoom
+						var tile_start := int(floor(float(local_start) / float(tile_width)))
+						var tile_end := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width)))
+						for t in range(tile_start, tile_end + 1):
+							var tile_resp: Dictionary = _frame_get_read_tile(frame_read_tile_cache, source_id, chr_id, zoom, t)
+							if not tile_resp.get("ok", false):
+								_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
+								return
+							for r in tile_resp.get("reads", []):
+								var shifted := _shift_read_coords(r, offset)
+								if int(shifted.get("end", 0)) > query_start and int(shifted.get("start", 0)) < query_end:
+									track_reads.append(shifted)
+					if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX or (show_depth_plot and source_id == primary_source_id):
+						var tile_width_cov := 1024 << zoom
+						var tile_start_cov := int(floor(float(local_start) / float(tile_width_cov)))
+						var tile_end_cov := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width_cov)))
+						for t in range(tile_start_cov, tile_end_cov + 1):
+							var cov_resp: Dictionary = _frame_get_coverage_tile(frame_cov_tile_cache, source_id, chr_id, zoom, t)
+							if not cov_resp.get("ok", false):
+								_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
+								return
+							var shifted_cov := _shift_coverage_coords(cov_resp.get("coverage", {}), offset)
+							if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
+								track_cov.append(shifted_cov)
+							if show_depth_plot and source_id == primary_source_id:
+								all_depth_plot_tiles.append(_coverage_to_plot_tile(shifted_cov))
+				read_payload_by_track[track_id] = {"reads": track_reads, "coverage": track_cov}
 		for ov in overlaps:
 			var chr_id := int(ov["id"])
 			var offset := int(ov["offset"])
 			var local_start := int(ov["local_start"])
 			var local_end := int(ov["local_end"])
-			if _has_bam_loaded and show_reads and _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX:
-				var tile_width := 1024 << zoom
-				var tile_start := int(floor(float(local_start) / float(tile_width)))
-				var tile_end := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width)))
-				for t in range(tile_start, tile_end + 1):
-					var tile_resp: Dictionary = _frame_get_read_tile(frame_read_tile_cache, chr_id, zoom, t)
-					if not tile_resp.get("ok", false):
-						_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
-						return
-					for r in tile_resp.get("reads", []):
-						var shifted := _shift_read_coords(r, offset)
-						if int(shifted.get("end", 0)) > query_start and int(shifted.get("start", 0)) < query_end:
-							all_reads.append(shifted)
-			if _has_bam_loaded and ((show_reads and _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX) or show_depth_plot):
-				var tile_width_cov := 1024 << zoom
-				var tile_start_cov := int(floor(float(local_start) / float(tile_width_cov)))
-				var tile_end_cov := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width_cov)))
-				for t in range(tile_start_cov, tile_end_cov + 1):
-					var cov_resp: Dictionary = _frame_get_coverage_tile(frame_cov_tile_cache, chr_id, zoom, t)
-					if not cov_resp.get("ok", false):
-						_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
-						return
-					var shifted_cov := _shift_coverage_coords(cov_resp.get("coverage", {}), offset)
-					if show_reads and _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
-						all_coverage_tiles.append(shifted_cov)
-					if show_depth_plot:
-						all_depth_plot_tiles.append(_coverage_to_plot_tile(shifted_cov))
 			if show_gc_plot:
 				var tile_width_plot := 1024 << zoom
 				var tile_start_plot := int(floor(float(local_start) / float(tile_width_plot)))
@@ -1637,19 +1659,28 @@ func _refresh_visible_data() -> void:
 		if need_reference:
 			ref_sequence = _build_concat_reference(query_start, query_end, overlaps)
 
-	genome_view.set_reads(all_reads)
-	genome_view.set_coverage_tiles(all_coverage_tiles)
+	for t_any in _bam_tracks:
+		var track: Dictionary = t_any
+		var track_id := str(track.get("track_id", ""))
+		var payload: Dictionary = read_payload_by_track.get(track_id, {"reads": [], "coverage": []})
+		genome_view.set_read_track_settings(
+			track_id,
+			int(track.get("view_mode", 0)),
+			bool(track.get("fragment_log", true)),
+			float(track.get("thickness", DEFAULT_READ_THICKNESS))
+		)
+		genome_view.set_read_track_data(track_id, payload.get("reads", []), payload.get("coverage", []))
+		if _center_strand_scroll_pending and int(track.get("view_mode", 0)) == 1 and (payload.get("reads", []) as Array).size() > 0:
+			genome_view.center_strand_scroll_for_track(track_id)
+			_center_strand_scroll_pending = false
 	genome_view.set_gc_plot_tiles(all_gc_plot_tiles)
 	genome_view.set_depth_plot_tiles(all_depth_plot_tiles)
 	genome_view.set_features(features)
 	genome_view.set_reference_slice(ref_start, ref_sequence)
-	if _center_strand_scroll_pending and _read_view_option.selected == 1 and all_reads.size() > 0:
-		genome_view.center_strand_scroll()
-		_center_strand_scroll_pending = false
 	_cache_start = query_start
 	_cache_end = query_end
 	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)
-	_cache_mode = 0 if (_has_bam_loaded and _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
+	_cache_mode = 0 if (_has_bam_loaded and _any_visible_read_track() and _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
 	_cache_need_reference = need_reference
 	_cache_scope_key = _scope_cache_key()
 	if _debug_enabled:
@@ -1983,27 +2014,27 @@ func _shift_plot_coords(plot: Dictionary, offset: int) -> Dictionary:
 		"values": plot.get("values", PackedFloat32Array())
 	}
 
-func _frame_tile_key(chr_id: int, zoom: int, tile_index: int, param: int = 0) -> String:
-	return "%d|%d|%d|%d" % [chr_id, zoom, tile_index, param]
+func _frame_tile_key(source_id: int, chr_id: int, zoom: int, tile_index: int, param: int = 0) -> String:
+	return "%d|%d|%d|%d|%d" % [source_id, chr_id, zoom, tile_index, param]
 
-func _frame_get_read_tile(cache: Dictionary, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
-	var key := _frame_tile_key(chr_id, zoom, tile_index)
+func _frame_get_read_tile(cache: Dictionary, source_id: int, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
+	var key := _frame_tile_key(source_id, chr_id, zoom, tile_index)
 	if cache.has(key):
 		return cache[key]
-	var resp: Dictionary = _zem.get_tile(chr_id, zoom, tile_index)
+	var resp: Dictionary = _zem.get_tile(chr_id, zoom, tile_index, source_id)
 	cache[key] = resp
 	return resp
 
-func _frame_get_coverage_tile(cache: Dictionary, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
-	var key := _frame_tile_key(chr_id, zoom, tile_index)
+func _frame_get_coverage_tile(cache: Dictionary, source_id: int, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
+	var key := _frame_tile_key(source_id, chr_id, zoom, tile_index)
 	if cache.has(key):
 		return cache[key]
-	var resp: Dictionary = _zem.get_coverage_tile(chr_id, zoom, tile_index)
+	var resp: Dictionary = _zem.get_coverage_tile(chr_id, zoom, tile_index, source_id)
 	cache[key] = resp
 	return resp
 
 func _frame_get_gc_plot_tile(cache: Dictionary, chr_id: int, zoom: int, tile_index: int, window_len_bp: int) -> Dictionary:
-	var key := _frame_tile_key(chr_id, zoom, tile_index, window_len_bp)
+	var key := _frame_tile_key(0, chr_id, zoom, tile_index, window_len_bp)
 	if cache.has(key):
 		return cache[key]
 	var resp: Dictionary = _zem.get_gc_plot_tile(chr_id, zoom, tile_index, window_len_bp)
@@ -2119,6 +2150,8 @@ func _reset_loaded_state() -> void:
 	_cache_end = -1
 	_invalidate_cache()
 	_has_bam_loaded = false
+	_bam_tracks.clear()
+	_bam_track_serial = 0
 	_has_fasta_loaded = false
 	_chromosomes.clear()
 	_annotation_counts_by_chr.clear()
@@ -2130,6 +2163,7 @@ func _reset_loaded_state() -> void:
 	_feature_panel_open = false
 	_slide_feature_panel(false, false)
 	genome_view.clear_all_data()
+	_sync_bam_read_tracks()
 
 func _setup_view_slot_shortcuts() -> void:
 	for b in _view_slot_shortcut_buttons:
@@ -2272,14 +2306,6 @@ func _load_or_init_config() -> void:
 	var seq_name := str(cfg.get_value("ui", "selected_sequence_name", ""))
 	if not seq_name.is_empty():
 		_selected_seq_name = seq_name
-	var read_view := int(cfg.get_value("ui", "read_view_mode", 0))
-	read_view = clampi(read_view, 0, 3)
-	_read_view_option.select(read_view)
-	_on_read_view_selected(read_view)
-	_read_thickness = float(cfg.get_value("ui", "read_thickness", DEFAULT_READ_THICKNESS))
-	_read_thickness = clampf(_read_thickness, 2.0, 24.0)
-	_read_thickness_spin.value = _read_thickness
-	genome_view.set_read_thickness(_read_thickness)
 	_show_full_length_regions = bool(cfg.get_value("ui", "show_full_length_regions", false))
 	_show_full_region_checkbox.button_pressed = _show_full_length_regions
 	genome_view.set_show_full_length_regions(_show_full_length_regions)
@@ -2302,9 +2328,6 @@ func _load_or_init_config() -> void:
 	_depth_plot_y_min = float(cfg.get_value("ui", "depth_plot_y_min", 0.0))
 	_depth_plot_y_max = float(cfg.get_value("ui", "depth_plot_y_max", 100.0))
 	_apply_depth_plot_y_scale()
-	var frag_log := bool(cfg.get_value("ui", "fragment_log_scale", false))
-	_fragment_log_checkbox.button_pressed = frag_log
-	genome_view.set_fragment_log_scale(frag_log)
 	_debug_enabled = bool(cfg.get_value("ui", "debug_enabled", false))
 	if _debug_toggle != null:
 		_debug_toggle.button_pressed = _debug_enabled
@@ -2329,8 +2352,6 @@ func _save_config() -> void:
 	cfg.set_value("ui", "sequence_view_mode", _seq_view_option.selected)
 	cfg.set_value("ui", "concat_gap_bp", _concat_gap_bp)
 	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)
-	cfg.set_value("ui", "read_view_mode", _read_view_option.selected)
-	cfg.set_value("ui", "read_thickness", _read_thickness)
 	cfg.set_value("ui", "show_full_length_regions", _show_full_length_regions)
 	cfg.set_value("ui", "colorize_nucleotides", _colorize_nucleotides)
 	cfg.set_value("ui", "axis_coords_with_commas", _axis_coords_with_commas)
@@ -2343,7 +2364,6 @@ func _save_config() -> void:
 	cfg.set_value("ui", "depth_plot_y_mode", _depth_plot_y_mode)
 	cfg.set_value("ui", "depth_plot_y_min", _depth_plot_y_min)
 	cfg.set_value("ui", "depth_plot_y_max", _depth_plot_y_max)
-	cfg.set_value("ui", "fragment_log_scale", _fragment_log_checkbox.button_pressed)
 	cfg.set_value("ui", "debug_enabled", _debug_enabled)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
 	cfg.set_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value)

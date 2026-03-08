@@ -30,6 +30,7 @@ const FEATURE_MIN_DRAW_PX := 3.0
 const FEATURE_DETAIL_MAX_BP_PER_PX := 1.25
 const FEATURE_LABEL_MIN_CHARS := 6
 const TRACK_ID_READS := "reads"
+const READ_TRACK_PREFIX := "reads:"
 const TRACK_ID_AA := "aa"
 const TRACK_ID_GC_PLOT := "gc_plot"
 const TRACK_ID_DEPTH_PLOT := "depth_plot"
@@ -42,6 +43,7 @@ const READ_VIEW_STRAND := 1
 const READ_VIEW_PAIRED := 2
 const READ_VIEW_FRAGMENT := 3
 const STRAND_SPLIT_LINE_WIDTH := 2.5
+const READ_SCROLLBAR_MIN_GRABBER_SIZE := 36
 const READ_RENDER_MAX_BP_PER_PX := 128.0
 const COMPLEMENT_MAP := {
 	"A": "T",
@@ -173,15 +175,35 @@ var _annotation_debug_stats := {
 	"hitboxes": 0,
 	"draw_ms": 0.0
 }
+var _read_track_states := {}
+var _active_read_track_id := TRACK_ID_READS
+var _dragging_scrollbar: VScrollBar = null
 
 func _ready() -> void:
 	clip_contents = true
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	custom_minimum_size = Vector2.ZERO
 	_reads_scrollbar = VScrollBar.new()
 	_reads_scrollbar.visible = false
-	_reads_scrollbar.step = 1.0
-	_reads_scrollbar.value_changed.connect(_on_reads_scroll_changed)
+	_reads_scrollbar.step = 0.1
+	_reads_scrollbar.mouse_filter = Control.MOUSE_FILTER_STOP
+	_reads_scrollbar.add_theme_constant_override("grabber_min_size", READ_SCROLLBAR_MIN_GRABBER_SIZE)
+	_reads_scrollbar.value_changed.connect(_on_reads_scroll_changed_for_track.bind(TRACK_ID_READS))
+	_reads_scrollbar.gui_input.connect(_on_read_scrollbar_gui_input.bind(_reads_scrollbar))
 	add_child(_reads_scrollbar)
+	_read_track_states[TRACK_ID_READS] = {
+		"reads": reads,
+		"coverage_tiles": coverage_tiles,
+		"laid_out_reads": _laid_out_reads,
+		"read_row_count": _read_row_count,
+		"strand_forward_rows": _strand_forward_rows,
+		"strand_reverse_rows": _strand_reverse_rows,
+		"strand_split_lock_y": _strand_split_lock_y,
+		"read_view_mode": _read_view_mode,
+		"fragment_log_scale": _fragment_log_scale,
+		"read_row_h": _read_row_h,
+		"scrollbar": _reads_scrollbar
+	}
 	_layout_read_scrollbar()
 	_emit_viewport_changed()
 
@@ -195,6 +217,7 @@ func set_chromosome(_chr_name: String, length_bp: int) -> void:
 	_emit_viewport_changed()
 
 func set_reads(next_reads: Array[Dictionary]) -> void:
+	_activate_read_track(TRACK_ID_READS)
 	reads.clear()
 	for read_any in next_reads:
 		var read: Dictionary = (read_any as Dictionary).duplicate(true)
@@ -202,10 +225,81 @@ func set_reads(next_reads: Array[Dictionary]) -> void:
 		reads.append(read)
 	_layout_reads()
 	_layout_read_scrollbar()
+	_persist_active_read_track()
 	queue_redraw()
 
 func set_coverage_tiles(next_tiles: Array[Dictionary]) -> void:
+	_activate_read_track(TRACK_ID_READS)
 	coverage_tiles = next_tiles
+	_persist_active_read_track()
+	queue_redraw()
+
+func sync_read_tracks(track_ids: PackedStringArray) -> void:
+	var wanted := {}
+	for id_any in track_ids:
+		var track_id := str(id_any)
+		if not _is_read_track(track_id):
+			continue
+		wanted[track_id] = true
+		_ensure_read_track_state(track_id)
+	for id_any in _read_track_states.keys():
+		var existing_id := str(id_any)
+		if existing_id == TRACK_ID_READS:
+			continue
+		if wanted.get(existing_id, false):
+			continue
+		var state: Dictionary = _read_track_states[existing_id]
+		var sb: VScrollBar = state.get("scrollbar", null)
+		if sb != null and is_instance_valid(sb):
+			sb.queue_free()
+		_read_track_states.erase(existing_id)
+		_track_visible.erase(existing_id)
+	if not _read_track_states.has(TRACK_ID_READS):
+		_read_track_states[TRACK_ID_READS] = {
+			"reads": [],
+			"coverage_tiles": [],
+			"laid_out_reads": [],
+			"read_row_count": 0,
+			"strand_forward_rows": 0,
+			"strand_reverse_rows": 0,
+			"strand_split_lock_y": -1.0,
+			"read_view_mode": READ_VIEW_STACK,
+			"fragment_log_scale": false,
+			"read_row_h": READ_ROW_H,
+			"scrollbar": _reads_scrollbar
+		}
+	queue_redraw()
+
+func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_cov_tiles: Array[Dictionary]) -> void:
+	_ensure_read_track_state(track_id)
+	_activate_read_track(track_id)
+	reads.clear()
+	for read_any in next_reads:
+		var read: Dictionary = (read_any as Dictionary).duplicate(true)
+		_attach_indel_markers(read)
+		reads.append(read)
+	coverage_tiles = next_cov_tiles
+	_layout_reads()
+	_layout_read_scrollbar()
+	_persist_active_read_track()
+	queue_redraw()
+
+func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float) -> void:
+	_ensure_read_track_state(track_id)
+	_activate_read_track(track_id)
+	_read_view_mode = clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
+	_fragment_log_scale = fragment_log
+	_read_row_h = clampf(row_h, 2.0, 24.0)
+	_layout_reads()
+	_layout_read_scrollbar()
+	_persist_active_read_track()
+	queue_redraw()
+
+func center_strand_scroll_for_track(track_id: String) -> void:
+	_ensure_read_track_state(track_id)
+	_activate_read_track(track_id)
+	center_strand_scroll()
+	_persist_active_read_track()
 	queue_redraw()
 
 func set_gc_plot_tiles(next_tiles: Array[Dictionary]) -> void:
@@ -240,6 +334,13 @@ func set_concat_segments(segments: Array) -> void:
 	queue_redraw()
 
 func clear_all_data() -> void:
+	for id_any in _read_track_states.keys():
+		var id := str(id_any)
+		var state: Dictionary = _read_track_states[id]
+		var sb: VScrollBar = state.get("scrollbar", null)
+		if sb != null and is_instance_valid(sb) and sb != _reads_scrollbar:
+			sb.queue_free()
+	_read_track_states.clear()
 	reads.clear()
 	_laid_out_reads.clear()
 	_read_row_count = 0
@@ -253,6 +354,20 @@ func clear_all_data() -> void:
 	reference_start_bp = 0
 	reference_sequence = ""
 	view_start_bp = 0.0
+	_active_read_track_id = TRACK_ID_READS
+	_read_track_states[TRACK_ID_READS] = {
+		"reads": reads,
+		"coverage_tiles": coverage_tiles,
+		"laid_out_reads": _laid_out_reads,
+		"read_row_count": _read_row_count,
+		"strand_forward_rows": _strand_forward_rows,
+		"strand_reverse_rows": _strand_reverse_rows,
+		"strand_split_lock_y": _strand_split_lock_y,
+		"read_view_mode": _read_view_mode,
+		"fragment_log_scale": _fragment_log_scale,
+		"read_row_h": _read_row_h,
+		"scrollbar": _reads_scrollbar
+	}
 	queue_redraw()
 	_emit_viewport_changed()
 
@@ -273,27 +388,33 @@ func set_base_font_size(base_size: int) -> void:
 	queue_redraw()
 
 func set_read_view_mode(mode: int) -> void:
+	_activate_read_track(TRACK_ID_READS)
 	_read_view_mode = clampi(mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
 	_strand_split_lock_y = -1.0
 	if _reads_scrollbar != null:
 		_reads_scrollbar.value = 0.0
 	_layout_reads()
 	_layout_read_scrollbar()
+	_persist_active_read_track()
 	if _read_view_mode == READ_VIEW_STRAND and _reads_scrollbar != null and _reads_scrollbar.visible:
 		_reads_scrollbar.value = _reads_scrollbar.max_value * 0.5
 	queue_redraw()
 
 func set_fragment_log_scale(enabled: bool) -> void:
+	_activate_read_track(TRACK_ID_READS)
 	_fragment_log_scale = enabled
 	if _read_view_mode == READ_VIEW_FRAGMENT:
 		_layout_reads()
 		_layout_read_scrollbar()
+		_persist_active_read_track()
 		queue_redraw()
 
 func set_read_thickness(value: float) -> void:
+	_activate_read_track(TRACK_ID_READS)
 	_read_row_h = clampf(value, 2.0, 24.0)
 	_layout_reads()
 	_layout_read_scrollbar()
+	_persist_active_read_track()
 	queue_redraw()
 
 func set_show_full_length_regions(enabled: bool) -> void:
@@ -348,6 +469,7 @@ func center_strand_scroll() -> void:
 	_layout_read_scrollbar()
 	if _reads_scrollbar.visible:
 		_reads_scrollbar.value = _reads_scrollbar.max_value * 0.5
+	_persist_active_read_track()
 	queue_redraw()
 
 func get_track_order() -> PackedStringArray:
@@ -358,11 +480,21 @@ func is_track_visible(track_id: String) -> bool:
 
 func set_track_visible(track_id: String, show_track: bool) -> void:
 	if not _track_visible.has(track_id):
+		if _is_read_track(track_id):
+			_ensure_read_track_state(track_id)
+		else:
+			return
+	if not _track_visible.has(track_id):
 		return
 	var next_visible := show_track
 	if bool(_track_visible.get(track_id, true)) == next_visible:
 		return
 	_track_visible[track_id] = next_visible
+	if _is_read_track(track_id):
+		var state: Dictionary = _read_track_states.get(track_id, {})
+		var sb: VScrollBar = state.get("scrollbar", null)
+		if sb != null and is_instance_valid(sb) and not next_visible:
+			sb.visible = false
 	if _track_drag_active and _track_drag_track_id == track_id and not next_visible:
 		_track_drag_active = false
 		_track_drag_track_id = ""
@@ -373,15 +505,17 @@ func set_track_visible(track_id: String, show_track: bool) -> void:
 
 func set_track_order(order: PackedStringArray) -> void:
 	var prev := _track_order
-	var valid := PackedStringArray([TRACK_ID_READS, TRACK_ID_AA, TRACK_ID_GC_PLOT, TRACK_ID_DEPTH_PLOT, TRACK_ID_GENOME])
+	var valid := PackedStringArray([TRACK_ID_AA, TRACK_ID_GC_PLOT, TRACK_ID_DEPTH_PLOT, TRACK_ID_GENOME])
 	var seen: Dictionary = {}
 	var next := PackedStringArray()
 	for id_any in order:
 		var id := str(id_any)
-		if not valid.has(id):
+		if not valid.has(id) and not _is_read_track(id):
 			continue
 		if seen.get(id, false):
 			continue
+		if _is_read_track(id):
+			_ensure_read_track_state(id)
 		seen[id] = true
 		next.append(id)
 	for id in valid:
@@ -513,7 +647,10 @@ func _emit_viewport_changed() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		view_start_bp = _clamp_start(view_start_bp)
-		_layout_read_scrollbar()
+		for track_id in _read_track_states.keys():
+			_activate_read_track(str(track_id))
+			_layout_read_scrollbar()
+			_persist_active_read_track()
 		queue_redraw()
 		_emit_viewport_changed()
 
@@ -529,17 +666,21 @@ func _draw() -> void:
 		if not track_rects.has(track_id):
 			continue
 		var area: Rect2 = track_rects[track_id]
-		match track_id:
-			TRACK_ID_READS:
-				_draw_read_tracks(area)
-			TRACK_ID_AA:
-				_draw_aa_tracks(area)
-			TRACK_ID_GC_PLOT:
-				_draw_plot_track(area, gc_plot_tiles, _gc_plot_y_mode, _gc_plot_y_min, _gc_plot_y_max, palette.get("gc_plot", palette["read"]))
-			TRACK_ID_DEPTH_PLOT:
-				_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]))
-			TRACK_ID_GENOME:
-				_draw_genome_track(area)
+		if _is_read_track(track_id):
+			_activate_read_track(track_id)
+			_layout_read_scrollbar()
+			_draw_read_tracks(area)
+			_persist_active_read_track()
+		else:
+			match track_id:
+				TRACK_ID_AA:
+					_draw_aa_tracks(area)
+				TRACK_ID_GC_PLOT:
+					_draw_plot_track(area, gc_plot_tiles, _gc_plot_y_mode, _gc_plot_y_min, _gc_plot_y_max, palette.get("gc_plot", palette["read"]))
+				TRACK_ID_DEPTH_PLOT:
+					_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]))
+				TRACK_ID_GENOME:
+					_draw_genome_track(area)
 		_draw_track_header(track_id, area)
 	_draw_region_selection(track_rects)
 	if _track_drag_active and _track_drag_target_index >= 0 and _track_drag_target_index < _track_order.size():
@@ -601,6 +742,8 @@ func _draw_track_header(track_id: String, area: Rect2) -> void:
 	_track_settings_hitboxes.append({"rect": settings_rect, "track_id": track_id})
 
 func _track_label_for_id(track_id: String) -> String:
+	if _is_read_track(track_id):
+		return "Reads"
 	match track_id:
 		TRACK_ID_READS:
 			return "Reads"
@@ -659,7 +802,8 @@ func _draw_read_tracks(area: Rect2) -> void:
 			var off_px := clampf(_reads_scrollbar.value, 0.0, range_px)
 			strand_split_y = split_at_forward_top - off_px
 		_strand_split_lock_y = strand_split_y
-		draw_line(Vector2(0.0, strand_split_y), Vector2(size.x, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
+		if strand_split_y >= content_top and strand_split_y <= content_bottom:
+			draw_line(Vector2(0.0, strand_split_y), Vector2(size.x, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
 	var drawn_pairs: Dictionary = {}
 	var draw_snp_text := _can_draw_read_snp_letters()
 	var snp_font := get_theme_default_font()
@@ -1591,9 +1735,9 @@ func _intersects_any(rect: Rect2, existing: Array) -> bool:
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		var mouse_pos: Vector2 = event.position
-		var read_rect := _track_rect(TRACK_ID_READS)
+		var read_rect := _any_read_track_rect_at_point(mouse_pos)
 		var aa_rect := _track_rect(TRACK_ID_AA)
-		var in_reads := read_rect.has_point(mouse_pos)
+		var in_reads := read_rect.size.x > 0.0 and read_rect.has_point(mouse_pos)
 		var in_aa := aa_rect.has_point(mouse_pos)
 		for hit in _track_close_hitboxes:
 			var close_rect: Rect2 = hit["rect"]
@@ -1884,7 +2028,25 @@ func _annotation_area(_area_unused: Rect2) -> Rect2:
 	return _track_rect(TRACK_ID_AA)
 
 func _read_area(_ann_area_unused: Rect2) -> Rect2:
-	return _track_rect(TRACK_ID_READS)
+	for track_id in _track_order:
+		if _is_read_track(str(track_id)):
+			return _track_rect(str(track_id))
+	return Rect2(0.0, 0.0, size.x, 0.0)
+
+func _is_read_track(track_id: String) -> bool:
+	return track_id == TRACK_ID_READS or track_id.begins_with(READ_TRACK_PREFIX)
+
+func _any_read_track_rect_at_point(mouse_pos: Vector2) -> Rect2:
+	for track_id in _track_order:
+		var id := str(track_id)
+		if not _is_read_track(id):
+			continue
+		if not is_track_visible(id):
+			continue
+		var rect := _track_rect(id)
+		if rect.has_point(mouse_pos):
+			return rect
+	return Rect2()
 
 func _track_layout_rects() -> Dictionary:
 	var out := {}
@@ -1954,6 +2116,8 @@ func minimum_required_height(reads_min_height: float = 24.0) -> float:
 		if h >= 0.0:
 			fixed_sum += h
 		elif track_id == TRACK_ID_READS:
+			flex_sum += maxf(24.0, reads_min_height)
+		elif _is_read_track(str(track_id)):
 			flex_sum += maxf(24.0, reads_min_height)
 		else:
 			flex_sum += 24.0
@@ -2094,17 +2258,95 @@ func _should_use_mate_span_for_packing(read: Dictionary) -> bool:
 	var mate_center := int((mate_start + mate_end) / 2.0)
 	return absi(mate_center - read_center) <= max_distance
 
+func _ensure_read_track_state(track_id: String) -> void:
+	if not _is_read_track(track_id):
+		return
+	if _read_track_states.has(track_id):
+		return
+	var sb := VScrollBar.new()
+	sb.visible = false
+	sb.step = 0.1
+	sb.mouse_filter = Control.MOUSE_FILTER_STOP
+	sb.add_theme_constant_override("grabber_min_size", READ_SCROLLBAR_MIN_GRABBER_SIZE)
+	sb.value_changed.connect(_on_reads_scroll_changed_for_track.bind(track_id))
+	sb.gui_input.connect(_on_read_scrollbar_gui_input.bind(sb))
+	add_child(sb)
+	_read_track_states[track_id] = {
+		"reads": [],
+		"coverage_tiles": [],
+		"laid_out_reads": [],
+		"read_row_count": 0,
+		"strand_forward_rows": 0,
+		"strand_reverse_rows": 0,
+		"strand_split_lock_y": -1.0,
+		"read_view_mode": READ_VIEW_STACK,
+		"fragment_log_scale": true,
+		"read_row_h": READ_ROW_H,
+		"scrollbar": sb
+	}
+	if not _track_visible.has(track_id):
+		_track_visible[track_id] = true
+
+func _activate_read_track(track_id: String) -> void:
+	_ensure_read_track_state(track_id)
+	var state: Dictionary = _read_track_states.get(track_id, {})
+	if state.is_empty():
+		return
+	_active_read_track_id = track_id
+	reads = _as_dict_array(state.get("reads", []))
+	coverage_tiles = _as_dict_array(state.get("coverage_tiles", []))
+	_laid_out_reads = _as_dict_array(state.get("laid_out_reads", []))
+	_read_row_count = int(state.get("read_row_count", 0))
+	_strand_forward_rows = int(state.get("strand_forward_rows", 0))
+	_strand_reverse_rows = int(state.get("strand_reverse_rows", 0))
+	_strand_split_lock_y = float(state.get("strand_split_lock_y", -1.0))
+	_read_view_mode = int(state.get("read_view_mode", READ_VIEW_STACK))
+	_fragment_log_scale = bool(state.get("fragment_log_scale", true))
+	_read_row_h = float(state.get("read_row_h", READ_ROW_H))
+	_reads_scrollbar = state.get("scrollbar", _reads_scrollbar)
+
+func _as_dict_array(value: Variant) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if typeof(value) != TYPE_ARRAY:
+		return out
+	for item in value:
+		if typeof(item) == TYPE_DICTIONARY:
+			out.append(item)
+	return out
+
+func _persist_active_read_track() -> void:
+	if _active_read_track_id.is_empty():
+		return
+	if not _read_track_states.has(_active_read_track_id):
+		return
+	_read_track_states[_active_read_track_id] = {
+		"reads": reads,
+		"coverage_tiles": coverage_tiles,
+		"laid_out_reads": _laid_out_reads,
+		"read_row_count": _read_row_count,
+		"strand_forward_rows": _strand_forward_rows,
+		"strand_reverse_rows": _strand_reverse_rows,
+		"strand_split_lock_y": _strand_split_lock_y,
+		"read_view_mode": _read_view_mode,
+		"fragment_log_scale": _fragment_log_scale,
+		"read_row_h": _read_row_h,
+		"scrollbar": _reads_scrollbar
+	}
+
 func _layout_read_scrollbar() -> void:
 	if _reads_scrollbar == null:
 		return
-	var read_area := _track_rect(TRACK_ID_READS)
+	var target_track_id := _active_read_track_id
+	if target_track_id.is_empty():
+		target_track_id = TRACK_ID_READS
+	var read_area := _track_rect(target_track_id)
 	if read_area.size.y <= 0.0:
 		_reads_scrollbar.visible = false
 		_reads_scrollbar.value = 0.0
 		return
-	var sb_x := size.x - 16.0
-	_reads_scrollbar.position = Vector2(sb_x, read_area.position.y + 2.0)
 	_reads_scrollbar.size = Vector2(12.0, maxf(12.0, read_area.size.y - 4.0))
+	var sb_x := size.x - _reads_scrollbar.size.x
+	_reads_scrollbar.position = Vector2(sb_x, read_area.position.y + 2.0)
 	if _read_view_mode == READ_VIEW_FRAGMENT:
 		_reads_scrollbar.visible = false
 		_reads_scrollbar.value = 0.0
@@ -2126,24 +2368,52 @@ func _layout_read_scrollbar() -> void:
 		var split_at_forward_top := content_top + forward_extent
 		var split_at_reverse_bottom := content_bottom - reverse_extent
 		var range_px := maxf(0.0, split_at_forward_top - split_at_reverse_bottom)
+		var prev_max := _reads_scrollbar.max_value
+		var prev_page := _reads_scrollbar.page
+		var prev_size_y := _reads_scrollbar.size.y
 		_reads_scrollbar.visible = range_px > 0.0
-		_reads_scrollbar.max_value = range_px
-		_reads_scrollbar.page = maxf(1.0, minf(range_px, 64.0))
-		_reads_scrollbar.step = 1.0
+		# Godot scrollbar effective drag range is (max_value - page).
+		# Configure values so effective range equals our logical range_px.
+		var strand_page := maxf(1.0, minf(range_px, content_h * 0.5))
+		_reads_scrollbar.page = strand_page
+		_reads_scrollbar.max_value = range_px + strand_page
+		_reads_scrollbar.step = 0.1
 		var next_val := clampf(_reads_scrollbar.value, 0.0, range_px)
-		if _strand_split_lock_y >= content_top and _strand_split_lock_y <= content_bottom and split_at_forward_top > split_at_reverse_bottom:
+		var layout_changed := (
+			absf(range_px - prev_max) > 0.001 or
+			absf(_reads_scrollbar.page - prev_page) > 0.001 or
+			absf(_reads_scrollbar.size.y - prev_size_y) > 0.001
+		)
+		# Preserve split-line lock on layout changes, but never while the user drags
+		# this scrollbar thumb.
+		if _dragging_scrollbar != _reads_scrollbar and layout_changed and _strand_split_lock_y >= content_top and _strand_split_lock_y <= content_bottom and split_at_forward_top > split_at_reverse_bottom:
 			next_val = clampf(split_at_forward_top - _strand_split_lock_y, 0.0, range_px)
-		_reads_scrollbar.value = next_val
+		if absf(next_val - _reads_scrollbar.value) > 0.001:
+			_reads_scrollbar.value = next_val
 		return
 	var max_offset := maxf(0.0, float(max_rows) - visible_rows)
 	_reads_scrollbar.visible = max_offset > 0.0
-	_reads_scrollbar.max_value = max_offset
-	_reads_scrollbar.page = 1.0
-	_reads_scrollbar.step = 1.0
-	_reads_scrollbar.value = clampf(_reads_scrollbar.value, 0.0, max_offset)
+	# Godot scrollbar effective drag range is (max_value - page).
+	# Configure values so effective range equals our logical max_offset.
+	var stack_page := maxf(1.0, visible_rows)
+	_reads_scrollbar.page = stack_page
+	_reads_scrollbar.max_value = max_offset + stack_page
+	_reads_scrollbar.step = 0.1
+	var clamped_stack := clampf(_reads_scrollbar.value, 0.0, max_offset)
+	if absf(clamped_stack - _reads_scrollbar.value) > 0.001:
+		_reads_scrollbar.value = clamped_stack
 
-func _on_reads_scroll_changed(_value: float) -> void:
+func _on_reads_scroll_changed_for_track(_value: float, track_id: String) -> void:
+	if _active_read_track_id == track_id:
+		_persist_active_read_track()
 	queue_redraw()
+
+func _on_read_scrollbar_gui_input(event: InputEvent, sb: VScrollBar) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_dragging_scrollbar = sb
+		elif _dragging_scrollbar == sb:
+			_dragging_scrollbar = null
 
 func _strand_split_gap_px() -> float:
 	return 12.0
