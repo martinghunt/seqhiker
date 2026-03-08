@@ -142,6 +142,7 @@ var _gc_plot_y_max := 1.0
 var _depth_plot_y_mode := PLOT_Y_UNIT
 var _depth_plot_y_min := 0.0
 var _depth_plot_y_max := 1.0
+var _axis_coords_with_commas := false
 var _gc_plot_h := DEFAULT_PLOT_H
 var _depth_plot_h := DEFAULT_PLOT_H
 var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_DEPTH_PLOT, TRACK_ID_GC_PLOT, TRACK_ID_AA, TRACK_ID_GENOME])
@@ -305,6 +306,10 @@ func set_annotation_max_on_screen(max_count: int) -> void:
 
 func set_colorize_nucleotides(enabled: bool) -> void:
 	_colorize_nucleotides = enabled
+	queue_redraw()
+
+func set_axis_coords_with_commas(enabled: bool) -> void:
+	_axis_coords_with_commas = enabled
 	queue_redraw()
 
 func set_gc_plot_y_scale(mode: int, min_v: float, max_v: float) -> void:
@@ -1775,7 +1780,7 @@ func _format_bp(value: int) -> String:
 
 func _format_axis_bp(value: int, step: int) -> String:
 	if step < 1000:
-		return str(value)
+		return _format_int_with_commas(value) if _axis_coords_with_commas else str(value)
 	if step < 1000000:
 		var kb := float(value) / 1000.0
 		if step < 10000:
@@ -1789,6 +1794,17 @@ func _format_axis_bp(value: int, step: int) -> String:
 	if step < 100000000:
 		return "%.1f Mb" % mb
 	return "%.0f Mb" % mb
+
+func _format_int_with_commas(value: int) -> String:
+	var neg := value < 0
+	var digits := str(absi(value))
+	var out := ""
+	var n := digits.length()
+	for i in range(n):
+		if i > 0 and ((n - i) % 3 == 0):
+			out += ","
+		out += digits.substr(i, 1)
+	return ("-" + out) if neg else out
 
 func _axis_text_color() -> Color:
 	return palette["text"]

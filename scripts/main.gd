@@ -158,6 +158,7 @@ var _concat_gap_bp := DEFAULT_CONCAT_GAP_BP
 var _read_thickness := DEFAULT_READ_THICKNESS
 var _show_full_length_regions := false
 var _colorize_nucleotides := true
+var _axis_coords_with_commas := false
 var _gc_window_bp := DEFAULT_GC_WINDOW_BP
 var _gc_plot_y_mode := PLOT_Y_UNIT
 var _gc_plot_y_min := 0.0
@@ -643,6 +644,10 @@ func _on_colorize_nucleotides_toggled(enabled: bool) -> void:
 	_colorize_nucleotides = enabled
 	genome_view.set_colorize_nucleotides(enabled)
 
+func _on_axis_coords_commas_toggled(enabled: bool) -> void:
+	_axis_coords_with_commas = enabled
+	genome_view.set_axis_coords_with_commas(enabled)
+
 func _apply_gc_plot_y_scale() -> void:
 	if _gc_plot_y_max <= _gc_plot_y_min:
 		_gc_plot_y_max = _gc_plot_y_min + 1.0
@@ -938,6 +943,11 @@ func _on_track_settings_requested(track_id: String) -> void:
 			colorize_cb.button_pressed = _colorize_nucleotides
 			colorize_cb.toggled.connect(_on_colorize_nucleotides_toggled)
 			_track_settings_box.add_child(colorize_cb)
+			var coord_commas_cb := CheckBox.new()
+			coord_commas_cb.text = "Use commas in axis coordinates"
+			coord_commas_cb.button_pressed = _axis_coords_with_commas
+			coord_commas_cb.toggled.connect(_on_axis_coords_commas_toggled)
+			_track_settings_box.add_child(coord_commas_cb)
 			seq_view_option.item_selected.connect(func(index: int) -> void:
 				_on_seq_view_selected(index)
 				var single := index == SEQ_VIEW_SINGLE
@@ -2269,6 +2279,8 @@ func _load_or_init_config() -> void:
 	genome_view.set_show_full_length_regions(_show_full_length_regions)
 	_colorize_nucleotides = bool(cfg.get_value("ui", "colorize_nucleotides", true))
 	genome_view.set_colorize_nucleotides(_colorize_nucleotides)
+	_axis_coords_with_commas = bool(cfg.get_value("ui", "axis_coords_with_commas", false))
+	genome_view.set_axis_coords_with_commas(_axis_coords_with_commas)
 	_gc_window_bp = int(cfg.get_value("ui", "gc_window_bp", DEFAULT_GC_WINDOW_BP))
 	_gc_window_bp = clampi(_gc_window_bp, 1, 1000000)
 	_annotation_preload_threshold = clampi(int(cfg.get_value("ui", "annotation_preload_threshold", ANNOT_PRELOAD_THRESHOLD_DEFAULT)), 0, ANNOT_PRELOAD_MAX_RECORDS)
@@ -2315,6 +2327,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "read_thickness", _read_thickness)
 	cfg.set_value("ui", "show_full_length_regions", _show_full_length_regions)
 	cfg.set_value("ui", "colorize_nucleotides", _colorize_nucleotides)
+	cfg.set_value("ui", "axis_coords_with_commas", _axis_coords_with_commas)
 	cfg.set_value("ui", "gc_window_bp", _gc_window_bp)
 	cfg.set_value("ui", "annotation_preload_threshold", _annotation_preload_threshold)
 	cfg.set_value("ui", "annotation_max_on_screen", _annotation_max_on_screen)
