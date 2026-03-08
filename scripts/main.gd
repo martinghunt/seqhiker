@@ -40,6 +40,7 @@ const READS_TRACK_MIN_HEIGHT := 140.0
 const DEFAULT_UI_FONT_SIZE := 15
 const MIN_UI_FONT_SIZE := 9
 const MAX_UI_FONT_SIZE := 24
+const FILE_LIST_PLACEHOLDER := "none"
 
 @onready var background: ColorRect = $Background
 @onready var genome_view: Control = $Root/ContentMargin/GenomeView
@@ -74,10 +75,14 @@ const MAX_UI_FONT_SIZE := 24
 @onready var theme_option: OptionButton = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ThemeOption
 @onready var settings_content: VBoxContainer = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent
 @onready var file_list: ItemList = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FileList
+@onready var server_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerLabel
 @onready var host_edit: LineEdit = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/HostEdit
+@onready var port_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortLabel
 @onready var port_edit: LineEdit = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortEdit
 @onready var connect_button: Button = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ConnectButton
+@onready var status_title_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/StatusTitle
 @onready var status_message_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/StatusMessageLabel
+@onready var server_separator: HSeparator = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerSeparator
 @onready var close_settings_button: Button = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader/CloseSettingsButton
 
 var _settings_open := false
@@ -175,6 +180,10 @@ var _dbg_ann_tile_queries := 0
 var _dbg_ann_features_examined := 0
 var _dbg_ann_features_out := 0
 var _dbg_ann_fetch_time_ms := 0.0
+var _last_status_message := "Disconnected"
+var _last_status_is_error := false
+var _last_viewport_message := "0 - 0 bp  |  0 bp visible"
+var _last_bp_per_px_message := "0.00 bp/px"
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -184,10 +193,11 @@ func _ready() -> void:
 	_setup_font_size_control()
 	_setup_read_view_controls()
 	_setup_sequence_controls()
-	_setup_track_order_controls()
 	_setup_debug_controls()
 	_setup_track_settings_panel()
 	_connect_ui()
+	_hide_server_settings_section()
+	_refresh_file_list_ui()
 	_load_or_init_config()
 	_apply_gc_plot_y_scale()
 	_apply_depth_plot_y_scale()
@@ -200,6 +210,10 @@ func _ready() -> void:
 	_on_trackpad_pinch_changed(trackpad_pinch_slider.value)
 	_on_play_speed_changed(play_speed_slider.value)
 	_setup_fetch_timer()
+	if server_status_label != null:
+		server_status_label.visible = false
+	if viewport_label != null:
+		viewport_label.visible = true
 	call_deferred("_initialize_settings_panel")
 	call_deferred("_startup_connect_local_zem")
 	if get_window().has_signal("files_dropped"):
@@ -241,6 +255,16 @@ func _setup_fetch_timer() -> void:
 	_fetch_timer.wait_time = 0.08
 	_fetch_timer.timeout.connect(_on_fetch_timer_timeout)
 	add_child(_fetch_timer)
+
+func _hide_server_settings_section() -> void:
+	server_label.visible = false
+	host_edit.visible = false
+	port_label.visible = false
+	port_edit.visible = false
+	connect_button.visible = false
+	status_title_label.visible = false
+	status_message_label.visible = false
+	server_separator.visible = false
 
 func _setup_theme_selector() -> void:
 	theme_option.clear()
@@ -289,7 +313,8 @@ func _connect_ui() -> void:
 	theme_option.item_selected.connect(_on_theme_selected)
 	feature_close_button.pressed.connect(_close_feature_panel)
 	_show_full_region_checkbox.toggled.connect(_on_show_full_region_toggled)
-	_track_order_list.gui_input.connect(_on_track_order_list_gui_input)
+	if _track_order_list != null:
+		_track_order_list.gui_input.connect(_on_track_order_list_gui_input)
 	_seq_view_option.item_selected.connect(_on_seq_view_selected)
 	_seq_option.item_selected.connect(_on_seq_selected)
 	_concat_gap_spin.value_changed.connect(_on_concat_gap_changed)
@@ -332,7 +357,11 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_start = start_bp
 	_last_end = end_bp
 	_last_bp_per_px = bp_per_px
-	viewport_label.text = _format_viewport_label(start_bp, end_bp, bp_per_px)
+	_last_viewport_message = _format_viewport_label(start_bp, end_bp, bp_per_px)
+	_last_bp_per_px_message = "%.2f bp/px" % bp_per_px
+	viewport_label.text = _last_viewport_message
+	if _debug_enabled:
+		_update_debug_stats_label()
 	var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
 	var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
 	var need_reference: bool = bool(genome_view.needs_reference_data(show_aa, show_genome))
@@ -360,19 +389,17 @@ func _format_viewport_label(start_bp: int, end_bp: int, bp_per_px: float) -> Str
 		span_bp = maxi(0, _selection_end - _selection_start + 1)
 		span_text = "selected"
 	if _seq_view_mode != SEQ_VIEW_CONCAT:
-		return "%s:%d - %d bp  |  %d bp %s  |  %.2f bp/px" % [_current_chr_name, coord_start, coord_end, span_bp, span_text, bp_per_px]
+		return "%s:%d - %d bp  |  %d bp %s" % [_current_chr_name, coord_start, coord_end, span_bp, span_text]
 	var overlaps := _segments_overlapping(coord_start, coord_end)
 	if overlaps.is_empty():
-		return "concat:%d - %d bp  |  %d bp %s  |  %.2f bp/px" % [coord_start, coord_end, span_bp, span_text, bp_per_px]
+		return "concat:%d - %d bp  |  %d bp %s" % [coord_start, coord_end, span_bp, span_text]
 	if overlaps.size() == 1:
 		var seg := overlaps[0]
-		return "%s:%d - %d bp  |  %d bp %s  |  %.2f bp/px" % [
+		return "%s:%d - %d bp  |  %d bp %s" % [
 			str(seg.get("name", "chr")),
 			int(seg.get("local_start", 0)),
 			int(seg.get("local_end", 0)),
-			span_bp,
-			span_text,
-			bp_per_px
+			span_bp, span_text
 		]
 	var first := overlaps[0]
 	var last := overlaps[overlaps.size() - 1]
@@ -386,7 +413,7 @@ func _format_viewport_label(start_bp: int, end_bp: int, bp_per_px: float) -> Str
 	]
 	if overlaps.size() > 2:
 		prefix += " (+%d)" % (overlaps.size() - 2)
-	return "%s  |  %d bp %s  |  %.2f bp/px" % [prefix, span_bp, span_text, bp_per_px]
+	return "%s  |  %d bp %s" % [prefix, span_bp, span_text]
 
 func _on_region_selection_changed(active: bool, start_bp: int, end_bp: int) -> void:
 	_selection_active = active
@@ -396,7 +423,10 @@ func _on_region_selection_changed(active: bool, start_bp: int, end_bp: int) -> v
 	else:
 		_selection_start = 0
 		_selection_end = 0
-	viewport_label.text = _format_viewport_label(_last_start, _last_end, _last_bp_per_px)
+	_last_viewport_message = _format_viewport_label(_last_start, _last_end, _last_bp_per_px)
+	viewport_label.text = _last_viewport_message
+	if _debug_enabled:
+		_update_debug_stats_label()
 
 func _toggle_settings() -> void:
 	_settings_open = not _settings_open
@@ -664,7 +694,12 @@ func _update_debug_stats_label() -> void:
 	var draw_stats: Dictionary = genome_view.annotation_debug_stats()
 	var scope_count := _annotation_scope_count(_current_chr_id)
 	var preload_active := _annotation_preload_threshold > 0 and scope_count > 0 and scope_count <= _annotation_preload_threshold
-	_debug_stats_label.text = "Ann tiles req=%d, cache_hit=%d (%.1f%%), queried=%d\nAnn feats in=%d, out=%d, fetch=%.2fms\nAnn draw seen=%d, drawn=%d, labels=%d, hitboxes=%d, draw=%.2fms" % [
+	var status_prefix := "ERROR" if _last_status_is_error else "OK"
+	_debug_stats_label.text = "Server [%s]: %s\nViewport: %s\nScale: %s\nAnn tiles req=%d, cache_hit=%d (%.1f%%), queried=%d\nAnn feats in=%d, out=%d, fetch=%.2fms\nAnn draw seen=%d, drawn=%d, labels=%d, hitboxes=%d, draw=%.2fms" % [
+		status_prefix,
+		_last_status_message,
+		_last_viewport_message,
+		_last_bp_per_px_message,
 		_dbg_ann_tile_requests,
 		_dbg_ann_tile_cache_hits,
 		hit_pct,
@@ -730,6 +765,8 @@ func _apply_track_drag_drop() -> void:
 	_refresh_track_order_list(genome_view.get_track_order(), drop_idx)
 
 func _refresh_track_order_list(order: PackedStringArray, select_idx: int = -1) -> void:
+	if _track_order_list == null:
+		return
 	_track_order_list.clear()
 	for id in order:
 		_track_order_list.add_item(_track_label_for_id(str(id)))
@@ -1117,8 +1154,11 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 	if dropped_fasta:
 		_reset_loaded_state()
 	for f in files:
+		if _is_file_list_placeholder():
+			file_list.clear()
 		if not _file_list_has(f):
 			file_list.add_item(f)
+	_refresh_file_list_ui()
 	genome_view.load_files(files)
 	if not _ensure_server_connected():
 		return
@@ -1976,10 +2016,29 @@ func _compute_tile_zoom(bp_per_px: float) -> int:
 	return clampi(z, 0, 16)
 
 func _file_list_has(path: String) -> bool:
+	if _is_file_list_placeholder():
+		return false
 	for i in range(file_list.item_count):
 		if file_list.get_item_text(i) == path:
 			return true
 	return false
+
+func _is_file_list_placeholder() -> bool:
+	return file_list.item_count == 1 and file_list.get_item_text(0) == FILE_LIST_PLACEHOLDER
+
+func _refresh_file_list_ui() -> void:
+	if file_list == null:
+		return
+	file_list.size_flags_vertical = Control.SIZE_FILL
+	if file_list.item_count == 0:
+		file_list.add_item(FILE_LIST_PLACEHOLDER)
+		file_list.set_item_disabled(0, true)
+	var font := file_list.get_theme_font("font")
+	var font_size := file_list.get_theme_font_size("font_size")
+	var row_h := 20.0
+	if font != null and font_size > 0:
+		row_h = maxf(16.0, font.get_height(font_size) + 6.0)
+	file_list.custom_minimum_size.y = row_h * float(file_list.item_count) + 8.0
 
 func _has_fasta(files: PackedStringArray) -> bool:
 	for path in files:
@@ -1997,6 +2056,7 @@ func _has_gff3(files: PackedStringArray) -> bool:
 
 func _reset_loaded_state() -> void:
 	file_list.clear()
+	_refresh_file_list_ui()
 	_current_chr_id = -1
 	_current_chr_name = ""
 	_current_chr_len = 0
@@ -2037,11 +2097,13 @@ func _is_near_cache_edge(start_bp: int, end_bp: int) -> bool:
 	return remaining_left <= threshold or remaining_right <= threshold
 
 func _set_status(message: String, is_error: bool = false) -> void:
-	server_status_label.text = message
-	server_status_label.tooltip_text = message
+	_last_status_message = message
+	_last_status_is_error = is_error
 	status_message_label.text = message
 	status_message_label.tooltip_text = message
 	status_message_label.add_theme_color_override("font_color", _theme_error_color if is_error else _theme_text_color)
+	if _debug_enabled:
+		_update_debug_stats_label()
 
 func _load_or_init_config() -> void:
 	var cfg := ConfigFile.new()

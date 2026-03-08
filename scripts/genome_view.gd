@@ -20,7 +20,7 @@ const TRACK_LEFT_PAD := 64.0
 const TRACK_RIGHT_PAD := 28.0
 const TOP_PAD := 16.0
 const PANEL_GAP := 14.0
-const BOTTOM_PAD := 12.0
+const BOTTOM_PAD := 0.0
 const READ_ROW_H := 8.0
 const READ_ROW_GAP := 4.0
 const SNP_MARK_MAX_BP_PER_PX := 1.5
@@ -1417,10 +1417,17 @@ func _draw_grid(area: Rect2) -> void:
 		grid += step
 
 func _draw_file_status() -> void:
-	if loaded_files.is_empty():
-		draw_string(get_theme_default_font(), Vector2(16, size.y - 10), "Drop genome/BAM/annotation files anywhere to load", HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
-	else:
-		draw_string(get_theme_default_font(), Vector2(16, size.y - 10), "Loaded files: %d" % loaded_files.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
+	if not loaded_files.is_empty():
+		return
+	var genome_area := _track_rect(TRACK_ID_GENOME)
+	if genome_area.size.x <= 0.0 or genome_area.size.y <= 0.0:
+		return
+	var font := get_theme_default_font()
+	var msg := "Drop genome/BAM/annotation files anywhere to load"
+	var text_w := font.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium).x
+	var x := genome_area.position.x + (genome_area.size.x - text_w) * 0.5
+	var y := genome_area.position.y + genome_area.size.y * 0.5 + _font_size_medium * 0.35
+	draw_string(font, Vector2(x, y), msg, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
 
 func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 	if reference_sequence.is_empty():
