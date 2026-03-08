@@ -70,7 +70,6 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var feature_content: VBoxContainer = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent
 @onready var ui_scale_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleSlider
 @onready var ui_scale_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleValue
-@onready var _font_size_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FontSizeLabel
 @onready var _font_size_spin: SpinBox = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FontSizeSpin
 @onready var trackpad_pan_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPanSlider
 @onready var trackpad_pan_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPanValue
@@ -85,7 +84,6 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var file_list: ItemList = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FileList
 @onready var _track_order_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityLabel
 @onready var _track_visibility_box: VBoxContainer = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityBox
-@onready var _annot_preload_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/AnnotationPreloadLabel
 @onready var _annot_preload_spin: SpinBox = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/AnnotationPreloadSpin
 @onready var server_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerLabel
 @onready var host_edit: LineEdit = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/HostEdit
@@ -393,7 +391,7 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 		if needs_fetch:
 			_schedule_fetch()
 
-func _format_viewport_label(start_bp: int, end_bp: int, bp_per_px: float) -> String:
+func _format_viewport_label(start_bp: int, end_bp: int, _bp_per_px: float) -> String:
 	var coord_start := start_bp
 	var coord_end := end_bp
 	var span_bp := maxi(0, end_bp - start_bp)
