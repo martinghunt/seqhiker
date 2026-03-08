@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3 uid="uid://b8x31srh18cqr"]
+[gd_scene load_steps=18 format=3 uid="uid://b8x31srh18cqr"]
 
 [ext_resource type="Script" uid="uid://blioyr3uu4r8n" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="FontFile" uid="uid://c7lxavioxfnbo" path="res://fonts/magrathea.ttf" id="2_0bbpv"]
@@ -21,6 +21,18 @@ action = &"seqhiker_pan_right"
 
 [sub_resource type="Shortcut" id="Shortcut_pan_right"]
 events = [SubResource("InputEventAction_pan_right")]
+
+[sub_resource type="InputEventAction" id="InputEventAction_jump_start"]
+action = &"seqhiker_jump_start"
+
+[sub_resource type="Shortcut" id="Shortcut_jump_start"]
+events = [SubResource("InputEventAction_jump_start")]
+
+[sub_resource type="InputEventAction" id="InputEventAction_jump_end"]
+action = &"seqhiker_jump_end"
+
+[sub_resource type="Shortcut" id="Shortcut_jump_end"]
+events = [SubResource("InputEventAction_jump_end")]
 
 [sub_resource type="InputEventAction" id="InputEventAction_zoom_out"]
 action = &"seqhiker_zoom_out"
@@ -116,12 +128,16 @@ text = "T"
 layout_mode = 2
 tooltip_text = "Jump to genome start"
 theme_override_fonts/font = ExtResource("2_0bbpv")
+shortcut = SubResource("Shortcut_jump_start")
+shortcut_in_tooltip = false
 text = "BB"
 
 [node name="JumpEndButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Jump to genome end"
 theme_override_fonts/font = ExtResource("2_0bbpv")
+shortcut = SubResource("Shortcut_jump_end")
+shortcut_in_tooltip = false
 text = "AA"
 
 [node name="ZoomOutButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
