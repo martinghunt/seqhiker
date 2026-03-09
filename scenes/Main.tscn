@@ -476,24 +476,22 @@ theme_override_constants/margin_top = 12
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 12
 
-[node name="FeatureScroll" type="ScrollContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="FeatureContent" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll"]
+[node name="FeatureLayout" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin"]
 layout_mode = 2
 size_flags_horizontal = 3
+size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="FeatureHeader" type="HBoxContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureHeader" type="HBoxContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout"]
 layout_mode = 2
+size_flags_horizontal = 3
 
-[node name="FeatureTitle" type="Label" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader"]
+[node name="FeatureTitle" type="Label" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureHeader"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Feature Details"
 
-[node name="FeatureCloseButton" type="Button" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader"]
+[node name="FeatureCloseButton" type="Button" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureHeader"]
 layout_mode = 2
 tooltip_text = "Close panel"
 theme_override_fonts/font = ExtResource("2_0bbpv")
@@ -501,10 +499,19 @@ shortcut = SubResource("Shortcut_close_right_panel")
 shortcut_in_tooltip = false
 text = "V"
 
-[node name="FeatureSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout"]
 layout_mode = 2
 
-[node name="FeatureNameLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureScroll" type="ScrollContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="FeatureContent" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="FeatureNameLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Name: -"
@@ -512,7 +519,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureTypeLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureTypeLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Type: -"
@@ -520,7 +527,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureRangeLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureRangeLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Range: -"
@@ -528,7 +535,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureStrandLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureStrandLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Strand: -"
@@ -536,7 +543,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureSourceLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureSourceLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Source: -"
@@ -544,7 +551,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureSeqLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureSeqLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Sequence: -"
