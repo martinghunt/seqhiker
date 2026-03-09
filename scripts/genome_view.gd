@@ -1,6 +1,7 @@
 extends Control
 class_name GenomeView
 const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
+const TRACK_ROW_SCENE := preload("res://scenes/Track.tscn")
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
 signal feature_clicked(feature: Dictionary)
@@ -157,9 +158,7 @@ var _track_visible := {
 	TRACK_ID_DEPTH_PLOT: false,
 	TRACK_ID_GENOME: true
 }
-var _track_close_hitboxes: Array[Dictionary] = []
-var _track_grab_hitboxes: Array[Dictionary] = []
-var _track_settings_hitboxes: Array[Dictionary] = []
+var _track_rows := {}
 var _track_drag_active := false
 var _track_drag_track_id := ""
 var _track_drag_target_index := -1
@@ -194,6 +193,7 @@ func _ready() -> void:
 	_reads_scrollbar.value_changed.connect(_on_reads_scroll_changed_for_track.bind(TRACK_ID_READS))
 	_reads_scrollbar.gui_input.connect(_on_read_scrollbar_gui_input.bind(_reads_scrollbar))
 	add_child(_reads_scrollbar)
+	_sync_track_rows()
 	_read_track_states[TRACK_ID_READS] = {
 		"reads": reads,
 		"coverage_tiles": coverage_tiles,
@@ -208,6 +208,7 @@ func _ready() -> void:
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
 	}
+	_layout_track_rows()
 	_layout_read_scrollbar()
 	_emit_viewport_changed()
 
@@ -258,6 +259,7 @@ func sync_read_tracks(track_ids: PackedStringArray) -> void:
 			sb.queue_free()
 		_read_track_states.erase(existing_id)
 		_track_visible.erase(existing_id)
+	_sync_track_rows()
 	if not _read_track_states.has(TRACK_ID_READS):
 		_read_track_states[TRACK_ID_READS] = {
 			"reads": [],
@@ -273,6 +275,86 @@ func sync_read_tracks(track_ids: PackedStringArray) -> void:
 				"read_row_limit": 0,
 				"scrollbar": _reads_scrollbar
 			}
+	_sync_track_rows()
+	queue_redraw()
+
+func _sync_track_rows() -> void:
+	var wanted := {}
+	for id_any in _track_order:
+		var track_id := str(id_any)
+		wanted[track_id] = true
+		if _track_rows.has(track_id):
+			continue
+		var row: HBoxContainer = TRACK_ROW_SCENE.instantiate()
+		row.name = "TrackRow_%s" % track_id.replace(":", "_")
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var buttons := row.get_node("Buttons") as VBoxContainer
+		buttons.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var close_button := row.get_node("Buttons/CloseButton") as Button
+		var grab_button := row.get_node("Buttons/GrabButton") as Button
+		var settings_button := row.get_node("Buttons/SettingsButton") as Button
+		var track_view := row.get_node("TrackView") as Control
+		track_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		grab_button.mouse_default_cursor_shape = Control.CURSOR_MOVE
+		close_button.pressed.connect(_on_track_close_pressed.bind(track_id))
+		grab_button.button_down.connect(_on_track_grab_button_down.bind(track_id))
+		settings_button.pressed.connect(_on_track_settings_pressed.bind(track_id))
+		add_child(row)
+		_track_rows[track_id] = row
+	for id_any in _track_rows.keys():
+		var existing_id := str(id_any)
+		if wanted.get(existing_id, false):
+			continue
+		var existing := _track_rows[existing_id] as Control
+		if existing != null and is_instance_valid(existing):
+			existing.queue_free()
+		_track_rows.erase(existing_id)
+	_layout_track_rows()
+
+func _layout_track_rows() -> void:
+	var rects := _track_layout_rects()
+	for id_any in _track_rows.keys():
+		var track_id := str(id_any)
+		var row := _track_rows[track_id] as Control
+		if row == null or not is_instance_valid(row):
+			continue
+		if rects.has(track_id) and is_track_visible(track_id):
+			var rect: Rect2 = rects[track_id]
+			row.position = rect.position
+			row.size = rect.size
+			row.visible = true
+		else:
+			row.visible = false
+
+func _on_track_close_pressed(track_id: String) -> void:
+	set_track_visible(track_id, false)
+
+func _on_track_grab_button_down(track_id: String) -> void:
+	if not is_track_visible(track_id):
+		return
+	_track_drag_active = true
+	_track_drag_track_id = track_id
+	_track_drag_target_index = _track_order.find(track_id)
+	queue_redraw()
+
+func _on_track_settings_pressed(track_id: String) -> void:
+	emit_signal("track_settings_requested", track_id)
+
+func _finish_track_drag() -> void:
+	if not _track_drag_active:
+		return
+	var from_idx := _track_order.find(_track_drag_track_id)
+	var to_idx := clampi(_track_drag_target_index, 0, _track_order.size() - 1)
+	if from_idx >= 0 and to_idx >= 0 and from_idx != to_idx:
+		var next := _track_order.duplicate()
+		next.remove_at(from_idx)
+		if to_idx > from_idx:
+			to_idx -= 1
+		next.insert(to_idx, _track_drag_track_id)
+		set_track_order(next)
+	_track_drag_active = false
+	_track_drag_track_id = ""
+	_track_drag_target_index = -1
 	queue_redraw()
 
 func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_cov_tiles: Array[Dictionary]) -> void:
@@ -515,6 +597,7 @@ func set_track_visible(track_id: String, show_track: bool) -> void:
 		_track_drag_active = false
 		_track_drag_track_id = ""
 		_track_drag_target_index = -1
+	_layout_track_rows()
 	_layout_read_scrollbar()
 	queue_redraw()
 	emit_signal("track_visibility_changed", track_id, next_visible)
@@ -538,6 +621,8 @@ func set_track_order(order: PackedStringArray) -> void:
 		if not seen.get(id, false):
 			next.append(id)
 	_track_order = next
+	_sync_track_rows()
+	_layout_track_rows()
 	_layout_read_scrollbar()
 	queue_redraw()
 	if prev != _track_order:
@@ -663,6 +748,7 @@ func _emit_viewport_changed() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		view_start_bp = _clamp_start(view_start_bp)
+		_layout_track_rows()
 		for track_id in _read_track_states.keys():
 			_activate_read_track(str(track_id))
 			_layout_read_scrollbar()
@@ -672,9 +758,7 @@ func _notification(what: int) -> void:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), palette["panel"], true)
-	_track_close_hitboxes.clear()
-	_track_grab_hitboxes.clear()
-	_track_settings_hitboxes.clear()
+	_layout_track_rows()
 	_read_hitboxes.clear()
 	_feature_hitboxes.clear()
 	var track_rects := _track_layout_rects()
@@ -700,7 +784,6 @@ func _draw() -> void:
 						_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]))
 				TRACK_ID_GENOME:
 					_draw_genome_track(area)
-		_draw_track_header(track_id, area)
 	_draw_region_selection(track_rects)
 	if _track_drag_active and _track_drag_target_index >= 0 and _track_drag_target_index < _track_order.size():
 		var target_id := _track_order[_track_drag_target_index]
@@ -709,6 +792,15 @@ func _draw() -> void:
 			var y := target_rect.position.y - 2.0
 			draw_line(Vector2(2.0, y), Vector2(size.x - 2.0, y), Color(0.05, 0.05, 0.05, 0.9), 2.0)
 	_draw_file_status()
+
+func _input(event: InputEvent) -> void:
+	if not _track_drag_active:
+		return
+	if event is InputEventMouseMotion:
+		_track_drag_target_index = _track_index_for_y(get_local_mouse_position().y)
+		queue_redraw()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_finish_track_drag()
 
 func _draw_region_selection(track_rects: Dictionary) -> void:
 	if not _region_select_has_selection and not _region_select_dragging:
@@ -730,33 +822,6 @@ func _draw_region_selection(track_rects: Dictionary) -> void:
 	var border: Color = palette["text"]
 	border.a = 0.55
 	draw_rect(rect, border, false, 1.0)
-
-func _draw_track_header(track_id: String, area: Rect2) -> void:
-	var gx := 4.0
-	var gy := area.position.y + 4.0
-	var icon_font_size := _font_size_small
-	var close_text_w := MAGRATHEA_FONT.get_string_size("V", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size).x
-	var settings_text_w := MAGRATHEA_FONT.get_string_size("C", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size).x
-	var icon_w := maxf(close_text_w, settings_text_w)
-	var icon_h := MAGRATHEA_FONT.get_height(icon_font_size)
-	var button_w := maxf(14.0, ceil(icon_w + 6.0))
-	var button_h := maxf(14.0, ceil(icon_h + 4.0))
-	var button_gap := 4.0
-	var close_rect := Rect2(gx, gy, button_w, button_h)
-	var grab_rect := Rect2(gx, gy + button_h + button_gap, button_w, button_h)
-	var settings_rect := Rect2(gx, gy + 2.0 * (button_h + button_gap), button_w, button_h)
-	draw_rect(close_rect, Color(1, 1, 1, 0.35), true)
-	draw_rect(close_rect, palette["grid"], false, 1.0)
-	draw_string(MAGRATHEA_FONT, Vector2(close_rect.position.x + 3.0, close_rect.position.y + 2.0 + icon_h), "V", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size, palette["text"])
-	draw_rect(grab_rect, Color(1, 1, 1, 0.35), true)
-	draw_rect(grab_rect, palette["grid"], false, 1.0)
-	draw_string(MAGRATHEA_FONT, Vector2(grab_rect.position.x + 3.0, grab_rect.position.y + 2.0 + icon_h), "S", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size, palette["text"])
-	draw_rect(settings_rect, Color(1, 1, 1, 0.35), true)
-	draw_rect(settings_rect, palette["grid"], false, 1.0)
-	draw_string(MAGRATHEA_FONT, Vector2(settings_rect.position.x + 3.0, settings_rect.position.y + 2.0 + icon_h), "C", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size, palette["text"])
-	_track_close_hitboxes.append({"rect": close_rect, "track_id": track_id})
-	_track_grab_hitboxes.append({"rect": grab_rect, "track_id": track_id})
-	_track_settings_hitboxes.append({"rect": settings_rect, "track_id": track_id})
 
 func _track_label_for_id(track_id: String) -> String:
 	if _is_read_track(track_id):
@@ -1857,26 +1922,6 @@ func _gui_input(event: InputEvent) -> void:
 		var aa_rect := _track_rect(TRACK_ID_AA)
 		var in_reads := read_rect.size.x > 0.0 and read_rect.has_point(mouse_pos)
 		var in_aa := aa_rect.has_point(mouse_pos)
-		for hit in _track_close_hitboxes:
-			var close_rect: Rect2 = hit["rect"]
-			if close_rect.has_point(mouse_pos):
-				set_track_visible(str(hit["track_id"]), false)
-				accept_event()
-				return
-		for hit in _track_settings_hitboxes:
-			var rect: Rect2 = hit["rect"]
-			if rect.has_point(mouse_pos):
-				emit_signal("track_settings_requested", str(hit["track_id"]))
-				accept_event()
-				return
-		for hit in _track_grab_hitboxes:
-			var rect: Rect2 = hit["rect"]
-			if rect.has_point(mouse_pos):
-				_track_drag_active = true
-				_track_drag_track_id = str(hit["track_id"])
-				_track_drag_target_index = _track_order.find(_track_drag_track_id)
-				accept_event()
-				return
 		if in_reads:
 			for i in range(_read_hitboxes.size() - 1, -1, -1):
 				var read_hit: Dictionary = _read_hitboxes[i]
@@ -1917,32 +1962,11 @@ func _gui_input(event: InputEvent) -> void:
 				accept_event()
 				return
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
-		if _track_drag_active:
-			var from_idx := _track_order.find(_track_drag_track_id)
-			var to_idx := clampi(_track_drag_target_index, 0, _track_order.size() - 1)
-			if from_idx >= 0 and to_idx >= 0 and from_idx != to_idx:
-				var next := _track_order.duplicate()
-				next.remove_at(from_idx)
-				if to_idx > from_idx:
-					to_idx -= 1
-				next.insert(to_idx, _track_drag_track_id)
-				set_track_order(next)
-			_track_drag_active = false
-			_track_drag_track_id = ""
-			_track_drag_target_index = -1
-			queue_redraw()
-			accept_event()
-			return
 		if _region_select_dragging:
 			_finish_region_selection_drag()
 			queue_redraw()
 			accept_event()
 			return
-	elif event is InputEventMouseMotion and _track_drag_active:
-		_track_drag_target_index = _track_index_for_y(event.position.y)
-		queue_redraw()
-		accept_event()
-		return
 	elif event is InputEventMouseMotion and _region_select_dragging:
 		var motion := event as InputEventMouseMotion
 		if (motion.button_mask & MOUSE_BUTTON_MASK_LEFT) == 0:
@@ -2430,6 +2454,7 @@ func _ensure_read_track_state(track_id: String) -> void:
 	}
 	if not _track_visible.has(track_id):
 		_track_visible[track_id] = true
+	_sync_track_rows()
 
 func _activate_read_track(track_id: String) -> void:
 	_ensure_read_track_state(track_id)

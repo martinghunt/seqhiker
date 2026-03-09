@@ -1,0 +1,37 @@
+[gd_scene load_steps=2 format=3 uid="uid://b48kx86klvdt5"]
+
+[ext_resource type="FontFile" uid="uid://c7lxavioxfnbo" path="res://fonts/magrathea.ttf" id="1_pqlc6"]
+
+[node name="TrackRow" type="HBoxContainer"]
+theme_override_constants/separation = 6
+
+[node name="Buttons" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CloseButton" type="Button" parent="Buttons"]
+custom_minimum_size = Vector2(20, 20)
+layout_mode = 2
+tooltip_text = "Close panel"
+theme_override_fonts/font = ExtResource("1_pqlc6")
+text = "V"
+
+[node name="GrabButton" type="Button" parent="Buttons"]
+custom_minimum_size = Vector2(20, 20)
+layout_mode = 2
+tooltip_text = "Drag to move panel up/down"
+theme_override_fonts/font = ExtResource("1_pqlc6")
+text = "S"
+
+[node name="SettingsButton" type="Button" parent="Buttons"]
+custom_minimum_size = Vector2(20, 20)
+layout_mode = 2
+tooltip_text = "Open settings for this panel"
+theme_override_fonts/font = ExtResource("1_pqlc6")
+text = "C"
+
+[node name="TrackView" type="Control" parent="."]
+clip_contents = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
