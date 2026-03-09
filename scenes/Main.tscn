@@ -16,18 +16,6 @@ action = &"seqhiker_toggle_search"
 [sub_resource type="Shortcut" id="Shortcut_toggle_search"]
 events = [SubResource("InputEventAction_toggle_search")]
 
-[sub_resource type="InputEventAction" id="InputEventAction_pan_left"]
-action = &"seqhiker_pan_left"
-
-[sub_resource type="Shortcut" id="Shortcut_pan_left"]
-events = [SubResource("InputEventAction_pan_left")]
-
-[sub_resource type="InputEventAction" id="InputEventAction_pan_right"]
-action = &"seqhiker_pan_right"
-
-[sub_resource type="Shortcut" id="Shortcut_pan_right"]
-events = [SubResource("InputEventAction_pan_right")]
-
 [sub_resource type="InputEventAction" id="InputEventAction_jump_start"]
 action = &"seqhiker_jump_start"
 
@@ -39,6 +27,18 @@ action = &"seqhiker_jump_end"
 
 [sub_resource type="Shortcut" id="Shortcut_jump_end"]
 events = [SubResource("InputEventAction_jump_end")]
+
+[sub_resource type="InputEventAction" id="InputEventAction_pan_left"]
+action = &"seqhiker_pan_left"
+
+[sub_resource type="Shortcut" id="Shortcut_pan_left"]
+events = [SubResource("InputEventAction_pan_left")]
+
+[sub_resource type="InputEventAction" id="InputEventAction_pan_right"]
+action = &"seqhiker_pan_right"
+
+[sub_resource type="Shortcut" id="Shortcut_pan_right"]
+events = [SubResource("InputEventAction_pan_right")]
 
 [sub_resource type="InputEventAction" id="InputEventAction_zoom_out"]
 action = &"seqhiker_zoom_out"
@@ -126,7 +126,23 @@ tooltip_text = "Open search panel"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_toggle_search")
 shortcut_in_tooltip = false
-text = "Search"
+text = "Y"
+
+[node name="JumpStartButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+layout_mode = 2
+tooltip_text = "Jump to genome start"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+shortcut = SubResource("Shortcut_jump_start")
+shortcut_in_tooltip = false
+text = "W"
+
+[node name="JumpEndButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+layout_mode = 2
+tooltip_text = "Jump to genome end"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+shortcut = SubResource("Shortcut_jump_end")
+shortcut_in_tooltip = false
+text = "X"
 
 [node name="PanLeftButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
@@ -143,22 +159,6 @@ theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_pan_right")
 shortcut_in_tooltip = false
 text = "T"
-
-[node name="JumpStartButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
-layout_mode = 2
-tooltip_text = "Jump to genome start"
-theme_override_fonts/font = ExtResource("2_0bbpv")
-shortcut = SubResource("Shortcut_jump_start")
-shortcut_in_tooltip = false
-text = "BB"
-
-[node name="JumpEndButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
-layout_mode = 2
-tooltip_text = "Jump to genome end"
-theme_override_fonts/font = ExtResource("2_0bbpv")
-shortcut = SubResource("Shortcut_jump_end")
-shortcut_in_tooltip = false
-text = "AA"
 
 [node name="ZoomOutButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2

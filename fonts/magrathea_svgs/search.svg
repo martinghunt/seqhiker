@@ -8,7 +8,7 @@
    version="1.1"
    id="svg1"
    inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
-   sodipodi:docname="stop.svg"
+   sodipodi:docname="search.svg"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -25,8 +25,8 @@
      inkscape:document-units="px"
      showgrid="true"
      inkscape:zoom="0.46734522"
-     inkscape:cx="450.4165"
-     inkscape:cy="469.67422"
+     inkscape:cx="521.02812"
+     inkscape:cy="461.11523"
      inkscape:window-width="1212"
      inkscape:window-height="732"
      inkscape:window-x="148"
@@ -55,8 +55,8 @@
        id="path-effect2"
        is_visible="true"
        lpeversion="1"
-       nodesatellites_param="F,0,0,1,0,100,0,1 @ F,0,0,1,0,100,0,1 @ F,0,0,1,0,100,0,1 @ F,0,0,1,0,100,0,1"
-       radius="100"
+       nodesatellites_param="F,0,0,1,0,60,0,1 @ F,0,0,1,0,60,0,1 @ F,0,0,1,0,60,0,1 @ F,0,0,1,0,60,0,1"
+       radius="61"
        unit="px"
        method="auto"
        mode="F"
@@ -90,15 +90,8 @@
      inkscape:groupmode="layer"
      id="layer1">
     <path
-       style="fill:#1a1a1a"
-       id="rect1"
-       width="800"
-       height="800"
-       x="100"
-       y="100"
-       inkscape:path-effect="#path-effect2"
-       sodipodi:type="rect"
-       d="M 200,100 H 800 A 100,100 45 0 1 900,200 V 800 A 100,100 135 0 1 800,900 H 200 A 100,100 45 0 1 100,800 V 200 A 100,100 135 0 1 200,100 Z"
-       transform="matrix(0.82882033,0,0,0.8181216,85.589834,90.939199)" />
+       id="path4"
+       style="fill:#000000"
+       d="M 845.0009,403.34207 A 245.0009,245.0009 0 0 1 600,648.34297 245.0009,245.0009 0 0 1 354.9991,403.34207 245.0009,245.0009 0 0 1 600,158.34117 245.0009,245.0009 0 0 1 845.0009,403.34207 Z M 600,53.494141 a 350.15152,350.15152 0 0 0 -350.15234,350.150389 350.15152,350.15152 0 0 0 63.625,201.26563 L 67.587891,868.32812 a 60,60 0 0 0 2.919921,84.80274 l 2.392579,2.23437 a 60,60 0 0 0 84.800779,-2.91992 L 401.02734,691.76953 A 350.15152,350.15152 0 0 0 600,753.79688 350.15152,350.15152 0 0 0 950.15234,403.64453 350.15152,350.15152 0 0 0 600,53.494141 Z" />
   </g>
 </svg>

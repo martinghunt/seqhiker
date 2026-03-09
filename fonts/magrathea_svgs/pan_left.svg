@@ -26,11 +26,11 @@
      showgrid="true"
      inkscape:zoom="0.431647"
      inkscape:cx="532.84281"
-     inkscape:cy="499.25055"
+     inkscape:cy="547.90141"
      inkscape:window-width="1212"
      inkscape:window-height="732"
-     inkscape:window-x="133"
-     inkscape:window-y="102"
+     inkscape:window-x="89"
+     inkscape:window-y="125"
      inkscape:window-maximized="0"
      inkscape:current-layer="layer1">
     <inkscape:grid
@@ -50,6 +50,40 @@
   </sodipodi:namedview>
   <defs
      id="defs1">
+    <inkscape:path-effect
+       effect="fillet_chamfer"
+       id="path-effect16"
+       is_visible="true"
+       lpeversion="1"
+       nodesatellites_param="F,0,0,1,0,20.428765,0,1 @ F,0,0,1,0,20.428765,0,1 @ F,0,0,1,0,20.428765,0,1 @ F,0,0,1,0,20.428765,0,1"
+       radius="21"
+       unit="px"
+       method="auto"
+       mode="F"
+       chamfer_steps="1"
+       flexible="false"
+       use_knot_distance="true"
+       apply_no_radius="true"
+       apply_with_radius="true"
+       only_selected="false"
+       hide_knots="false" />
+    <inkscape:path-effect
+       effect="fillet_chamfer"
+       id="path-effect13"
+       is_visible="true"
+       lpeversion="1"
+       nodesatellites_param="F,0,0,1,0,40,0,1 @ F,0,0,1,0,40,0,1 @ F,0,0,1,0,40,0,1 @ F,0,0,1,0,40,0,1"
+       radius="40"
+       unit="px"
+       method="auto"
+       mode="F"
+       chamfer_steps="1"
+       flexible="false"
+       use_knot_distance="true"
+       apply_no_radius="true"
+       apply_with_radius="true"
+       only_selected="false"
+       hide_knots="false" />
     <inkscape:path-effect
        effect="fillet_chamfer"
        id="path-effect15"
@@ -295,6 +329,23 @@
        join="false"
        linkedpaths="#rect8,0,1"
        id="path-effect10" />
+    <inkscape:path-effect
+       effect="fillet_chamfer"
+       id="path-effect4-4"
+       is_visible="true"
+       lpeversion="1"
+       nodesatellites_param="F,0,0,1,0,20,0,1 @ F,0,0,1,0,20,0,1 @ F,0,0,1,0,20,0,1"
+       radius="20"
+       unit="px"
+       method="auto"
+       mode="F"
+       chamfer_steps="1"
+       flexible="false"
+       use_knot_distance="true"
+       apply_no_radius="true"
+       apply_with_radius="true"
+       only_selected="false"
+       hide_knots="false" />
   </defs>
   <g
      inkscape:label="Layer 1"
@@ -305,29 +356,29 @@
        id="rect12"
        width="488.82535"
        height="55.192089"
-       x="-751.44727"
-       y="474.2348"
+       x="-851.54889"
+       y="472.40396"
        transform="scale(-1,1)" />
+    <path
+       d="m 758.1016,100 a 40,40 0 0 0 -40,40 v 720 a 40,40 0 0 0 40,40 h 172.16602 a 40,40 0 0 0 40,-40 V 140 a 40,40 0 0 0 -40,-40 z m 22.51953,34.15039 h 127.12695 a 21.604099,20.428765 0 0 1 21.60547,20.42969 v 690.83984 a 21.604099,20.428765 0 0 1 -21.60547,20.42969 H 780.62113 A 21.604099,20.428765 0 0 1 759.01762,845.41992 V 154.58008 a 21.604099,20.428765 0 0 1 21.60351,-20.42969 z"
+       id="path18" />
     <path
        sodipodi:type="star"
        style="fill:#000000"
-       id="path13"
+       id="path3"
        inkscape:flatsided="true"
        sodipodi:sides="3"
-       sodipodi:cx="700"
-       sodipodi:cy="250.20445"
-       sodipodi:r1="249.86098"
-       sodipodi:r2="124.93048"
+       sodipodi:cx="156.20145"
+       sodipodi:cy="554.19415"
+       sodipodi:r1="339.41409"
+       sodipodi:r2="169.70705"
        sodipodi:arg1="0"
        sodipodi:arg2="1.0471976"
        inkscape:rounded="0"
-       inkscape:randomized="0"
-       d="m 949.86098,250.20445 -374.79147,216.38596 0,-432.771911 z"
-       inkscape:transform-center-x="47.899286"
-       transform="matrix(-0.76681504,0,0,1.12944,765.81495,219.23993)"
-       inkscape:transform-center-y="1.0581836e-05" />
-    <path
-       d="m 909,264.94022 a 75,75 0 0 1 75,75 v 323.78125 a 75,75 0 0 1 -75,75 H 720.75977 a 75,75 0 0 1 -75,-75 V 339.94022 a 75,75 0 0 1 75,-75 z m -9.56836,43.25586 H 730.32813 a 40,40 0 0 0 -40,40 v 307.26953 a 40,40 0 0 0 40,40 h 169.10351 a 40,40 0 0 0 40,-40 V 348.19608 a 40,40 0 0 0 -40,-40 z"
-       id="path15" />
+       inkscape:randomized="2.7755576e-17"
+       d="M 478.29503,564.19415 3.8149081,838.13538 a 11.547005,11.547005 30 0 1 -17.3205081,-10 l 0,-547.88245 a 11.547005,11.547005 150 0 1 17.3205081,-10 L 478.29503,544.19415 a 11.547005,11.547005 90 0 1 0,20 z"
+       inkscape:transform-center-x="84.85353"
+       transform="matrix(-1,0,0,1,519.15657,-54.194153)"
+       inkscape:path-effect="#path-effect4-4" />
   </g>
 </svg>

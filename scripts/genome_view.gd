@@ -750,9 +750,7 @@ func _draw_track_header(track_id: String, area: Rect2) -> void:
 	draw_string(MAGRATHEA_FONT, Vector2(close_rect.position.x + 3.0, close_rect.position.y + 2.0 + icon_h), "V", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size, palette["text"])
 	draw_rect(grab_rect, Color(1, 1, 1, 0.35), true)
 	draw_rect(grab_rect, palette["grid"], false, 1.0)
-	for i in range(3):
-		var ly := grab_rect.position.y + grab_rect.size.y * 0.25 + i * (grab_rect.size.y * 0.25)
-		draw_line(Vector2(grab_rect.position.x + 3.0, ly), Vector2(grab_rect.position.x + grab_rect.size.x - 3.0, ly), palette["text"], 1.0)
+	draw_string(MAGRATHEA_FONT, Vector2(grab_rect.position.x + 3.0, grab_rect.position.y + 2.0 + icon_h), "S", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size, palette["text"])
 	draw_rect(settings_rect, Color(1, 1, 1, 0.35), true)
 	draw_rect(settings_rect, palette["grid"], false, 1.0)
 	draw_string(MAGRATHEA_FONT, Vector2(settings_rect.position.x + 3.0, settings_rect.position.y + 2.0 + icon_h), "C", HORIZONTAL_ALIGNMENT_LEFT, -1, icon_font_size, palette["text"])
