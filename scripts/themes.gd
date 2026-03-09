@@ -370,8 +370,8 @@ func _set_option_button_icons(theme: Theme, p: Dictionary) -> void:
 	theme.set_color("modulate_arrow", "OptionButton", p["text"])
 
 func _set_checkbox_styles(theme: Theme, p: Dictionary) -> void:
-	var unchecked := _make_flat_texture(Color(0, 0, 0, 0), 16)
-	var checked := _make_check_texture(16, p["accent"], p["text_inverse"])
+	var unchecked := _make_checkbox_texture(16, p["field_bg"], p["field_border"])
+	var checked := _make_check_texture(16, p["accent"], p["text_inverse"], p["accent"])
 	theme.set_icon("unchecked", "CheckBox", unchecked)
 	theme.set_icon("checked", "CheckBox", checked)
 	theme.set_icon("unchecked_disabled", "CheckBox", unchecked)
@@ -472,6 +472,15 @@ func _make_flat_texture(color: Color, size: int) -> ImageTexture:
 	img.fill(color)
 	return ImageTexture.create_from_image(img)
 
+func _make_checkbox_texture(size: int, fill: Color, border: Color) -> ImageTexture:
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	for y in range(size):
+		for x in range(size):
+			var is_border := x == 0 or y == 0 or x == size - 1 or y == size - 1
+			img.set_pixel(x, y, border if is_border else fill)
+	return ImageTexture.create_from_image(img)
+
 func _make_pill_icon(width: int, height: int, color: Color) -> ImageTexture:
 	var img := Image.create(width, height, false, Image.FORMAT_RGBA8)
 	for y in range(height):
@@ -484,11 +493,12 @@ func _make_pill_icon(width: int, height: int, color: Color) -> ImageTexture:
 				img.set_pixel(x, y, Color(0, 0, 0, 0))
 	return ImageTexture.create_from_image(img)
 
-func _make_check_texture(size: int, bg: Color, mark: Color) -> ImageTexture:
+func _make_check_texture(size: int, bg: Color, mark: Color, border: Color) -> ImageTexture:
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	for y in range(size):
 		for x in range(size):
-			img.set_pixel(x, y, bg)
+			var is_border := x == 0 or y == 0 or x == size - 1 or y == size - 1
+			img.set_pixel(x, y, border if is_border else bg)
 	var inset := 3
 	for i in range(inset, size - inset):
 		img.set_pixel(i, i, mark)
