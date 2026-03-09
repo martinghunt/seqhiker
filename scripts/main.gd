@@ -61,8 +61,8 @@ const SEARCH_DNA_MIN_LEN_DEFAULT := 12
 const SEARCH_MAX_HITS := 5000
 
 @onready var background: ColorRect = $Background
-@onready var genome_view: Control = $Root/ContentMargin/GenomeView
-@onready var settings_panel: PanelContainer = $SettingsPanel
+@onready var genome_view: Control = $Root/ContentMargin/ViewportLayer/GenomeView
+@onready var settings_panel: PanelContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel
 @onready var top_bar: HBoxContainer = $Root/TopBar
 @onready var settings_toggle_button: Button = $Root/TopBar/SettingsToggleButton
 @onready var search_button: Button = $Root/TopBar/ActionClipper/ActionStrip/SearchButton
@@ -77,43 +77,43 @@ const SEARCH_MAX_HITS := 5000
 @onready var stop_button: Button = $Root/TopBar/ActionClipper/ActionStrip/StopButton
 @onready var viewport_label: Label = $Root/TopBar/ActionClipper/ActionStrip/ViewportLabel
 @onready var server_status_label: Label = $Root/TopBar/ActionClipper/ActionStrip/ServerStatusLabel
-@onready var feature_panel: PanelContainer = $FeaturePanel
-@onready var feature_close_button: Button = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader/FeatureCloseButton
-@onready var feature_title_label: Label = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader/FeatureTitle
-@onready var feature_name_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureNameLabel
-@onready var feature_type_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureTypeLabel
-@onready var feature_range_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureRangeLabel
-@onready var feature_strand_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureStrandLabel
-@onready var feature_source_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureSourceLabel
-@onready var feature_seq_label: RichTextLabel = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureSeqLabel
-@onready var feature_content: VBoxContainer = $FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent
-@onready var ui_scale_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleSlider
-@onready var ui_scale_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleValue
-@onready var _font_size_spin: SpinBox = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FontSizeSpin
-@onready var trackpad_pan_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPanSlider
-@onready var trackpad_pan_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPanValue
-@onready var trackpad_pinch_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPinchSlider
-@onready var trackpad_pinch_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPinchValue
-@onready var pan_step_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PanStepSlider
-@onready var pan_step_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PanStepValue
-@onready var play_speed_slider: HSlider = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PlaySpeedSlider
-@onready var play_speed_value: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PlaySpeedValue
-@onready var theme_option: OptionButton = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ThemeOption
-@onready var settings_content: VBoxContainer = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent
-@onready var file_list: ItemList = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FileList
-@onready var _track_order_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityLabel
-@onready var _track_visibility_box: VBoxContainer = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityBox
-@onready var _annot_preload_spin: SpinBox = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/AnnotationPreloadSpin
-@onready var _bam_cov_cutoff_spin: SpinBox = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/BAMCoverageCutoffSpin
-@onready var server_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerLabel
-@onready var host_edit: LineEdit = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/HostEdit
-@onready var port_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortLabel
-@onready var port_edit: LineEdit = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortEdit
-@onready var connect_button: Button = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ConnectButton
-@onready var status_title_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/StatusTitle
-@onready var status_message_label: Label = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/StatusMessageLabel
-@onready var server_separator: HSeparator = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerSeparator
-@onready var close_settings_button: Button = $SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader/CloseSettingsButton
+@onready var feature_panel: PanelContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel
+@onready var feature_close_button: Button = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader/FeatureCloseButton
+@onready var feature_title_label: Label = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader/FeatureTitle
+@onready var feature_name_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureNameLabel
+@onready var feature_type_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureTypeLabel
+@onready var feature_range_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureRangeLabel
+@onready var feature_strand_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureStrandLabel
+@onready var feature_source_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureSourceLabel
+@onready var feature_seq_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureSeqLabel
+@onready var feature_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent
+@onready var ui_scale_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleSlider
+@onready var ui_scale_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/UIScaleValue
+@onready var _font_size_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FontSizeSpin
+@onready var trackpad_pan_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPanSlider
+@onready var trackpad_pan_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPanValue
+@onready var trackpad_pinch_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPinchSlider
+@onready var trackpad_pinch_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackpadPinchValue
+@onready var pan_step_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PanStepSlider
+@onready var pan_step_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PanStepValue
+@onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PlaySpeedSlider
+@onready var play_speed_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PlaySpeedValue
+@onready var theme_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ThemeOption
+@onready var settings_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent
+@onready var file_list: ItemList = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FileList
+@onready var _track_order_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityLabel
+@onready var _track_visibility_box: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityBox
+@onready var _annot_preload_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/AnnotationPreloadSpin
+@onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/BAMCoverageCutoffSpin
+@onready var server_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerLabel
+@onready var host_edit: LineEdit = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/HostEdit
+@onready var port_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortLabel
+@onready var port_edit: LineEdit = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortEdit
+@onready var connect_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ConnectButton
+@onready var status_title_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/StatusTitle
+@onready var status_message_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/StatusMessageLabel
+@onready var server_separator: HSeparator = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerSeparator
+@onready var close_settings_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader/CloseSettingsButton
 
 var _settings_open := false
 var _settings_tween: Tween
@@ -498,7 +498,8 @@ func _slide_settings(open: bool, animated: bool) -> void:
 	if _settings_tween and _settings_tween.is_running():
 		_settings_tween.kill()
 	var panel_w := maxf(settings_panel.size.x, settings_panel.custom_minimum_size.x)
-	var target_x := 0.0 if open else -panel_w
+	var closed_x: float = -float(ceili(panel_w)) - 2.0
+	var target_x: float = 0.0 if open else closed_x
 	if animated:
 		_settings_tween = create_tween()
 		_settings_tween.set_trans(Tween.TRANS_CUBIC)
@@ -511,8 +512,9 @@ func _slide_feature_panel(open: bool, animated: bool) -> void:
 	if _feature_tween and _feature_tween.is_running():
 		_feature_tween.kill()
 	var panel_w := maxf(feature_panel.size.x, feature_panel.custom_minimum_size.x)
-	var target_left := -panel_w if open else 0.0
-	var target_right := 0.0 if open else panel_w
+	var closed_w: float = float(ceili(panel_w)) + 2.0
+	var target_left: float = -panel_w if open else 0.0
+	var target_right: float = 0.0 if open else closed_w
 	if animated:
 		_feature_tween = create_tween()
 		_feature_tween.set_trans(Tween.TRANS_CUBIC)

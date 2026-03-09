@@ -219,13 +219,22 @@ theme_override_constants/margin_top = 0
 theme_override_constants/margin_right = 10
 theme_override_constants/margin_bottom = 10
 
-[node name="GenomeView" type="Control" parent="Root/ContentMargin"]
+[node name="ViewportLayer" type="Control" parent="Root/ContentMargin"]
+clip_contents = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+
+[node name="GenomeView" type="Control" parent="Root/ContentMargin/ViewportLayer"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 script = ExtResource("2_view")
 
-[node name="SettingsPanel" type="PanelContainer" parent="."]
+[node name="SettingsPanel" type="PanelContainer" parent="Root/ContentMargin/ViewportLayer"]
 custom_minimum_size = Vector2(300, 0)
 layout_mode = 1
 anchors_preset = 9
@@ -233,187 +242,187 @@ anchor_bottom = 1.0
 offset_right = 300.0
 grow_vertical = 2
 
-[node name="SettingsMargin" type="MarginContainer" parent="SettingsPanel"]
+[node name="SettingsMargin" type="MarginContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel"]
 layout_mode = 2
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 12
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 12
 
-[node name="SettingsLayout" type="VBoxContainer" parent="SettingsPanel/SettingsMargin"]
+[node name="SettingsLayout" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin"]
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="SettingsHeader" type="HBoxContainer" parent="SettingsPanel/SettingsMargin/SettingsLayout"]
+[node name="SettingsHeader" type="HBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="SettingsTitle" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader"]
+[node name="SettingsTitle" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Settings"
 
-[node name="CloseSettingsButton" type="Button" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader"]
+[node name="CloseSettingsButton" type="Button" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader"]
 layout_mode = 2
 tooltip_text = "Close settings"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "V"
 
-[node name="SettingsScroll" type="ScrollContainer" parent="SettingsPanel/SettingsMargin/SettingsLayout"]
+[node name="SettingsScroll" type="ScrollContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="SettingsContent" type="VBoxContainer" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll"]
+[node name="SettingsContent" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
-[node name="TitleSeparator" type="HSeparator" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TitleSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 
-[node name="ServerLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="ServerLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Server Host"
 
-[node name="HostEdit" type="LineEdit" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="HostEdit" type="LineEdit" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "127.0.0.1"
 
-[node name="PortLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PortLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Server Port"
 
-[node name="PortEdit" type="LineEdit" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PortEdit" type="LineEdit" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "9000"
 
-[node name="ConnectButton" type="Button" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="ConnectButton" type="Button" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Connect"
 
-[node name="StatusTitle" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="StatusTitle" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Last Message"
 
-[node name="StatusMessageLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="StatusMessageLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 custom_minimum_size = Vector2(0, 64)
 layout_mode = 2
 text = "Disconnected"
 autowrap_mode = 3
 
-[node name="ServerSeparator" type="HSeparator" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="ServerSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 
-[node name="TrackVisibilityLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackVisibilityLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Track Visibility"
 
-[node name="TrackVisibilityBox" type="VBoxContainer" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackVisibilityBox" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="ThemeLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="ThemeLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Theme"
 
-[node name="ThemeOption" type="OptionButton" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="ThemeOption" type="OptionButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 
-[node name="UIScaleLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="UIScaleLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "UI Scale"
 
-[node name="UIScaleSlider" type="HSlider" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="UIScaleSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 min_value = 0.75
 max_value = 2.0
 step = 0.05
 value = 1.55
 
-[node name="UIScaleValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="UIScaleValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "1.55x"
 
-[node name="FontSizeLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="FontSizeLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Font Size"
 
-[node name="FontSizeSpin" type="SpinBox" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="FontSizeSpin" type="SpinBox" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 min_value = 9.0
 max_value = 24.0
 value = 15.0
 
-[node name="TrackpadPanLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPanLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Trackpad Pan Sensitivity"
 
-[node name="TrackpadPanSlider" type="HSlider" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPanSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 min_value = 0.5
 max_value = 20.0
 step = 0.05
 value = 8.0
 
-[node name="TrackpadPanValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPanValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "1.00x"
 
-[node name="TrackpadPinchLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPinchLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Trackpad Pinch Sensitivity"
 
-[node name="TrackpadPinchSlider" type="HSlider" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPinchSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 min_value = 0.5
 max_value = 20.0
 step = 0.05
 value = 8.0
 
-[node name="TrackpadPinchValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPinchValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "1.00x"
 
-[node name="PanStepLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PanStepLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Pan Step (% screen width)"
 
-[node name="PanStepSlider" type="HSlider" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PanStepSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 min_value = 1.0
 value = 75.0
 
-[node name="PanStepValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PanStepValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "75%"
 
-[node name="PlaySpeedLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PlaySpeedLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Play Speed (screen widths/sec)"
 
-[node name="PlaySpeedSlider" type="HSlider" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PlaySpeedSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 min_value = 0.05
 max_value = 5.0
 step = 0.01
 value = 0.3
 
-[node name="PlaySpeedValue" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PlaySpeedValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "0.30 widths/s"
 
-[node name="AnnotationPreloadLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="AnnotationPreloadLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Annotation Preload Threshold"
 
-[node name="AnnotationPreloadSpin" type="SpinBox" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="AnnotationPreloadSpin" type="SpinBox" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 max_value = 65000.0
 step = 1000.0
 value = 20000.0
 
-[node name="BAMCoverageCutoffLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="BAMCoverageCutoffLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 tooltip_text = "If the genome is shorter than this
 value (in bp), then when loading a
@@ -425,23 +434,23 @@ but uses more memory"
 mouse_filter = 0
 text = "Depth Precompute Limit (bp)"
 
-[node name="BAMCoverageCutoffSpin" type="SpinBox" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="BAMCoverageCutoffSpin" type="SpinBox" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 max_value = 5e+08
 step = 1e+06
 value = 1.5e+07
 
-[node name="FilesLabel" type="Label" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="FilesLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 text = "Loaded Files"
 
-[node name="FileList" type="ItemList" parent="SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="FileList" type="ItemList" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 custom_minimum_size = Vector2(0, 240)
 layout_mode = 2
 size_flags_vertical = 3
 allow_reselect = true
 
-[node name="FeaturePanel" type="PanelContainer" parent="."]
+[node name="FeaturePanel" type="PanelContainer" parent="Root/ContentMargin/ViewportLayer"]
 custom_minimum_size = Vector2(340, 0)
 layout_mode = 1
 anchors_preset = 11
@@ -452,31 +461,31 @@ offset_left = -340.0
 grow_horizontal = 0
 grow_vertical = 2
 
-[node name="FeatureMargin" type="MarginContainer" parent="FeaturePanel"]
+[node name="FeatureMargin" type="MarginContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel"]
 layout_mode = 2
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 12
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 12
 
-[node name="FeatureScroll" type="ScrollContainer" parent="FeaturePanel/FeatureMargin"]
+[node name="FeatureScroll" type="ScrollContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="FeatureContent" type="VBoxContainer" parent="FeaturePanel/FeatureMargin/FeatureScroll"]
+[node name="FeatureContent" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
-[node name="FeatureHeader" type="HBoxContainer" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureHeader" type="HBoxContainer" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
 
-[node name="FeatureTitle" type="Label" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader"]
+[node name="FeatureTitle" type="Label" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Feature Details"
 
-[node name="FeatureCloseButton" type="Button" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader"]
+[node name="FeatureCloseButton" type="Button" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent/FeatureHeader"]
 layout_mode = 2
 tooltip_text = "Close panel"
 theme_override_fonts/font = ExtResource("2_0bbpv")
@@ -484,10 +493,10 @@ shortcut = SubResource("Shortcut_close_right_panel")
 shortcut_in_tooltip = false
 text = "V"
 
-[node name="FeatureSeparator" type="HSeparator" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
 
-[node name="FeatureNameLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureNameLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Name: -"
@@ -495,7 +504,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureTypeLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureTypeLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Type: -"
@@ -503,7 +512,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureRangeLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureRangeLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Range: -"
@@ -511,7 +520,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureStrandLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureStrandLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Strand: -"
@@ -519,7 +528,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureSourceLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureSourceLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Source: -"
@@ -527,7 +536,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureSeqLabel" type="RichTextLabel" parent="FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
+[node name="FeatureSeqLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureScroll/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Sequence: -"
