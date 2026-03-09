@@ -100,7 +100,8 @@ layout_mode = 2
 
 [node name="SettingsToggleButton" type="Button" parent="Root/TopBar"]
 layout_mode = 2
-tooltip_text = "Open settings"
+tooltip_text = "Toggle settings panel open/closed
+Keyboard: s"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_toggle_settings")
 shortcut_in_tooltip = false
@@ -122,7 +123,8 @@ theme_override_constants/separation = 8
 
 [node name="SearchButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
-tooltip_text = "Open search panel"
+tooltip_text = "Open search panel
+Keyboard: ctl-F/cmd-F"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_toggle_search")
 shortcut_in_tooltip = false
@@ -130,7 +132,8 @@ text = "Y"
 
 [node name="JumpStartButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
-tooltip_text = "Jump to genome start"
+tooltip_text = "Jump to genome start
+Keyboard: shift + left arrow"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_jump_start")
 shortcut_in_tooltip = false
@@ -138,7 +141,8 @@ text = "W"
 
 [node name="JumpEndButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
-tooltip_text = "Jump to genome end"
+tooltip_text = "Jump to genome end
+Keyboard: shift + right arrow"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_jump_end")
 shortcut_in_tooltip = false
@@ -146,7 +150,8 @@ text = "X"
 
 [node name="PanLeftButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
-tooltip_text = "Pan left"
+tooltip_text = "Pan left
+Keyboard: left arrow"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_pan_left")
 shortcut_in_tooltip = false
@@ -154,7 +159,8 @@ text = "U"
 
 [node name="PanRightButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
-tooltip_text = "Pan right"
+tooltip_text = "Pan right
+Keyboard: right arrow"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_pan_right")
 shortcut_in_tooltip = false
@@ -162,7 +168,8 @@ text = "T"
 
 [node name="ZoomOutButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
-tooltip_text = "Zoom out"
+tooltip_text = "Zoom out
+Keyboard: -"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_zoom_out")
 shortcut_in_tooltip = false
@@ -170,7 +177,8 @@ text = "E"
 
 [node name="ZoomInButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
-tooltip_text = "Zoom in"
+tooltip_text = "Zoom in
+Keyboard: +"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_zoom_in")
 shortcut_in_tooltip = false
