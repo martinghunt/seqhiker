@@ -24,15 +24,15 @@ var _port: int = 9000
 var _request_id: int = 1
 
 func connect_to_server(host: String = "127.0.0.1", port: int = 9000, timeout_ms: int = 1200) -> bool:
-	_host = host
-	_port = port
 	var status := _tcp.get_status()
-	if status == StreamPeerTCP.STATUS_CONNECTED:
+	if status == StreamPeerTCP.STATUS_CONNECTED and host == _host and port == _port:
 		return true
 	if status != StreamPeerTCP.STATUS_NONE:
 		# Reset peer state to avoid ERR_ALREADY_IN_USE on reconnect attempts.
 		_tcp.disconnect_from_host()
 		_tcp = StreamPeerTCP.new()
+	_host = host
+	_port = port
 	var err: int = _tcp.connect_to_host(host, port)
 	if err != OK:
 		return false

@@ -2,6 +2,7 @@ extends Control
 
 const ThemesLibScript = preload("res://scripts/themes.gd")
 const ZemClientScript = preload("res://scripts/zem_client.gd")
+const TileControllerScript = preload("res://scripts/tile_controller.gd")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const ZEM_BIN_SUBDIR := "bin"
 const ZEM_DEFAULT_PORT := 9000
@@ -122,8 +123,12 @@ var _feature_tween: Tween
 var _fetch_timer: Timer
 var _fetch_in_progress := false
 var _fetch_pending := false
+var _tile_fetch_serial := 0
+var _tile_cache_generation := 0
+var _pending_tile_apply: Dictionary = {}
 
 var _zem: RefCounted
+var _tile_controller: RefCounted
 var _local_zem_path := ""
 var _local_zem_pid := -1
 var _local_zem_started_by_seqhiker := false
@@ -229,6 +234,8 @@ var _pan_step_percent := 75.0
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
+	_tile_controller = TileControllerScript.new()
+	_tile_controller.configure(Callable(self, "_compute_tile_zoom"))
 	_themes_lib = ThemesLibScript.new()
 	_disable_button_focus()
 	_setup_theme_selector()
@@ -1787,6 +1794,8 @@ func _zem_binary_name() -> String:
 	return "zem"
 
 func _exit_tree() -> void:
+	if _tile_controller != null:
+		_tile_controller.shutdown()
 	_shutdown_local_zem_on_exit()
 
 func _shutdown_local_zem_on_exit() -> void:
@@ -1959,6 +1968,9 @@ func _invalidate_cache() -> void:
 	_cache_scope_key = ""
 	_annotation_tile_cache.clear()
 	_annotation_preload_cache.clear()
+	_tile_cache_generation += 1
+	if _tile_controller != null:
+		_tile_controller.reset()
 
 func _refresh_visible_data() -> void:
 	if _current_chr_len <= 0:
@@ -1975,69 +1987,22 @@ func _refresh_visible_data() -> void:
 	var right_span_mult := 3 if _auto_play_enabled else 2
 	var query_start: int = maxi(0, _last_start - span)
 	var query_end: int = mini(_current_chr_len, _last_end + span * right_span_mult)
+	var features: Array[Dictionary] = []
+	var ref_start := query_start
+	var ref_sequence := ""
 	var read_payload_by_track := {}
 	var all_gc_plot_tiles: Array[Dictionary] = []
 	var all_depth_plot_tiles: Array[Dictionary] = []
 	var all_depth_plot_series: Array[Dictionary] = []
-	var features: Array[Dictionary] = []
-	var ref_start := query_start
-	var ref_sequence := ""
-	var frame_read_tile_cache := {}
-	var frame_cov_tile_cache := {}
-	var frame_gc_tile_cache := {}
-	var depth_series_by_track := {}
+	var overlaps: Array[Dictionary] = []
+	var ann_overlaps: Array[Dictionary] = []
+	var visible_track_ids := {}
+	for t_any in _bam_tracks:
+		var track_vis: Dictionary = t_any
+		var track_vis_id := str(track_vis.get("track_id", ""))
+		visible_track_ids[track_vis_id] = genome_view.is_track_visible(track_vis_id)
 
 	if _seq_view_mode == SEQ_VIEW_SINGLE:
-		var zoom := _compute_tile_zoom(_last_bp_per_px)
-		if _has_bam_loaded and show_reads:
-			for t_any in _bam_tracks:
-				var track: Dictionary = t_any
-				var track_id := str(track.get("track_id", ""))
-				if not genome_view.is_track_visible(track_id):
-					continue
-				var source_id := int(track.get("source_id", 0))
-				var track_reads: Array[Dictionary] = []
-				var track_cov: Array[Dictionary] = []
-				if _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX:
-					var tile_width := 1024 << zoom
-					var tile_start := int(floor(float(query_start) / float(tile_width)))
-					var tile_end := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width)))
-					for t in range(tile_start, tile_end + 1):
-						var tile_resp: Dictionary = _frame_get_read_tile(frame_read_tile_cache, source_id, _current_chr_id, zoom, t)
-						if not tile_resp.get("ok", false):
-							_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
-							return
-						track_reads.append_array(tile_resp.get("reads", []))
-				if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX or show_depth_plot:
-					var tile_width_cov := 1024 << zoom
-					var tile_start_cov := int(floor(float(query_start) / float(tile_width_cov)))
-					var tile_end_cov := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width_cov)))
-					for t in range(tile_start_cov, tile_end_cov + 1):
-						var cov_resp: Dictionary = _frame_get_coverage_tile(frame_cov_tile_cache, source_id, _current_chr_id, zoom, t)
-						if not cov_resp.get("ok", false):
-							_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
-							return
-						var cov_tile: Dictionary = cov_resp.get("coverage", {})
-						if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
-							track_cov.append(cov_tile)
-						if show_depth_plot:
-							if not depth_series_by_track.has(track_id):
-								depth_series_by_track[track_id] = []
-							var depth_tiles_for_track: Array = depth_series_by_track[track_id]
-							depth_tiles_for_track.append(_coverage_to_plot_tile(cov_tile))
-							depth_series_by_track[track_id] = depth_tiles_for_track
-				read_payload_by_track[track_id] = {"reads": track_reads, "coverage": track_cov}
-		if show_gc_plot:
-			var zoom_plot := _compute_tile_zoom(_last_bp_per_px)
-			var tile_width_plot := 1024 << zoom_plot
-			var tile_start_plot := int(floor(float(query_start) / float(tile_width_plot)))
-			var tile_end_plot := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width_plot)))
-			for t in range(tile_start_plot, tile_end_plot + 1):
-				var plot_resp: Dictionary = _frame_get_gc_plot_tile(frame_gc_tile_cache, _current_chr_id, zoom_plot, t, _gc_window_bp)
-				if not plot_resp.get("ok", false):
-					_set_status("GC plot query failed: %s" % plot_resp.get("error", "error"), true)
-					return
-				all_gc_plot_tiles.append(plot_resp.get("plot", {}))
 		if show_aa:
 			var ann_resp := _get_annotations_window_preloaded(_current_chr_id, query_start, query_end)
 			if not ann_resp.get("ok", false):
@@ -2053,70 +2018,8 @@ func _refresh_visible_data() -> void:
 			ref_start = int(ref_resp.get("slice_start", query_start))
 			ref_sequence = str(ref_resp.get("sequence", ""))
 	else:
-		var overlaps := _segments_overlapping(query_start, query_end)
-		var ann_overlaps := _segments_overlapping(query_start, query_end) if show_aa else ([] as Array[Dictionary])
-		var zoom := _compute_tile_zoom(_last_bp_per_px)
-		if _has_bam_loaded and show_reads:
-			for t_any in _bam_tracks:
-				var track: Dictionary = t_any
-				var track_id := str(track.get("track_id", ""))
-				if not genome_view.is_track_visible(track_id):
-					continue
-				var source_id := int(track.get("source_id", 0))
-				var track_reads: Array[Dictionary] = []
-				var track_cov: Array[Dictionary] = []
-				for ov in overlaps:
-					var chr_id := int(ov["id"])
-					var offset := int(ov["offset"])
-					var local_start := int(ov["local_start"])
-					var local_end := int(ov["local_end"])
-					if _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX:
-						var tile_width := 1024 << zoom
-						var tile_start := int(floor(float(local_start) / float(tile_width)))
-						var tile_end := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width)))
-						for t in range(tile_start, tile_end + 1):
-							var tile_resp: Dictionary = _frame_get_read_tile(frame_read_tile_cache, source_id, chr_id, zoom, t)
-							if not tile_resp.get("ok", false):
-								_set_status("Tile query failed: %s" % tile_resp.get("error", "error"), true)
-								return
-							for r in tile_resp.get("reads", []):
-								var shifted := _shift_read_coords(r, offset)
-								if int(shifted.get("end", 0)) > query_start and int(shifted.get("start", 0)) < query_end:
-									track_reads.append(shifted)
-					if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX or show_depth_plot:
-						var tile_width_cov := 1024 << zoom
-						var tile_start_cov := int(floor(float(local_start) / float(tile_width_cov)))
-						var tile_end_cov := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width_cov)))
-						for t in range(tile_start_cov, tile_end_cov + 1):
-							var cov_resp: Dictionary = _frame_get_coverage_tile(frame_cov_tile_cache, source_id, chr_id, zoom, t)
-							if not cov_resp.get("ok", false):
-								_set_status("Coverage query failed: %s" % cov_resp.get("error", "error"), true)
-								return
-							var shifted_cov := _shift_coverage_coords(cov_resp.get("coverage", {}), offset)
-							if _last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
-								track_cov.append(shifted_cov)
-							if show_depth_plot:
-								if not depth_series_by_track.has(track_id):
-									depth_series_by_track[track_id] = []
-								var depth_tiles_for_track: Array = depth_series_by_track[track_id]
-								depth_tiles_for_track.append(_coverage_to_plot_tile(shifted_cov))
-								depth_series_by_track[track_id] = depth_tiles_for_track
-				read_payload_by_track[track_id] = {"reads": track_reads, "coverage": track_cov}
-		for ov in overlaps:
-			var chr_id := int(ov["id"])
-			var offset := int(ov["offset"])
-			var local_start := int(ov["local_start"])
-			var local_end := int(ov["local_end"])
-			if show_gc_plot:
-				var tile_width_plot := 1024 << zoom
-				var tile_start_plot := int(floor(float(local_start) / float(tile_width_plot)))
-				var tile_end_plot := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width_plot)))
-				for t in range(tile_start_plot, tile_end_plot + 1):
-					var plot_resp: Dictionary = _frame_get_gc_plot_tile(frame_gc_tile_cache, chr_id, zoom, t, _gc_window_bp)
-					if not plot_resp.get("ok", false):
-						_set_status("GC plot query failed: %s" % plot_resp.get("error", "error"), true)
-						return
-					all_gc_plot_tiles.append(_shift_plot_coords(plot_resp.get("plot", {}), offset))
+		overlaps = _segments_overlapping(query_start, query_end)
+		ann_overlaps = _segments_overlapping(query_start, query_end) if show_aa else ([] as Array[Dictionary])
 		for aov in ann_overlaps:
 			var a_chr_id := int(aov["id"])
 			var a_offset := int(aov["offset"])
@@ -2131,46 +2034,39 @@ func _refresh_visible_data() -> void:
 
 		if need_reference:
 			ref_sequence = _build_concat_reference(query_start, query_end, overlaps)
-
-	for t_any in _bam_tracks:
-		var track: Dictionary = t_any
-		var track_id := str(track.get("track_id", ""))
-		var payload: Dictionary = read_payload_by_track.get(track_id, {"reads": [], "coverage": []})
-		genome_view.set_read_track_settings(
-			track_id,
-			int(track.get("view_mode", 0)),
-			bool(track.get("fragment_log", true)),
-			float(track.get("thickness", DEFAULT_READ_THICKNESS)),
-			int(track.get("max_rows", DEFAULT_READ_MAX_ROWS))
-		)
-		genome_view.set_read_track_data(track_id, payload.get("reads", []), payload.get("coverage", []))
-		if _center_strand_scroll_pending and int(track.get("view_mode", 0)) == 1 and (payload.get("reads", []) as Array).size() > 0:
-			genome_view.center_strand_scroll_for_track(track_id)
-			_center_strand_scroll_pending = false
-		if show_depth_plot and depth_series_by_track.has(track_id):
-			var depth_tiles: Array[Dictionary] = []
-			for tile_any in depth_series_by_track[track_id]:
-				if typeof(tile_any) == TYPE_DICTIONARY:
-					depth_tiles.append(tile_any)
-			all_depth_plot_series.append({
-				"track_id": track_id,
-				"label": str(track.get("label", track_id)),
-				"color": _depth_plot_color_for_track(track_id),
-				"tiles": depth_tiles
-			})
-	genome_view.set_gc_plot_tiles(all_gc_plot_tiles)
-	genome_view.set_depth_plot_tiles(all_depth_plot_tiles)
-	genome_view.set_depth_plot_series(all_depth_plot_series)
 	genome_view.set_features(features)
 	genome_view.set_reference_slice(ref_start, ref_sequence)
-	_cache_start = query_start
-	_cache_end = query_end
-	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)
-	_cache_mode = 0 if (_has_bam_loaded and _any_visible_read_track() and _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
-	_cache_need_reference = need_reference
-	_cache_scope_key = _scope_cache_key()
-	if _debug_enabled:
-		_update_debug_stats_label()
+	_tile_fetch_serial += 1
+	_pending_tile_apply = {
+		"serial": _tile_fetch_serial,
+		"query_start": query_start,
+		"query_end": query_end,
+		"need_reference": need_reference,
+		"features": features,
+		"ref_start": ref_start,
+		"ref_sequence": ref_sequence
+	}
+	_tile_controller.request_tiles({
+		"serial": _tile_fetch_serial,
+		"host": host_edit.text.strip_edges() if not host_edit.text.strip_edges().is_empty() else "127.0.0.1",
+		"port": int(port_edit.text) if int(port_edit.text) > 0 else ZEM_DEFAULT_PORT,
+		"generation": _tile_cache_generation,
+		"scope_key": _scope_cache_key(),
+		"query_start": query_start,
+		"query_end": query_end,
+		"last_bp_per_px": _last_bp_per_px,
+		"show_reads": show_reads,
+		"show_gc_plot": show_gc_plot,
+		"show_depth_plot": show_depth_plot,
+		"has_bam_loaded": _has_bam_loaded,
+		"seq_view_mode": _seq_view_mode,
+		"current_chr_id": _current_chr_id,
+		"bam_tracks": _bam_tracks,
+		"overlaps": overlaps,
+		"visible_track_ids": visible_track_ids,
+		"gc_window_bp": _gc_window_bp
+	})
+	return
 
 func _annotation_pixel_budget() -> int:
 	var span := maxi(1, _last_end - _last_start)
@@ -2442,6 +2338,59 @@ func _on_fetch_timer_timeout() -> void:
 	_fetch_in_progress = true
 	_fetch_pending = false
 	_refresh_visible_data()
+
+func _drain_tile_fetch_result() -> void:
+	if _tile_controller == null:
+		return
+	var tile_resp: Dictionary = _tile_controller.poll_result()
+	if tile_resp.is_empty():
+		return
+	if not tile_resp.get("ok", false):
+		_set_status(str(tile_resp.get("error", "Tile fetch failed")), true)
+		_fetch_in_progress = false
+		if _fetch_pending:
+			_fetch_timer.start()
+		return
+	var serial := int(tile_resp.get("serial", -1))
+	if serial != int(_pending_tile_apply.get("serial", -2)):
+		_fetch_in_progress = false
+		if _fetch_pending:
+			_fetch_timer.start()
+		return
+	var read_payload_by_track = tile_resp.get("read_payload_by_track", {})
+	var all_gc_plot_tiles: Array[Dictionary] = tile_resp.get("gc_plot_tiles", [])
+	var all_depth_plot_tiles: Array[Dictionary] = tile_resp.get("depth_plot_tiles", [])
+	var all_depth_plot_series: Array[Dictionary] = tile_resp.get("depth_plot_series", [])
+	for t_any in _bam_tracks:
+		var track: Dictionary = t_any
+		var track_id := str(track.get("track_id", ""))
+		var payload: Dictionary = read_payload_by_track.get(track_id, {"reads": [], "coverage": []})
+		genome_view.set_read_track_payload(
+			track_id,
+			payload,
+			int(track.get("view_mode", 0)),
+			bool(track.get("fragment_log", true)),
+			float(track.get("thickness", DEFAULT_READ_THICKNESS)),
+			int(track.get("max_rows", DEFAULT_READ_MAX_ROWS))
+		)
+		if _center_strand_scroll_pending and int(track.get("view_mode", 0)) == 1 and (payload.get("reads", []) as Array).size() > 0:
+			genome_view.center_strand_scroll_for_track(track_id)
+			_center_strand_scroll_pending = false
+	genome_view.set_gc_plot_tiles(all_gc_plot_tiles)
+	genome_view.set_depth_plot_tiles(all_depth_plot_tiles)
+	for i in range(all_depth_plot_series.size()):
+		var series: Dictionary = all_depth_plot_series[i]
+		series["color"] = _depth_plot_color_for_track(str(series.get("track_id", "")))
+		all_depth_plot_series[i] = series
+	genome_view.set_depth_plot_series(all_depth_plot_series)
+	_cache_start = int(_pending_tile_apply.get("query_start", -1))
+	_cache_end = int(_pending_tile_apply.get("query_end", -1))
+	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)
+	_cache_mode = 0 if (_has_bam_loaded and _any_visible_read_track() and _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
+	_cache_need_reference = bool(_pending_tile_apply.get("need_reference", false))
+	_cache_scope_key = _scope_cache_key()
+	if _debug_enabled:
+		_update_debug_stats_label()
 	_fetch_in_progress = false
 	if _fetch_pending:
 		_fetch_timer.start()
@@ -2465,82 +2414,6 @@ func _segments_overlapping(start_bp: int, end_bp: int) -> Array[Dictionary]:
 			"global_end": overlap_end
 		})
 	return out
-
-func _shift_read_coords(read: Dictionary, offset: int) -> Dictionary:
-	var shifted := read.duplicate(true)
-	shifted["start"] = int(shifted.get("start", 0)) + offset
-	shifted["end"] = int(shifted.get("end", 0)) + offset
-	if int(shifted.get("mate_start", -1)) >= 0:
-		shifted["mate_start"] = int(shifted.get("mate_start", -1)) + offset
-	if int(shifted.get("mate_end", -1)) >= 0:
-		shifted["mate_end"] = int(shifted.get("mate_end", -1)) + offset
-	var shifted_snps := PackedInt32Array()
-	var snps: PackedInt32Array = shifted.get("snps", PackedInt32Array())
-	for s in snps:
-		shifted_snps.append(int(s) + offset)
-	shifted["snps"] = shifted_snps
-	return shifted
-
-func _shift_coverage_coords(cov: Dictionary, offset: int) -> Dictionary:
-	if cov.is_empty():
-		return cov
-	return {
-		"start": int(cov.get("start", 0)) + offset,
-		"end": int(cov.get("end", 0)) + offset,
-		"bins": cov.get("bins", PackedInt32Array())
-	}
-
-func _shift_plot_coords(plot: Dictionary, offset: int) -> Dictionary:
-	if plot.is_empty():
-		return plot
-	return {
-		"start": int(plot.get("start", 0)) + offset,
-		"end": int(plot.get("end", 0)) + offset,
-		"window": int(plot.get("window", _gc_window_bp)),
-		"values": plot.get("values", PackedFloat32Array())
-	}
-
-func _frame_tile_key(source_id: int, chr_id: int, zoom: int, tile_index: int, param: int = 0) -> String:
-	return "%d|%d|%d|%d|%d" % [source_id, chr_id, zoom, tile_index, param]
-
-func _frame_get_read_tile(cache: Dictionary, source_id: int, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
-	var key := _frame_tile_key(source_id, chr_id, zoom, tile_index)
-	if cache.has(key):
-		return cache[key]
-	var resp: Dictionary = _zem.get_tile(chr_id, zoom, tile_index, source_id)
-	cache[key] = resp
-	return resp
-
-func _frame_get_coverage_tile(cache: Dictionary, source_id: int, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
-	var key := _frame_tile_key(source_id, chr_id, zoom, tile_index)
-	if cache.has(key):
-		return cache[key]
-	var resp: Dictionary = _zem.get_coverage_tile(chr_id, zoom, tile_index, source_id)
-	cache[key] = resp
-	return resp
-
-func _frame_get_gc_plot_tile(cache: Dictionary, chr_id: int, zoom: int, tile_index: int, window_len_bp: int) -> Dictionary:
-	var key := _frame_tile_key(0, chr_id, zoom, tile_index, window_len_bp)
-	if cache.has(key):
-		return cache[key]
-	var resp: Dictionary = _zem.get_gc_plot_tile(chr_id, zoom, tile_index, window_len_bp)
-	cache[key] = resp
-	return resp
-
-func _coverage_to_plot_tile(cov: Dictionary) -> Dictionary:
-	if cov.is_empty():
-		return {}
-	var bins: PackedInt32Array = cov.get("bins", PackedInt32Array())
-	var values := PackedFloat32Array()
-	values.resize(bins.size())
-	for i in range(bins.size()):
-		values[i] = float(bins[i])
-	return {
-		"start": int(cov.get("start", 0)),
-		"end": int(cov.get("end", 0)),
-		"window": 1,
-		"values": values
-	}
 
 func _shift_feature_coords(feature: Dictionary, offset: int) -> Dictionary:
 	var shifted := feature.duplicate(true)
@@ -2948,6 +2821,7 @@ func _close_feature_panel() -> void:
 	_slide_feature_panel(false, true)
 
 func _process(delta: float) -> void:
+	_drain_tile_fetch_result()
 	if not _auto_play_enabled:
 		return
 	if _current_chr_len <= 0:

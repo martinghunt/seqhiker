@@ -2,6 +2,7 @@ extends Control
 class_name GenomeView
 const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
 const TRACK_ROW_SCENE := preload("res://scenes/Track.tscn")
+const ReadLayoutHelperScript = preload("res://scripts/read_layout_helper.gd")
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
 signal feature_clicked(feature: Dictionary)
@@ -130,6 +131,7 @@ var _trackpad_pan_sensitivity := 1.0
 var _trackpad_pinch_sensitivity := 1.0
 var _reads_scrollbar: VScrollBar
 var _laid_out_reads: Array[Dictionary] = []
+var _read_layout_helper := ReadLayoutHelperScript.new()
 var _read_row_count := 0
 var _strand_forward_rows := 0
 var _strand_reverse_rows := 0
@@ -226,7 +228,7 @@ func set_reads(next_reads: Array[Dictionary]) -> void:
 	reads.clear()
 	for read_any in next_reads:
 		var read: Dictionary = (read_any as Dictionary).duplicate(true)
-		_attach_indel_markers(read)
+		_read_layout_helper.attach_indel_markers(read)
 		reads.append(read)
 	_layout_reads()
 	_layout_read_scrollbar()
@@ -295,6 +297,9 @@ func _sync_track_rows() -> void:
 		var settings_button := row.get_node("Buttons/SettingsButton") as Button
 		var track_view := row.get_node("TrackView") as Control
 		track_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		close_button.focus_mode = Control.FOCUS_NONE
+		grab_button.focus_mode = Control.FOCUS_NONE
+		settings_button.focus_mode = Control.FOCUS_NONE
 		grab_button.mouse_default_cursor_shape = Control.CURSOR_MOVE
 		close_button.pressed.connect(_on_track_close_pressed.bind(track_id))
 		grab_button.button_down.connect(_on_track_grab_button_down.bind(track_id))
@@ -363,10 +368,29 @@ func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_c
 	reads.clear()
 	for read_any in next_reads:
 		var read: Dictionary = (read_any as Dictionary).duplicate(true)
-		_attach_indel_markers(read)
+		_read_layout_helper.attach_indel_markers(read)
 		reads.append(read)
 	coverage_tiles = next_cov_tiles
 	_layout_reads()
+	_layout_read_scrollbar()
+	_persist_active_read_track()
+	queue_redraw()
+
+func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int) -> void:
+	_ensure_read_track_state(track_id)
+	_activate_read_track(track_id)
+	_read_view_mode = clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
+	_fragment_log_scale = fragment_log
+	_read_row_h = clampf(row_h, 2.0, 24.0)
+	_read_row_limit = maxi(0, row_limit)
+	reads = _as_dict_array(payload.get("reads", []))
+	coverage_tiles = _as_dict_array(payload.get("coverage", []))
+	_laid_out_reads = _as_dict_array(payload.get("laid_out_reads", []))
+	_read_row_count = int(payload.get("read_row_count", 0))
+	_strand_forward_rows = int(payload.get("strand_forward_rows", 0))
+	_strand_reverse_rows = int(payload.get("strand_reverse_rows", 0))
+	if not reads.is_empty() and (_laid_out_reads.is_empty() or (_read_view_mode != READ_VIEW_FRAGMENT and _read_row_count <= 0)):
+		_layout_reads()
 	_layout_read_scrollbar()
 	_persist_active_read_track()
 	queue_redraw()
@@ -1032,41 +1056,6 @@ func _draw_indel_markers(read: Dictionary, y: float) -> void:
 		draw_line(Vector2(ix, y0), Vector2(ix, y1), col, stem_line_w)
 		draw_line(Vector2(ix - cap_w * 0.5, y0), Vector2(ix + cap_w * 0.5, y0), col, cap_line_w)
 		draw_line(Vector2(ix - cap_w * 0.5, y1), Vector2(ix + cap_w * 0.5, y1), col, cap_line_w)
-
-func _attach_indel_markers(read: Dictionary) -> void:
-	var cigar := str(read.get("cigar", ""))
-	if cigar.is_empty():
-		return
-	var ref_pos := int(read.get("start", 0))
-	var num := 0
-	var del_starts := PackedInt32Array()
-	var del_ends := PackedInt32Array()
-	var ins_positions := PackedInt32Array()
-	for i in range(cigar.length()):
-		var ch := cigar.substr(i, 1)
-		if ch >= "0" and ch <= "9":
-			num = num * 10 + int(ch.to_int())
-			continue
-		var ln := num
-		num = 0
-		if ln <= 0:
-			continue
-		match ch:
-			"M", "=", "X":
-				ref_pos += ln
-			"D", "N":
-				del_starts.append(ref_pos)
-				del_ends.append(ref_pos + ln)
-				ref_pos += ln
-			"I":
-				ins_positions.append(ref_pos)
-			"S", "H", "P":
-				pass
-			_:
-				pass
-	read["del_starts"] = del_starts
-	read["del_ends"] = del_ends
-	read["ins_positions"] = ins_positions
 
 func _draw_mate_block(read: Dictionary, y: float) -> void:
 	var mate_rect := _mate_rect_for_read(read, y)
@@ -2306,124 +2295,18 @@ func _tracks_view_rect(track_rects: Dictionary) -> Rect2:
 	return Rect2(0.0, min_y, size.x, max_y - min_y)
 
 func _layout_reads() -> void:
-	_laid_out_reads.clear()
-	_strand_forward_rows = 0
-	_strand_reverse_rows = 0
-	if reads.is_empty():
-		_read_row_count = 0
-		return
-
-	if _read_view_mode == READ_VIEW_FRAGMENT:
-		_layout_fragment_reads()
-		return
-
-	if _read_view_mode == READ_VIEW_STRAND:
-		var forward_reads: Array = []
-		var reverse_reads: Array = []
-		for read in reads:
-			if bool(read.get("reverse", false)):
-				reverse_reads.append(read)
-			else:
-				forward_reads.append(read)
-		var total_limit := maxi(0, _read_row_limit)
-		var forward_limit := 0
-		var reverse_limit := 0
-		if total_limit > 0:
-			forward_limit = int(ceil(float(total_limit) * 0.5))
-			reverse_limit = total_limit - forward_limit
-		_strand_forward_rows = _pack_reads_into_rows(forward_reads, false, forward_limit)
-		_strand_reverse_rows = _pack_reads_into_rows(reverse_reads, false, reverse_limit)
-		_read_row_count = maxi(_strand_forward_rows, _strand_reverse_rows)
-		return
-
-	var use_pair_span := _read_view_mode == READ_VIEW_PAIRED
-	_read_row_count = _pack_reads_into_rows(reads, use_pair_span, _read_row_limit)
-
-func _layout_fragment_reads() -> void:
-	var max_frag := 1.0
-	for read in reads:
-		var f := float(maxi(1, int(read.get("fragment_len", 0))))
-		if f > max_frag:
-			max_frag = f
-	for read in reads:
-		var laid_out: Dictionary = (read as Dictionary).duplicate(true)
-		var f := float(maxi(1, int(laid_out.get("fragment_len", 0))))
-		var norm := 0.0
-		if _fragment_log_scale:
-			norm = log(f + 1.0) / log(max_frag + 1.0)
-		else:
-			norm = f / max_frag
-		laid_out["frag_norm"] = clampf(norm, 0.0, 1.0)
-		_laid_out_reads.append(laid_out)
-	_read_row_count = 0
-
-func _pack_reads_into_rows(source_reads: Array, use_pair_span: bool, row_limit: int = 0) -> int:
-	if source_reads.is_empty():
-		return 0
-	var sorted_reads: Array = source_reads.duplicate(true)
-	sorted_reads.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var sa := _layout_span_start(a, use_pair_span)
-		var sb := _layout_span_start(b, use_pair_span)
-		if sa == sb:
-			return _layout_span_end(a, use_pair_span) < _layout_span_end(b, use_pair_span)
-		return sa < sb
+	var layout := _read_layout_helper.build_layout(
+		reads,
+		_read_view_mode,
+		_fragment_log_scale,
+		_read_row_limit,
+		int(view_start_bp),
+		int(_viewport_end_bp())
 	)
-	var row_ends: Array[int] = []
-	for read_any in sorted_reads:
-		var read: Dictionary = read_any
-		var s := _layout_span_start(read, use_pair_span)
-		var e := _layout_span_end(read, use_pair_span)
-		var chosen := -1
-		for i in range(row_ends.size()):
-			if s >= row_ends[i]:
-				chosen = i
-				break
-		if chosen == -1:
-			if row_limit > 0 and row_ends.size() >= row_limit:
-				continue
-			chosen = row_ends.size()
-			row_ends.append(e)
-		else:
-			row_ends[chosen] = e
-		var laid_out := read.duplicate(true)
-		laid_out["row"] = chosen
-		_laid_out_reads.append(laid_out)
-	return row_ends.size()
-
-func _layout_span_start(read: Dictionary, use_pair_span: bool) -> int:
-	var s := int(read.get("start", 0))
-	if not use_pair_span or not _should_use_mate_span_for_packing(read):
-		return s
-	var mate_start := int(read.get("mate_start", -1))
-	if mate_start >= 0:
-		return mini(s, mate_start)
-	return s
-
-func _layout_span_end(read: Dictionary, use_pair_span: bool) -> int:
-	var s := int(read.get("start", 0))
-	var e := int(read.get("end", s + 1))
-	if not use_pair_span or not _should_use_mate_span_for_packing(read):
-		return e
-	var mate_end := int(read.get("mate_end", -1))
-	if mate_end > 0:
-		return maxi(e, mate_end)
-	return e
-
-func _should_use_mate_span_for_packing(read: Dictionary) -> bool:
-	var mate_start := int(read.get("mate_start", -1))
-	var mate_end := int(read.get("mate_end", -1))
-	if mate_start < 0 or mate_end <= mate_start:
-		return false
-	var view_start := int(view_start_bp)
-	var view_end := int(_viewport_end_bp())
-	var view_span := maxi(1, view_end - view_start)
-	# Keep packing tight: include mate span only when mate is close enough to current view.
-	var max_distance := view_span * 2
-	var read_start := int(read.get("start", 0))
-	var read_end := int(read.get("end", read_start + 1))
-	var read_center := int((read_start + read_end) / 2.0)
-	var mate_center := int((mate_start + mate_end) / 2.0)
-	return absi(mate_center - read_center) <= max_distance
+	_laid_out_reads = layout.get("laid_out_reads", [])
+	_read_row_count = int(layout.get("read_row_count", 0))
+	_strand_forward_rows = int(layout.get("strand_forward_rows", 0))
+	_strand_reverse_rows = int(layout.get("strand_reverse_rows", 0))
 
 func _ensure_read_track_state(track_id: String) -> void:
 	if not _is_read_track(track_id):
