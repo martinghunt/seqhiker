@@ -31,6 +31,8 @@ func reset() -> void:
 	_mutex.lock()
 	_active_generation = -1
 	_pending_request = {}
+	_latest_result = {}
+	_result_pending = false
 	_mutex.unlock()
 
 func shutdown() -> void:
