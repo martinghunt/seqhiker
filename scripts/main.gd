@@ -1990,10 +1990,6 @@ func _refresh_visible_data() -> void:
 	var features: Array[Dictionary] = []
 	var ref_start := query_start
 	var ref_sequence := ""
-	var read_payload_by_track := {}
-	var all_gc_plot_tiles: Array[Dictionary] = []
-	var all_depth_plot_tiles: Array[Dictionary] = []
-	var all_depth_plot_series: Array[Dictionary] = []
 	var overlaps: Array[Dictionary] = []
 	var ann_overlaps: Array[Dictionary] = []
 	var visible_track_ids := {}
