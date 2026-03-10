@@ -2277,15 +2277,6 @@ func _generate_mock_data() -> void:
 func _genome_area() -> Rect2:
 	return _track_rect(TRACK_ID_GENOME)
 
-func _annotation_area(_area_unused: Rect2) -> Rect2:
-	return _track_rect(TRACK_ID_AA)
-
-func _read_area(_ann_area_unused: Rect2) -> Rect2:
-	for track_id in _track_order:
-		if _is_read_track(str(track_id)):
-			return _track_rect(str(track_id))
-	return Rect2(0.0, 0.0, size.x, 0.0)
-
 func _is_read_track(track_id: String) -> bool:
 	return track_id == TRACK_ID_READS or track_id.begins_with(READ_TRACK_PREFIX)
 
