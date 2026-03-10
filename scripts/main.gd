@@ -17,9 +17,7 @@ const ANNOT_MAX_TILES := 64
 const ANNOT_MIN_TOTAL := 800
 const ANNOT_MAX_TOTAL := 12000
 const ANNOT_TILE_CACHE_MAX_ENTRIES := 512
-const ANNOT_PRELOAD_THRESHOLD_DEFAULT := 20000
 const BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT := 15000000
-const ANNOT_PRELOAD_MAX_RECORDS := 65000
 const ANNOT_MAX_ON_SCREEN_DEFAULT := 4400
 const ANNOT_MAX_ON_SCREEN_MIN := 200
 const ANNOT_MAX_ON_SCREEN_MAX := 50000
@@ -98,7 +96,6 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var file_list: ItemList = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/FileList
 @onready var _track_order_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityLabel
 @onready var _track_visibility_box: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityBox
-@onready var _annot_preload_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/AnnotationPreloadSpin
 @onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/BAMCoverageCutoffSpin
 @onready var server_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerLabel
 @onready var host_edit: LineEdit = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/HostEdit
@@ -150,7 +147,6 @@ var _cache_mode := -1
 var _cache_need_reference := false
 var _cache_scope_key := ""
 var _annotation_tile_cache: Dictionary = {}
-var _annotation_preload_cache: Dictionary = {}
 var _theme_text_color: Color = Color.BLACK
 var _theme_error_color: Color = Color("8b0000")
 var _themes_lib: RefCounted
@@ -198,7 +194,6 @@ var _active_track_settings_id := ""
 var _debug_enabled := false
 var _debug_toggle: CheckBox
 var _debug_stats_label: Label
-var _annotation_preload_threshold := ANNOT_PRELOAD_THRESHOLD_DEFAULT
 var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
 var _annotation_counts_by_chr := {}
@@ -624,12 +619,6 @@ func _setup_track_visibility_controls() -> void:
 	_refresh_track_visibility_controls(genome_view.get_track_order())
 
 func _setup_debug_controls() -> void:
-	_annot_preload_spin.min_value = 0
-	_annot_preload_spin.max_value = ANNOT_PRELOAD_MAX_RECORDS
-	_annot_preload_spin.step = 1000
-	_annot_preload_spin.value = _annotation_preload_threshold
-	if not _annot_preload_spin.value_changed.is_connected(_on_annotation_preload_threshold_changed):
-		_annot_preload_spin.value_changed.connect(_on_annotation_preload_threshold_changed)
 	_bam_cov_cutoff_spin.min_value = 0
 	_bam_cov_cutoff_spin.max_value = 500000000
 	_bam_cov_cutoff_spin.step = 1000000
@@ -648,12 +637,6 @@ func _setup_debug_controls() -> void:
 	_debug_stats_label.visible = _debug_enabled
 	_debug_stats_label.text = ""
 	settings_content.add_child(_debug_stats_label)
-
-func _on_annotation_preload_threshold_changed(value: float) -> void:
-	_annotation_preload_threshold = clampi(int(value), 0, ANNOT_PRELOAD_MAX_RECORDS)
-	_invalidate_cache()
-	if _current_chr_len > 0:
-		_schedule_fetch()
 
 func _on_bam_cov_cutoff_changed(value: float) -> void:
 	_bam_cov_precompute_cutoff_bp = maxi(0, int(round(value)))
@@ -758,8 +741,6 @@ func _update_debug_stats_label() -> void:
 	if _dbg_ann_tile_requests > 0:
 		hit_pct = 100.0 * float(_dbg_ann_tile_cache_hits) / float(_dbg_ann_tile_requests)
 	var draw_stats: Dictionary = genome_view.annotation_debug_stats()
-	var scope_count := _annotation_scope_count(_current_chr_id)
-	var preload_active := _annotation_preload_threshold > 0 and scope_count > 0 and scope_count <= _annotation_preload_threshold
 	var status_prefix := "ERROR" if _last_status_is_error else "OK"
 	_debug_stats_label.text = "Server [%s]: %s\nViewport: %s\nScale: %s\nAnn tiles req=%d, cache_hit=%d (%.1f%%), queried=%d\nAnn feats in=%d, out=%d, fetch=%.2fms\nAnn draw seen=%d, drawn=%d, labels=%d, hitboxes=%d, draw=%.2fms" % [
 		status_prefix,
@@ -779,7 +760,6 @@ func _update_debug_stats_label() -> void:
 		int(draw_stats.get("hitboxes", 0)),
 		float(draw_stats.get("draw_ms", 0.0))
 	]
-	_debug_stats_label.text += "\nAnn preload=%s threshold=%d scope_count=%d" % [str(preload_active), _annotation_preload_threshold, scope_count]
 	if int(draw_stats.get("culled_density", 0)) > 0:
 		_debug_stats_label.text += "\nAnn draw culled_density=%d" % int(draw_stats.get("culled_density", 0))
 
@@ -1669,7 +1649,6 @@ func _invalidate_cache() -> void:
 	_cache_need_reference = false
 	_cache_scope_key = ""
 	_annotation_tile_cache.clear()
-	_annotation_preload_cache.clear()
 	_tile_cache_generation += 1
 	_fetch_in_progress = false
 	if _tile_controller != null:
@@ -1796,117 +1775,8 @@ func _annotation_min_feature_len_bp() -> int:
 func _annotation_tile_key(chr_id: int, zoom: int, tile_index: int, min_len_bp: int) -> String:
 	return "%s|%d|%d|%d|%d" % [_scope_cache_key(), chr_id, zoom, tile_index, min_len_bp]
 
-func _annotation_scope_count(chr_id: int) -> int:
-	if _seq_view_mode == SEQ_VIEW_SINGLE:
-		return int(_annotation_counts_by_chr.get(chr_id, 0))
-	var total := 0
-	for seg in _concat_segments:
-		total += int(_annotation_counts_by_chr.get(int(seg.get("id", -1)), 0))
-	return total
-
-func _annotation_preload_key(chr_id: int, min_len_bp: int) -> String:
-	return "%s|%d|%d|full" % [_scope_cache_key(), chr_id, min_len_bp]
-
-func _annotation_first_end_gt(ends: PackedInt32Array, target_start: int) -> int:
-	var lo := 0
-	var hi := ends.size()
-	while lo < hi:
-		var mid := lo + ((hi - lo) >> 1)
-		if int(ends[mid]) > target_start:
-			hi = mid
-		else:
-			lo = mid + 1
-	return lo
-
-func _annotation_first_start_ge(full: Array[Dictionary], target_end: int) -> int:
-	var lo := 0
-	var hi := full.size()
-	while lo < hi:
-		var mid := lo + ((hi - lo) >> 1)
-		if int(full[mid].get("start", 0)) >= target_end:
-			hi = mid
-		else:
-			lo = mid + 1
-	return lo
-
-func _annotation_select_spread(features_in: Array[Dictionary], start_bp: int, end_bp: int, cap_total: int) -> Array[Dictionary]:
-	if cap_total <= 0 or features_in.is_empty() or end_bp <= start_bp:
-		return []
-	var span := maxi(1, end_bp - start_bp)
-	var bin_w := maxi(1, int(ceil(float(span) / float(cap_total))))
-	var seen_bins := {}
-	var primary: Array[Dictionary] = []
-	var overflow: Array[Dictionary] = []
-	for feat in features_in:
-		var s := int(feat.get("start", 0))
-		var anchor := clampi(s, start_bp, end_bp - 1)
-		var bin_idx := int(floor(float(anchor - start_bp) / float(bin_w)))
-		var bkey := str(bin_idx)
-		if not seen_bins.get(bkey, false):
-			seen_bins[bkey] = true
-			primary.append(feat)
-		else:
-			overflow.append(feat)
-	if primary.size() >= cap_total:
-		primary.resize(cap_total)
-		return primary
-	for feat in overflow:
-		primary.append(feat)
-		if primary.size() >= cap_total:
-			break
-	return primary
-
 func _get_annotations_window_preloaded(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
-	var min_len_bp := _annotation_min_feature_len_bp()
-	var full_count := _annotation_scope_count(chr_id)
-	if _annotation_preload_threshold <= 0 or full_count <= 0 or full_count > _annotation_preload_threshold or full_count > ANNOT_PRELOAD_MAX_RECORDS:
-		return _get_annotations_window_tiled(chr_id, start_bp, end_bp)
-	var key := _annotation_preload_key(chr_id, min_len_bp)
-	var full: Array[Dictionary] = []
-	var ends := PackedInt32Array()
-	if _annotation_preload_cache.has(key):
-		var cached_any = _annotation_preload_cache[key]
-		if typeof(cached_any) == TYPE_DICTIONARY:
-			var cached_dict: Dictionary = cached_any
-			full = cached_dict.get("features", [])
-			ends = cached_dict.get("ends", PackedInt32Array())
-		else:
-			full = cached_any
-	else:
-		var resp: Dictionary = _zem.get_annotations(chr_id, 0, 0x7fffffff, clampi(full_count + 16, 1, ANNOT_PRELOAD_MAX_RECORDS), min_len_bp)
-		if not resp.get("ok", false):
-			return resp
-		full = resp.get("features", [])
-		full.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-			return int(a.get("start", 0)) < int(b.get("start", 0))
-		)
-		ends.resize(full.size())
-		var running_max_end := -2147483648
-		for i in range(full.size()):
-			running_max_end = maxi(running_max_end, int(full[i].get("end", 0)))
-			ends[i] = running_max_end
-		_annotation_preload_cache[key] = {"features": full, "ends": ends}
-	if ends.size() != full.size() or (ends.size() > 1 and int(ends[ends.size() - 1]) < int(ends[0])):
-		ends.resize(full.size())
-		var running_max_end_fix := -2147483648
-		for i in range(full.size()):
-			running_max_end_fix = maxi(running_max_end_fix, int(full[i].get("end", 0)))
-			ends[i] = running_max_end_fix
-	var cap_total := _annotation_pixel_budget()
-	var i0 := _annotation_first_end_gt(ends, start_bp)
-	var i1 := _annotation_first_start_ge(full, end_bp)
-	if i1 <= i0:
-		return {"ok": true, "features": []}
-	var overlap: Array[Dictionary] = []
-	for i in range(i0, i1):
-		var feat := full[i]
-		var feat_start := int(feat.get("start", 0))
-		var feat_end := int(feat.get("end", feat_start))
-		if feat_end <= start_bp or feat_start >= end_bp:
-			continue
-		overlap.append(feat)
-	var out := _annotation_select_spread(overlap, start_bp, end_bp, cap_total)
-	return {"ok": true, "features": out}
+	return _get_annotations_window_tiled(chr_id, start_bp, end_bp)
 
 func _get_annotations_window_tiled(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
 	var t0 := Time.get_ticks_usec()
@@ -2391,9 +2261,6 @@ func _load_or_init_config() -> void:
 	genome_view.set_axis_coords_with_commas(_axis_coords_with_commas)
 	_gc_window_bp = int(cfg.get_value("ui", "gc_window_bp", DEFAULT_GC_WINDOW_BP))
 	_gc_window_bp = clampi(_gc_window_bp, 1, 1000000)
-	_annotation_preload_threshold = clampi(int(cfg.get_value("ui", "annotation_preload_threshold", ANNOT_PRELOAD_THRESHOLD_DEFAULT)), 0, ANNOT_PRELOAD_MAX_RECORDS)
-	if _annot_preload_spin != null:
-		_annot_preload_spin.value = _annotation_preload_threshold
 	_bam_cov_precompute_cutoff_bp = maxi(0, int(cfg.get_value("ui", "bam_cov_precompute_cutoff_bp", BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT)))
 	if _bam_cov_cutoff_spin != null:
 		_bam_cov_cutoff_spin.value = _bam_cov_precompute_cutoff_bp
@@ -2435,7 +2302,6 @@ func _save_config() -> void:
 	cfg.set_value("ui", "colorize_nucleotides", _colorize_nucleotides)
 	cfg.set_value("ui", "axis_coords_with_commas", _axis_coords_with_commas)
 	cfg.set_value("ui", "gc_window_bp", _gc_window_bp)
-	cfg.set_value("ui", "annotation_preload_threshold", _annotation_preload_threshold)
 	cfg.set_value("ui", "bam_cov_precompute_cutoff_bp", _bam_cov_precompute_cutoff_bp)
 	cfg.set_value("ui", "annotation_max_on_screen", _annotation_max_on_screen)
 	cfg.set_value("ui", "gc_plot_y_mode", _gc_plot_y_mode)
