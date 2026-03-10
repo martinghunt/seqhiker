@@ -220,10 +220,6 @@ size_flags_horizontal = 3
 layout_mode = 2
 text = "0 - 0 bp"
 
-[node name="ServerStatusLabel" type="Label" parent="Root/TopBar/ActionClipper/ActionStrip"]
-layout_mode = 2
-text = "Disconnected"
-
 [node name="TopBarRightSpacer" type="Control" parent="Root/TopBar"]
 custom_minimum_size = Vector2(2, 0)
 layout_mode = 2
@@ -297,39 +293,6 @@ size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
 [node name="TitleSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
-layout_mode = 2
-
-[node name="ServerLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
-layout_mode = 2
-text = "Server Host"
-
-[node name="HostEdit" type="LineEdit" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
-layout_mode = 2
-text = "127.0.0.1"
-
-[node name="PortLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
-layout_mode = 2
-text = "Server Port"
-
-[node name="PortEdit" type="LineEdit" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
-layout_mode = 2
-text = "9000"
-
-[node name="ConnectButton" type="Button" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
-layout_mode = 2
-text = "Connect"
-
-[node name="StatusTitle" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
-layout_mode = 2
-text = "Last Message"
-
-[node name="StatusMessageLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
-custom_minimum_size = Vector2(0, 64)
-layout_mode = 2
-text = "Disconnected"
-autowrap_mode = 3
-
-[node name="ServerSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
 layout_mode = 2
 
 [node name="TrackVisibilityLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]

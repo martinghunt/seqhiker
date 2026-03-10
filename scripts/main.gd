@@ -71,7 +71,6 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var play_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PlayLeftButton
 @onready var stop_button: Button = $Root/TopBar/ActionClipper/ActionStrip/StopButton
 @onready var viewport_label: Label = $Root/TopBar/ActionClipper/ActionStrip/ViewportLabel
-@onready var server_status_label: Label = $Root/TopBar/ActionClipper/ActionStrip/ServerStatusLabel
 @onready var feature_panel: PanelContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel
 @onready var feature_close_button: Button = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureHeader/FeatureCloseButton
 @onready var feature_title_label: Label = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureHeader/FeatureTitle
@@ -99,14 +98,6 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var _track_order_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityLabel
 @onready var _track_visibility_box: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/TrackVisibilityBox
 @onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/BAMCoverageCutoffSpin
-@onready var server_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerLabel
-@onready var host_edit: LineEdit = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/HostEdit
-@onready var port_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortLabel
-@onready var port_edit: LineEdit = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/PortEdit
-@onready var connect_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ConnectButton
-@onready var status_title_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/StatusTitle
-@onready var status_message_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/StatusMessageLabel
-@onready var server_separator: HSeparator = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent/ServerSeparator
 @onready var close_settings_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader/CloseSettingsButton
 
 var _settings_open := false
@@ -238,7 +229,6 @@ func _ready() -> void:
 	_setup_debug_controls()
 	_setup_track_settings_panel()
 	_connect_ui()
-	_hide_server_settings_section()
 	_refresh_file_list_ui()
 	_load_or_init_config()
 	_apply_gc_plot_y_scale()
@@ -254,8 +244,6 @@ func _ready() -> void:
 	_on_play_speed_changed(play_speed_slider.value)
 	_setup_fetch_timer()
 	_setup_view_slot_shortcuts()
-	if server_status_label != null:
-		server_status_label.visible = false
 	if viewport_label != null:
 		viewport_label.visible = true
 	call_deferred("_initialize_settings_panel")
@@ -269,12 +257,8 @@ func _initialize_settings_panel() -> void:
 	_slide_feature_panel(false, false)
 
 func _startup_connect_local_zem() -> void:
-	var host := host_edit.text.strip_edges()
-	if host.is_empty():
-		host = "127.0.0.1"
-	var port := int(port_edit.text)
-	if port <= 0:
-		port = ZEM_DEFAULT_PORT
+	var host := "127.0.0.1"
+	var port := ZEM_DEFAULT_PORT
 	if not _should_try_local_zem(host):
 		return
 	_set_status("Preparing local zem...")
@@ -300,16 +284,6 @@ func _setup_fetch_timer() -> void:
 	_fetch_timer.timeout.connect(_on_fetch_timer_timeout)
 	add_child(_fetch_timer)
 
-func _hide_server_settings_section() -> void:
-	server_label.visible = false
-	host_edit.visible = false
-	port_label.visible = false
-	port_edit.visible = false
-	connect_button.visible = false
-	status_title_label.visible = false
-	status_message_label.visible = false
-	server_separator.visible = false
-
 func _setup_theme_selector() -> void:
 	theme_option.clear()
 	for theme_name in _themes_lib.theme_names():
@@ -330,7 +304,6 @@ func _setup_font_size_control() -> void:
 func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
 	close_settings_button.pressed.connect(_close_settings)
-	connect_button.pressed.connect(_connect_server)
 	pan_left_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(-_pan_step_percent / 100.0))
 	jump_start_button.pressed.connect(func() -> void: genome_view.jump_to_start())
 	pan_right_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(_pan_step_percent / 100.0))
@@ -378,7 +351,6 @@ func _disable_button_focus() -> void:
 		play_button,
 		play_left_button,
 		stop_button,
-		connect_button,
 		close_settings_button,
 		feature_close_button,
 		ui_scale_slider,
@@ -390,23 +362,6 @@ func _disable_button_focus() -> void:
 	for c in controls:
 		if c != null:
 			c.focus_mode = Control.FOCUS_NONE
-
-func _connect_server() -> void:
-	var host := host_edit.text.strip_edges()
-	if host.is_empty():
-		host = "127.0.0.1"
-	var port := int(port_edit.text)
-	if port <= 0:
-		port = ZEM_DEFAULT_PORT
-	var ok: bool = _connect_with_local_fallback(host, port)
-	if ok:
-		_set_status("Connected %s:%d" % [host, port])
-		_refresh_chromosomes()
-	else:
-		var msg := "Connection failed"
-		if not _last_connect_error.is_empty():
-			msg = _last_connect_error
-		_set_status(msg, true)
 
 func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_start = start_bp
@@ -1470,7 +1425,6 @@ func _apply_theme(theme_name: String) -> void:
 	feature_strand_label.add_theme_color_override("default_color", palette["text"])
 	feature_source_label.add_theme_color_override("default_color", palette["text"])
 	feature_seq_label.add_theme_color_override("default_color", palette["text"])
-	status_message_label.add_theme_color_override("font_color", palette["text"])
 	_apply_search_theme(palette)
 	_apply_topbar_button_font_size()
 
@@ -1526,12 +1480,8 @@ func _ensure_server_connected() -> bool:
 	if _zem.ensure_connected():
 		_set_status("Connected")
 		return true
-	var host := host_edit.text.strip_edges()
-	if host.is_empty():
-		host = "127.0.0.1"
-	var port := int(port_edit.text)
-	if port <= 0:
-		port = ZEM_DEFAULT_PORT
+	var host := "127.0.0.1"
+	var port := ZEM_DEFAULT_PORT
 	if _connect_with_local_fallback(host, port):
 		_set_status("Connected %s:%d" % [host, port])
 		return true
@@ -1951,8 +1901,8 @@ func _refresh_visible_data() -> void:
 	}
 	_tile_controller.request_tiles({
 		"serial": _tile_fetch_serial,
-		"host": host_edit.text.strip_edges() if not host_edit.text.strip_edges().is_empty() else "127.0.0.1",
-		"port": int(port_edit.text) if int(port_edit.text) > 0 else ZEM_DEFAULT_PORT,
+		"host": "127.0.0.1",
+		"port": ZEM_DEFAULT_PORT,
 		"generation": _tile_cache_generation,
 		"scope_key": _scope_cache_key(),
 		"query_start": query_start,
@@ -2420,9 +2370,6 @@ func _is_near_cache_edge(start_bp: int, end_bp: int) -> bool:
 func _set_status(message: String, is_error: bool = false) -> void:
 	_last_status_message = message
 	_last_status_is_error = is_error
-	status_message_label.text = message
-	status_message_label.tooltip_text = message
-	status_message_label.add_theme_color_override("font_color", _theme_error_color if is_error else _theme_text_color)
 	if _debug_enabled:
 		_update_debug_stats_label()
 
@@ -2437,8 +2384,6 @@ func _load_or_init_config() -> void:
 		_save_config()
 		return
 
-	host_edit.text = str(cfg.get_value("connection", "host", host_edit.text))
-	port_edit.text = str(int(cfg.get_value("connection", "port", int(port_edit.text))))
 	ui_scale_slider.value = float(cfg.get_value("ui", "scale", ui_scale_slider.value))
 	if cfg.has_section_key("ui", "play_speed_widths_per_sec"):
 		play_speed_slider.value = float(cfg.get_value("ui", "play_speed_widths_per_sec", play_speed_slider.value))
@@ -2502,8 +2447,6 @@ func _select_theme_option(theme_name: String) -> void:
 
 func _save_config() -> void:
 	var cfg := ConfigFile.new()
-	cfg.set_value("connection", "host", host_edit.text.strip_edges())
-	cfg.set_value("connection", "port", int(port_edit.text))
 	cfg.set_value("ui", "scale", ui_scale_slider.value)
 	cfg.set_value("ui", "play_speed_widths_per_sec", play_speed_slider.value)
 	cfg.set_value("ui", "theme", theme_option.get_item_text(theme_option.selected))
