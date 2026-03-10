@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3 uid="uid://b8x31srh18cqr"]
+[gd_scene load_steps=23 format=3 uid="uid://b8x31srh18cqr"]
 
 [ext_resource type="Script" uid="uid://blioyr3uu4r8n" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="FontFile" uid="uid://c7lxavioxfnbo" path="res://fonts/magrathea.ttf" id="2_0bbpv"]
@@ -16,6 +16,12 @@ action = &"seqhiker_toggle_search"
 
 [sub_resource type="Shortcut" id="Shortcut_toggle_search"]
 events = [SubResource("InputEventAction_toggle_search")]
+
+[sub_resource type="InputEventAction" id="InputEventAction_go"]
+action = &"seqhiker_go"
+
+[sub_resource type="Shortcut" id="Shortcut_go"]
+events = [SubResource("InputEventAction_go")]
 
 [sub_resource type="InputEventAction" id="InputEventAction_jump_start"]
 action = &"seqhiker_jump_start"
@@ -124,6 +130,15 @@ theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_toggle_search")
 shortcut_in_tooltip = false
 text = "Y"
+
+[node name="GoButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+layout_mode = 2
+tooltip_text = "Go to position
+Keyboard: ctl-G/cmd-G"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+shortcut = SubResource("Shortcut_go")
+shortcut_in_tooltip = false
+text = "Go"
 
 [node name="JumpStartButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
@@ -444,3 +459,4 @@ size_flags_vertical = 3
 allow_reselect = true
 
 [node name="FeaturePanel" parent="Root/ContentMargin/ViewportLayer" instance=ExtResource("3_30wbj")]
+layout_mode = 1

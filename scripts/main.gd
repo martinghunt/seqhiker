@@ -4,6 +4,7 @@ const ThemesLibScript = preload("res://scripts/themes.gd")
 const ZemClientScript = preload("res://scripts/zem_client.gd")
 const TileControllerScript = preload("res://scripts/tile_controller.gd")
 const SearchControllerScript = preload("res://scripts/search_controller.gd")
+const GoPanelScene = preload("res://scenes/GoPanel.tscn")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const ZEM_BIN_SUBDIR := "bin"
 const ZEM_DEFAULT_PORT := 9000
@@ -59,6 +60,7 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var top_bar: HBoxContainer = $Root/TopBar
 @onready var settings_toggle_button: Button = $Root/TopBar/SettingsToggleButton
 @onready var search_button: Button = $Root/TopBar/ActionClipper/ActionStrip/SearchButton
+@onready var go_button: Button = $Root/TopBar/ActionClipper/ActionStrip/GoButton
 @onready var pan_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanLeftButton
 @onready var jump_start_button: Button = $Root/TopBar/ActionClipper/ActionStrip/JumpStartButton
 @onready var pan_right_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanRightButton
@@ -121,6 +123,11 @@ var _pending_tile_apply: Dictionary = {}
 var _zem: RefCounted
 var _tile_controller: RefCounted
 var _search_controller: RefCounted
+var _go_panel: VBoxContainer
+var _go_chr_option: OptionButton
+var _go_start_edit: LineEdit
+var _go_end_edit: LineEdit
+var _go_status_label: Label
 var _local_zem_path := ""
 var _local_zem_pid := -1
 var _local_zem_started_by_seqhiker := false
@@ -334,6 +341,7 @@ func _connect_ui() -> void:
 	play_left_button.pressed.connect(_start_auto_play_left)
 	stop_button.pressed.connect(_stop_auto_play)
 	search_button.pressed.connect(_toggle_search_panel)
+	go_button.pressed.connect(_toggle_go_panel)
 	genome_view.viewport_changed.connect(_on_viewport_changed)
 	genome_view.feature_clicked.connect(_on_feature_clicked)
 	genome_view.read_clicked.connect(_on_read_clicked)
@@ -360,6 +368,7 @@ func _disable_button_focus() -> void:
 	var controls := [
 		settings_toggle_button,
 		search_button,
+		go_button,
 		pan_left_button,
 		jump_start_button,
 		pan_right_button,
@@ -662,6 +671,30 @@ func _setup_track_settings_panel() -> void:
 		"get_selected_seq_id": Callable(self, "_search_get_selected_seq_id"),
 		"on_hit_selected": Callable(self, "_jump_to_search_hit")
 	})
+	_setup_go_panel()
+
+func _setup_go_panel() -> void:
+	var panel := GoPanelScene.instantiate()
+	_go_panel = panel as VBoxContainer
+	if _go_panel == null:
+		return
+	feature_content.add_child(_go_panel)
+	_go_panel.visible = false
+	_go_chr_option = _go_panel.get_node("ChromosomeOption") as OptionButton
+	_go_start_edit = _go_panel.get_node("StartEdit") as LineEdit
+	_go_end_edit = _go_panel.get_node("EndEdit") as LineEdit
+	_go_status_label = _go_panel.get_node("StatusLabel") as Label
+	var go_action_button := _go_panel.get_node("GoButton") as Button
+	if go_action_button != null:
+		go_action_button.pressed.connect(_apply_go_request)
+	if _go_start_edit != null:
+		_go_start_edit.text_submitted.connect(func(_text: String) -> void:
+			_apply_go_request()
+		)
+	if _go_end_edit != null:
+		_go_end_edit.text_submitted.connect(func(_text: String) -> void:
+			_apply_go_request()
+		)
 
 func _on_read_view_selected(index: int) -> void:
 	_read_view_option.select(index)
@@ -942,9 +975,15 @@ func _on_track_settings_requested(track_id: String) -> void:
 	if _track_settings_open and _active_track_settings_id == track_id and _feature_panel_open:
 		_close_feature_panel()
 		return
+	if _track_settings_open and _active_track_settings_id == TRACK_GENOME and track_id != TRACK_GENOME:
+		_save_config()
 	_set_feature_labels_visible(false)
 	if _search_controller != null:
 		_search_controller.hide_panel()
+	if _go_panel != null:
+		_go_panel.visible = false
+	if _read_mate_jump_button != null:
+		_read_mate_jump_button.visible = false
 	feature_name_label.visible = true
 	feature_title_label.text = "%s track settings" % _track_label_for_id(track_id)
 	feature_name_label.text = ""
@@ -1189,6 +1228,7 @@ func _toggle_search_panel() -> void:
 	if _feature_panel_open and _search_controller.is_visible():
 		_close_feature_panel()
 		return
+	_maybe_save_genome_track_settings()
 	_track_settings_open = false
 	_active_track_settings_id = ""
 	_set_feature_labels_visible(false)
@@ -1201,10 +1241,43 @@ func _toggle_search_panel() -> void:
 	feature_seq_label.visible = false
 	if _track_settings_box != null:
 		_track_settings_box.visible = false
+	if _go_panel != null:
+		_go_panel.visible = false
+	if _read_mate_jump_button != null:
+		_read_mate_jump_button.visible = false
 	_search_controller.show_panel()
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)
 	_search_controller.focus_query()
+
+func _toggle_go_panel() -> void:
+	if _go_panel == null:
+		return
+	if _feature_panel_open and _go_panel.visible:
+		_close_feature_panel()
+		return
+	_maybe_save_genome_track_settings()
+	_track_settings_open = false
+	_active_track_settings_id = ""
+	_set_feature_labels_visible(false)
+	feature_title_label.text = "Go to position"
+	feature_name_label.visible = false
+	feature_type_label.visible = false
+	feature_range_label.visible = false
+	feature_strand_label.visible = false
+	feature_source_label.visible = false
+	feature_seq_label.visible = false
+	if _track_settings_box != null:
+		_track_settings_box.visible = false
+	if _search_controller != null:
+		_search_controller.hide_panel()
+	if _read_mate_jump_button != null:
+		_read_mate_jump_button.visible = false
+	_go_panel.visible = true
+	_refresh_go_chromosomes()
+	_clear_go_status()
+	_feature_panel_open = true
+	_slide_feature_panel(true, true)
 
 func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	var hit: Dictionary = hit_any
@@ -1235,6 +1308,105 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 		genome_view.clear_region_selection()
 	_schedule_fetch()
 
+func _refresh_go_chromosomes() -> void:
+	if _go_chr_option == null:
+		return
+	_go_chr_option.clear()
+	for c in _chromosomes:
+		_go_chr_option.add_item(str(c.get("name", "chr")), int(c.get("id", -1)))
+	var target_id := _current_chr_id if _current_chr_id >= 0 else _selected_seq_id
+	if _seq_view_mode == SEQ_VIEW_CONCAT and _concat_segments.size() > 0:
+		var center_bp := int(floor(0.5 * float(_last_start + _last_end)))
+		var overlaps := _segments_overlapping(center_bp, center_bp + 1)
+		if not overlaps.is_empty():
+			target_id = int(overlaps[0].get("id", -1))
+	if target_id < 0 and _chromosomes.size() > 0:
+		target_id = int(_chromosomes[0].get("id", -1))
+	for i in range(_go_chr_option.item_count):
+		if int(_go_chr_option.get_item_id(i)) == target_id:
+			_go_chr_option.select(i)
+			return
+	if _go_chr_option.item_count > 0:
+		_go_chr_option.select(0)
+
+func _clear_go_status() -> void:
+	if _go_status_label != null:
+		_go_status_label.text = ""
+
+func _set_go_status(message: String, is_error: bool = false) -> void:
+	if _go_status_label != null:
+		_go_status_label.text = message
+	if is_error:
+		_set_status(message, true)
+
+func _parse_go_bp(text: String) -> int:
+	var clean := text.strip_edges().replace(",", "").replace(" ", "")
+	if clean.is_empty():
+		return -1
+	if not clean.is_valid_int():
+		return -1
+	var value := int(clean)
+	if value < 0:
+		return -1
+	return value
+
+func _apply_go_request() -> void:
+	if _go_chr_option == null or _go_start_edit == null:
+		return
+	_clear_go_status()
+	if _chromosomes.is_empty():
+		_set_go_status("No chromosomes loaded.", true)
+		return
+	var selected_chr_id := int(_go_chr_option.get_selected_id())
+	var chr_len := 0
+	var chr_name := ""
+	for c in _chromosomes:
+		if int(c.get("id", -1)) == selected_chr_id:
+			chr_len = int(c.get("length", 0))
+			chr_name = str(c.get("name", "chr"))
+			break
+	if chr_len <= 0:
+		_set_go_status("Chromosome length unavailable.", true)
+		return
+	var start_bp := _parse_go_bp(_go_start_edit.text)
+	if start_bp < 0:
+		_set_go_status("Enter a valid start position.", true)
+		return
+	var end_bp := _parse_go_bp(_go_end_edit.text) if _go_end_edit != null else -1
+	if start_bp > chr_len:
+		_set_go_status("Start position beyond chromosome length.", true)
+		return
+	if end_bp >= 0 and end_bp < start_bp:
+		var swap := start_bp
+		start_bp = end_bp
+		end_bp = swap
+	if end_bp > chr_len:
+		end_bp = chr_len
+	if _seq_view_mode != SEQ_VIEW_SINGLE:
+		_seq_view_option.select(SEQ_VIEW_SINGLE)
+		_on_seq_view_selected(SEQ_VIEW_SINGLE)
+	for i in range(_seq_option.item_count):
+		if int(_seq_option.get_item_id(i)) == selected_chr_id:
+			_seq_option.select(i)
+			_on_seq_selected(i)
+			break
+	var width_px := maxf(1.0, genome_view.size.x)
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	if end_bp >= 0:
+		var span_bp := maxi(1, end_bp - start_bp)
+		var bp_per_px := clampf(float(span_bp) / width_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+		genome_view.set_view_state(float(start_bp), bp_per_px)
+		genome_view.clear_region_selection()
+		_set_go_status("%s:%d-%d" % [chr_name, start_bp, end_bp])
+	else:
+		var view_span_bp := int(ceil(current_bp_per_px * width_px))
+		var target_start := maxi(0, int(floor(float(start_bp) - 0.5 * float(view_span_bp))))
+		genome_view.set_view_state(float(target_start), current_bp_per_px)
+		genome_view.clear_region_selection()
+		_set_go_status("%s:%d" % [chr_name, start_bp])
+	_schedule_fetch()
+	_close_feature_panel()
+
 func _search_get_zem() -> RefCounted:
 	return _zem
 
@@ -1244,6 +1416,10 @@ func _search_get_chromosomes() -> Array[Dictionary]:
 func _search_get_selected_seq_id() -> int:
 	return _selected_seq_id
 
+func _maybe_save_genome_track_settings() -> void:
+	if _track_settings_open and _active_track_settings_id == TRACK_GENOME:
+		_save_config()
+
 func _set_feature_labels_visible(show_labels: bool) -> void:
 	feature_type_label.visible = show_labels
 	feature_range_label.visible = show_labels
@@ -1252,6 +1428,8 @@ func _set_feature_labels_visible(show_labels: bool) -> void:
 	feature_seq_label.visible = show_labels
 
 func _on_seq_view_selected(index: int) -> void:
+	if _seq_view_option != null and _seq_view_option.selected != index:
+		_seq_view_option.select(index)
 	_seq_view_mode = index
 	var single := index == SEQ_VIEW_SINGLE
 	_seq_option.visible = single
@@ -1569,6 +1747,7 @@ func _refresh_chromosomes() -> void:
 		_set_status("Annotation preload disabled: counts unavailable (restart zem)", true)
 	_rebuild_concat_segments()
 	_refresh_sequence_options()
+	_refresh_go_chromosomes()
 	_apply_sequence_view(true)
 
 func _rebuild_concat_segments() -> void:
@@ -2329,7 +2508,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "play_speed_widths_per_sec", play_speed_slider.value)
 	cfg.set_value("ui", "theme", theme_option.get_item_text(theme_option.selected))
 	cfg.set_value("ui", "font_size", _ui_font_size)
-	cfg.set_value("ui", "sequence_view_mode", _seq_view_option.selected)
+	cfg.set_value("ui", "sequence_view_mode", _seq_view_mode)
 	cfg.set_value("ui", "concat_gap_bp", _concat_gap_bp)
 	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)
 	cfg.set_value("ui", "show_full_length_regions", _show_full_length_regions)
@@ -2453,6 +2632,7 @@ func _format_read_snps(snps: PackedInt32Array) -> String:
 	return "%d [%s]" % [snps.size(), ", ".join(parts)]
 
 func _close_feature_panel() -> void:
+	_maybe_save_genome_track_settings()
 	_feature_panel_open = false
 	_track_settings_open = false
 	_active_track_settings_id = ""
@@ -2462,6 +2642,8 @@ func _close_feature_panel() -> void:
 		_track_settings_box.visible = false
 	if _search_controller != null:
 		_search_controller.hide_panel()
+	if _go_panel != null:
+		_go_panel.visible = false
 	_slide_feature_panel(false, true)
 
 func _process(delta: float) -> void:

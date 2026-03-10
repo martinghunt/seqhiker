@@ -1,0 +1,38 @@
+[gd_scene load_steps=1 format=3 uid="uid://cafwdgjweo0k7"]
+
+[node name="GoPanel" type="VBoxContainer"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ChromosomeLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Chromosome"
+
+[node name="ChromosomeOption" type="OptionButton" parent="."]
+layout_mode = 2
+
+[node name="StartLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Start (bp)"
+
+[node name="StartEdit" type="LineEdit" parent="."]
+layout_mode = 2
+placeholder_text = "required"
+
+[node name="EndLabel" type="Label" parent="."]
+layout_mode = 2
+text = "End (bp)"
+
+[node name="EndEdit" type="LineEdit" parent="."]
+layout_mode = 2
+placeholder_text = "optional"
+
+[node name="GoButton" type="Button" parent="."]
+layout_mode = 2
+text = "Go"
+
+[node name="StatusLabel" type="Label" parent="."]
+layout_mode = 2
+autowrap_mode = 3
+text = ""
