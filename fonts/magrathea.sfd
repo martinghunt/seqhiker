@@ -22,7 +22,7 @@ OS2Version: 0
 OS2_WeightWidthSlopeOnly: 0
 OS2_UseTypoMetrics: 1
 CreationTime: 1772828475
-ModificationTime: 1773089836
+ModificationTime: 1773180430
 OS2TypoAscent: 0
 OS2TypoAOffset: 1
 OS2TypoDescent: 0
@@ -36,6 +36,7 @@ HheadAscent: 0
 HheadAOffset: 1
 HheadDescent: 0
 HheadDOffset: 1
+OS2Vendor: 'PfEd'
 MarkAttachClasses: 1
 DEI: 91125
 Encoding: ISO8859-1
@@ -47,7 +48,7 @@ FitToEm: 0
 WinInfo: 38 19 5
 BeginPrivate: 0
 EndPrivate
-BeginChars: 256 13
+BeginChars: 256 14
 
 StartChar: A
 Encoding: 65 65 0
@@ -484,7 +485,7 @@ EndChar
 StartChar: S
 Encoding: 83 83 12
 Width: 1000
-Flags: HO
+Flags: H
 LayerCount: 2
 Fore
 SplineSet
@@ -501,6 +502,45 @@ SplineSet
  500 770 l 1
  888 430 l 1
  112 430 l 1
+EndSplineSet
+EndChar
+
+StartChar: G
+Encoding: 71 71 13
+Width: 1000
+Flags: HO
+LayerCount: 2
+Fore
+SplineSet
+511 768 m 0
+ 764 768 969 562 969 309 c 0
+ 969 56 764 -150 511 -150 c 0
+ 258 -150 52 56 52 309 c 0
+ 52 562 258 768 511 768 c 0
+511 720 m 0
+ 284 720 99 536 99 309 c 0
+ 99 82 284 -103 511 -103 c 0
+ 738 -103 922 82 922 309 c 0
+ 922 536 738 720 511 720 c 0
+323 582 m 2
+ 316 588 311 596 311 606 c 0
+ 311 616 316 625 323 631 c 2
+ 340 644 l 1
+ 349 651 360 655 372 655 c 0
+ 384 655 395 651 404 644 c 2
+ 813 327 l 0
+ 820 321 825 313 825 303 c 0
+ 825 293 820 285 813 279 c 2
+ 419 -26 l 1
+ 410 -33 399 -37 387 -37 c 0
+ 375 -37 364 -33 355 -26 c 2
+ 338 -13 l 0
+ 331 -7 326 2 326 12 c 0
+ 326 22 331 30 338 36 c 2
+ 653 279 l 0
+ 660 285 665 293 665 303 c 0
+ 665 313 660 321 653 327 c 2
+ 323 582 l 2
 EndSplineSet
 EndChar
 EndChars

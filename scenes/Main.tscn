@@ -138,7 +138,7 @@ Keyboard: ctl-G/cmd-G"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_go")
 shortcut_in_tooltip = false
-text = "Go"
+text = "G"
 
 [node name="JumpStartButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
