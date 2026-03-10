@@ -1,0 +1,101 @@
+[gd_scene load_steps=2 format=3 uid="uid://q40rq7ikp5jf"]
+
+[ext_resource type="FontFile" uid="uid://c7lxavioxfnbo" path="res://fonts/magrathea.ttf" id="1_fu5r1"]
+
+[node name="FeaturePanel" type="PanelContainer"]
+custom_minimum_size = Vector2(340, 0)
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -340.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="FeatureMargin" type="MarginContainer" parent="."]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="FeatureLayout" type="VBoxContainer" parent="FeatureMargin"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="FeatureHeader" type="HBoxContainer" parent="FeatureMargin/FeatureLayout"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="FeatureTitle" type="Label" parent="FeatureMargin/FeatureLayout/FeatureHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Feature Details"
+
+[node name="FeatureCloseButton" type="Button" parent="FeatureMargin/FeatureLayout/FeatureHeader"]
+layout_mode = 2
+tooltip_text = "Close panel"
+theme_override_fonts/font = ExtResource("1_fu5r1")
+text = "V"
+
+[node name="FeatureSeparator" type="HSeparator" parent="FeatureMargin/FeatureLayout"]
+layout_mode = 2
+
+[node name="FeatureScroll" type="ScrollContainer" parent="FeatureMargin/FeatureLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="FeatureContent" type="VBoxContainer" parent="FeatureMargin/FeatureLayout/FeatureScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="FeatureNameLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+layout_mode = 2
+focus_mode = 2
+text = "Name: -"
+fit_content = true
+scroll_active = false
+selection_enabled = true
+
+[node name="FeatureTypeLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+layout_mode = 2
+focus_mode = 2
+text = "Type: -"
+fit_content = true
+scroll_active = false
+selection_enabled = true
+
+[node name="FeatureRangeLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+layout_mode = 2
+focus_mode = 2
+text = "Range: -"
+fit_content = true
+scroll_active = false
+selection_enabled = true
+
+[node name="FeatureStrandLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+layout_mode = 2
+focus_mode = 2
+text = "Strand: -"
+fit_content = true
+scroll_active = false
+selection_enabled = true
+
+[node name="FeatureSourceLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+layout_mode = 2
+focus_mode = 2
+text = "Source: -"
+fit_content = true
+scroll_active = false
+selection_enabled = true
+
+[node name="FeatureSeqLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+layout_mode = 2
+focus_mode = 2
+text = "Sequence: -"
+fit_content = true
+scroll_active = false
+selection_enabled = true

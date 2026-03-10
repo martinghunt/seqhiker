@@ -2321,6 +2321,7 @@ func _on_feature_clicked(feature: Dictionary) -> void:
 	_active_track_settings_id = ""
 	feature_title_label.text = "Feature Details"
 	_set_feature_labels_visible(true)
+	feature_name_label.visible = true
 	if _track_settings_box != null:
 		_track_settings_box.visible = false
 	if _search_controller != null:
@@ -2343,6 +2344,7 @@ func _on_read_clicked(read: Dictionary) -> void:
 	_active_track_settings_id = ""
 	feature_title_label.text = "Feature Details"
 	_set_feature_labels_visible(true)
+	feature_name_label.visible = true
 	if _track_settings_box != null:
 		_track_settings_box.visible = false
 	if _search_controller != null:
