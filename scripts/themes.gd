@@ -262,6 +262,7 @@ func _set_panel_styles(theme: Theme, p: Dictionary) -> void:
 	panel.bg_color = p["panel"]
 	panel.border_color = p["border"]
 	panel.set_border_width_all(1)
+	panel.set_corner_radius_all(10)
 	theme.set_stylebox("panel", "Panel", panel)
 	theme.set_stylebox("panel", "PanelContainer", panel)
 
@@ -276,7 +277,7 @@ func _set_button_styles(theme: Theme, p: Dictionary) -> void:
 	normal.bg_color = p["button_bg"]
 	normal.border_color = p["border"]
 	normal.set_border_width_all(1)
-	normal.set_corner_radius_all(6)
+	normal.set_corner_radius_all(2)
 	theme.set_stylebox("normal", "Button", normal)
 	theme.set_stylebox("normal", "OptionButton", normal)
 
@@ -294,7 +295,7 @@ func _set_button_styles(theme: Theme, p: Dictionary) -> void:
 	focus.bg_color = Color(0, 0, 0, 0)
 	focus.border_color = p["field_focus"]
 	focus.set_border_width_all(2)
-	focus.set_corner_radius_all(6)
+	focus.set_corner_radius_all(2)
 	theme.set_stylebox("focus", "Button", focus)
 	theme.set_stylebox("focus", "OptionButton", focus)
 
