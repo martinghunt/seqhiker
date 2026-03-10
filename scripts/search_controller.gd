@@ -7,6 +7,7 @@ const SEARCH_SCOPE_CURRENT := 0
 const SEARCH_SCOPE_ALL := 1
 const SEARCH_DNA_MIN_LEN_DEFAULT := 12
 const SEARCH_MAX_HITS := 5000
+const SearchPanelScene = preload("res://scenes/SearchPanel.tscn")
 
 var _callbacks: Dictionary = {}
 var _search_box: VBoxContainer
@@ -23,81 +24,65 @@ var _search_running := false
 
 func setup(feature_content: VBoxContainer, callbacks: Dictionary) -> void:
 	_callbacks = callbacks.duplicate()
-	_search_box = VBoxContainer.new()
-	_search_box.visible = false
-	_search_box.add_theme_constant_override("separation", 8)
+	var panel := SearchPanelScene.instantiate()
+	_search_box = panel as VBoxContainer
+	if _search_box == null:
+		return
 	feature_content.add_child(_search_box)
 
-	var mode_label := Label.new()
-	mode_label.text = "Mode"
-	_search_mode_option = OptionButton.new()
-	_search_mode_option.add_item("Annotation text", SEARCH_MODE_ANNOTATION)
-	_search_mode_option.add_item("DNA exact", SEARCH_MODE_DNA_EXACT)
-	_search_mode_option.select(0)
-	_search_mode_option.item_selected.connect(_on_search_mode_changed)
-	_search_box.add_child(mode_label)
-	_search_box.add_child(_search_mode_option)
+	var mode_label := _search_box.get_node("ModeLabel") as Label
+	_search_mode_option = _search_box.get_node("ModeOption") as OptionButton
+	_search_scope_option = _search_box.get_node("ScopeOption") as OptionButton
+	_search_query_edit = _search_box.get_node("QueryEdit") as LineEdit
+	var min_len_label := _search_box.get_node("MinLenLabel") as Label
+	_search_min_len_spin = _search_box.get_node("MinLenSpin") as SpinBox
+	_search_revcomp_cb = _search_box.get_node("RevCompCheck") as CheckBox
+	_search_case_sensitive_cb = _search_box.get_node("CaseSensitiveCheck") as CheckBox
+	var run_button := _search_box.get_node("RunButton") as Button
+	_search_status_label = _search_box.get_node("StatusLabel") as Label
+	_search_results_list = _search_box.get_node("ResultsList") as ItemList
 
-	var scope_label := Label.new()
-	scope_label.text = "Scope"
-	_search_scope_option = OptionButton.new()
-	_search_scope_option.add_item("Current sequence", SEARCH_SCOPE_CURRENT)
-	_search_scope_option.add_item("All sequences", SEARCH_SCOPE_ALL)
-	_search_scope_option.select(SEARCH_SCOPE_CURRENT)
-	_search_box.add_child(scope_label)
-	_search_box.add_child(_search_scope_option)
-
-	var query_label := Label.new()
-	query_label.text = "Query"
-	_search_query_edit = LineEdit.new()
-	_search_query_edit.placeholder_text = "Name, ID, type, source..."
-	_search_query_edit.text_submitted.connect(func(_text: String) -> void:
-		_run_search()
-	)
-	_search_box.add_child(query_label)
-	_search_box.add_child(_search_query_edit)
-
-	var min_len_label := Label.new()
-	min_len_label.text = "DNA min length"
-	min_len_label.visible = false
-	_search_min_len_spin = SpinBox.new()
-	_search_min_len_spin.min_value = 4
-	_search_min_len_spin.max_value = 1000
-	_search_min_len_spin.step = 1
-	_search_min_len_spin.value = SEARCH_DNA_MIN_LEN_DEFAULT
-	_search_min_len_spin.visible = false
-	_search_box.add_child(min_len_label)
-	_search_box.add_child(_search_min_len_spin)
-	_search_mode_option.set_meta("min_len_label", min_len_label)
-
-	_search_revcomp_cb = CheckBox.new()
-	_search_revcomp_cb.text = "Include reverse-complement"
-	_search_revcomp_cb.visible = false
-	_search_box.add_child(_search_revcomp_cb)
-
-	_search_case_sensitive_cb = CheckBox.new()
-	_search_case_sensitive_cb.text = "Case-sensitive"
-	_search_case_sensitive_cb.visible = true
-	_search_box.add_child(_search_case_sensitive_cb)
-
-	var run_button := Button.new()
-	run_button.text = "Search"
-	run_button.pressed.connect(func() -> void:
-		_run_search()
-	)
-	_search_box.add_child(run_button)
-
-	_search_status_label = Label.new()
-	_search_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_search_status_label.text = "Ready."
-	_search_box.add_child(_search_status_label)
-
-	_search_results_list = ItemList.new()
-	_search_results_list.custom_minimum_size = Vector2(0, 260)
-	_search_results_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_search_results_list.item_selected.connect(_on_search_result_selected)
-	_search_results_list.item_activated.connect(_on_search_result_selected)
-	_search_box.add_child(_search_results_list)
+	if mode_label != null:
+		mode_label.text = "Mode"
+	if _search_mode_option != null:
+		_search_mode_option.add_item("Annotation text", SEARCH_MODE_ANNOTATION)
+		_search_mode_option.add_item("DNA exact", SEARCH_MODE_DNA_EXACT)
+		_search_mode_option.select(0)
+		_search_mode_option.item_selected.connect(_on_search_mode_changed)
+	if _search_scope_option != null:
+		_search_scope_option.add_item("Current sequence", SEARCH_SCOPE_CURRENT)
+		_search_scope_option.add_item("All sequences", SEARCH_SCOPE_ALL)
+		_search_scope_option.select(SEARCH_SCOPE_CURRENT)
+	if _search_query_edit != null:
+		_search_query_edit.placeholder_text = "Name, ID, type, source..."
+		_search_query_edit.text_submitted.connect(func(_text: String) -> void:
+			_run_search()
+		)
+	if min_len_label != null:
+		min_len_label.text = "DNA min length"
+		min_len_label.visible = false
+	if _search_min_len_spin != null:
+		_search_min_len_spin.min_value = 4
+		_search_min_len_spin.max_value = 1000
+		_search_min_len_spin.step = 1
+		_search_min_len_spin.value = SEARCH_DNA_MIN_LEN_DEFAULT
+		_search_min_len_spin.visible = false
+	if _search_mode_option != null:
+		_search_mode_option.set_meta("min_len_label", min_len_label)
+	if _search_revcomp_cb != null:
+		_search_revcomp_cb.visible = false
+	if _search_case_sensitive_cb != null:
+		_search_case_sensitive_cb.visible = true
+	if run_button != null:
+		run_button.pressed.connect(func() -> void:
+			_run_search()
+		)
+	if _search_status_label != null:
+		_search_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_search_status_label.text = "Ready."
+	if _search_results_list != null:
+		_search_results_list.item_selected.connect(_on_search_result_selected)
+		_search_results_list.item_activated.connect(_on_search_result_selected)
 
 func is_visible() -> bool:
 	return _search_box != null and _search_box.visible
