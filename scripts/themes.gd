@@ -453,7 +453,7 @@ func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	theme.set_stylebox("grabber_highlight", "VScrollBar", sb_grabber_h)
 	theme.set_stylebox("grabber_pressed", "VScrollBar", sb_grabber_p)
 	theme.set_constant("scroll_size", "VScrollBar", 12)
-	theme.set_constant("min_grab_thickness", "VScrollBar", 18)
+	theme.set_constant("min_grab_thickness", "VScrollBar", 36)
 
 	theme.set_stylebox("scroll", "HScrollBar", sb_scroll)
 	theme.set_stylebox("scroll_focus", "HScrollBar", sb_scroll)
@@ -461,7 +461,7 @@ func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	theme.set_stylebox("grabber_highlight", "HScrollBar", sb_grabber_h)
 	theme.set_stylebox("grabber_pressed", "HScrollBar", sb_grabber_p)
 	theme.set_constant("scroll_size", "HScrollBar", 12)
-	theme.set_constant("min_grab_thickness", "HScrollBar", 18)
+	theme.set_constant("min_grab_thickness", "HScrollBar", 36)
 
 func _resolve_theme_name(theme_name: String) -> String:
 	if THEMES.has(theme_name):

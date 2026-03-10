@@ -287,113 +287,119 @@ text = "V"
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="SettingsContent" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll"]
+[node name="SettingsPadding" type="MarginContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/margin_right = 22
+
+[node name="SettingsContent" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
-[node name="TitleSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TitleSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 
-[node name="TrackVisibilityLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackVisibilityLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Track Visibility"
 
-[node name="TrackVisibilityBox" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackVisibilityBox" type="VBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="ThemeLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="ThemeLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Theme"
 
-[node name="ThemeOption" type="OptionButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="ThemeOption" type="OptionButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 
-[node name="UIScaleLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="UIScaleLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "UI Scale"
 
-[node name="UIScaleSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="UIScaleSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 min_value = 0.75
 max_value = 2.0
 step = 0.05
 value = 1.55
 
-[node name="UIScaleValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="UIScaleValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "1.55x"
 
-[node name="FontSizeLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="FontSizeLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Font Size"
 
-[node name="FontSizeSpin" type="SpinBox" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="FontSizeSpin" type="SpinBox" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 min_value = 9.0
 max_value = 24.0
 value = 15.0
 
-[node name="TrackpadPanLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPanLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Trackpad Pan Sensitivity"
 
-[node name="TrackpadPanSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPanSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 min_value = 0.5
 max_value = 20.0
 step = 0.05
 value = 8.0
 
-[node name="TrackpadPanValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPanValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "1.00x"
 
-[node name="TrackpadPinchLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPinchLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Trackpad Pinch Sensitivity"
 
-[node name="TrackpadPinchSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPinchSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 min_value = 0.5
 max_value = 20.0
 step = 0.05
 value = 8.0
 
-[node name="TrackpadPinchValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="TrackpadPinchValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "1.00x"
 
-[node name="PanStepLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PanStepLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Pan Step (% screen width)"
 
-[node name="PanStepSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PanStepSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 min_value = 1.0
 value = 75.0
 
-[node name="PanStepValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PanStepValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "75%"
 
-[node name="PlaySpeedLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PlaySpeedLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
-text = "Play Speed (screen widths/sec)"
+text = "Play Speed (screen width/s)"
 
-[node name="PlaySpeedSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PlaySpeedSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 min_value = 0.05
 max_value = 5.0
 step = 0.01
 value = 0.3
 
-[node name="PlaySpeedValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="PlaySpeedValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "0.30 widths/s"
 
-[node name="BAMCoverageCutoffLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="BAMCoverageCutoffLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 tooltip_text = "If the genome is shorter than this
 value (in bp), then when loading a
@@ -405,17 +411,17 @@ but uses more memory"
 mouse_filter = 0
 text = "Depth Precompute Limit (bp)"
 
-[node name="BAMCoverageCutoffSpin" type="SpinBox" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="BAMCoverageCutoffSpin" type="SpinBox" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 max_value = 5e+08
 step = 1e+06
 value = 1.5e+07
 
-[node name="FilesLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="FilesLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Loaded Files"
 
-[node name="FileList" type="ItemList" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsContent"]
+[node name="FileList" type="ItemList" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 custom_minimum_size = Vector2(0, 240)
 layout_mode = 2
 size_flags_vertical = 3

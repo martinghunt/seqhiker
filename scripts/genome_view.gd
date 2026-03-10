@@ -2494,7 +2494,10 @@ func _layout_read_scrollbar() -> void:
 		_reads_scrollbar.visible = false
 		_reads_scrollbar.value = 0.0
 		return
-	_reads_scrollbar.size = Vector2(12.0, maxf(12.0, read_area.size.y - 4.0))
+	var sb_w := float(get_theme_constant("scroll_size", "VScrollBar"))
+	if sb_w <= 0.0:
+		sb_w = 12.0
+	_reads_scrollbar.size = Vector2(sb_w, maxf(12.0, read_area.size.y - 4.0))
 	var sb_x := size.x - _reads_scrollbar.size.x
 	_reads_scrollbar.position = Vector2(sb_x, read_area.position.y + 2.0)
 	if _read_view_mode == READ_VIEW_FRAGMENT:
