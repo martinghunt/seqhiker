@@ -128,7 +128,7 @@ func _pack_reads_into_rows(source_reads: Array[Dictionary], use_pair_span: bool,
 		var e := _layout_span_end(read, use_pair_span, view_start, view_end)
 		var chosen := -1
 		for i in range(row_ends.size()):
-			if s >= row_ends[i]:
+			if s > row_ends[i]:
 				chosen = i
 				break
 		if chosen == -1:
