@@ -160,6 +160,9 @@ var _read_thickness_label: Label
 var _read_thickness_spin: SpinBox
 var _show_full_region_checkbox: CheckBox
 var _track_order_list: ItemList
+var _read_mate_jump_button: Button
+var _read_mate_jump_start := -1
+var _read_mate_jump_end := -1
 var _ui_font_size := DEFAULT_UI_FONT_SIZE
 var _track_dragging := false
 var _track_drag_index := -1
@@ -2358,6 +2361,8 @@ func _on_feature_clicked(feature: Dictionary) -> void:
 		_track_settings_box.visible = false
 	if _search_controller != null:
 		_search_controller.hide_panel()
+	if _read_mate_jump_button != null:
+		_read_mate_jump_button.visible = false
 	feature_name_label.text = "Name: %s" % str(feature.get("name", "-"))
 	feature_type_label.text = "Type: %s" % str(feature.get("type", "-"))
 	feature_range_label.text = "Range: %d - %d" % [int(feature.get("start", 0)), int(feature.get("end", 0))]
@@ -2406,8 +2411,36 @@ func _on_read_clicked(read: Dictionary) -> void:
 	feature_strand_label.text = "Strand: %s | MAPQ: %d | Flags: %d" % [strand, mapq, flags]
 	feature_source_label.text = "%s | Fragment: %d bp" % [mate_text, frag_len]
 	feature_seq_label.text = "SNPs: %s" % snp_text
+	if mate_start >= 0 and mate_end > mate_start:
+		if _read_mate_jump_button == null:
+			_read_mate_jump_button = Button.new()
+			_read_mate_jump_button.text = "Jump to mate"
+			_read_mate_jump_button.size_flags_horizontal = Control.SIZE_FILL
+			feature_content.add_child(_read_mate_jump_button)
+			_read_mate_jump_button.pressed.connect(func() -> void:
+				_jump_to_mate(_read_mate_jump_start, _read_mate_jump_end)
+			)
+		_read_mate_jump_button.visible = true
+		_read_mate_jump_start = mate_start
+		_read_mate_jump_end = mate_end
+	elif _read_mate_jump_button != null:
+		_read_mate_jump_button.visible = false
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)
+
+func _jump_to_mate(start_bp: int, end_bp: int) -> void:
+	if _current_chr_len <= 0:
+		return
+	if start_bp < 0 or end_bp <= start_bp:
+		return
+	var width_px := maxf(1.0, genome_view.size.x)
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	var view_span_bp := int(ceil(current_bp_per_px * width_px))
+	var center_bp := 0.5 * float(start_bp + end_bp)
+	var target_start := maxi(0, int(floor(center_bp - 0.5 * float(view_span_bp))))
+	genome_view.set_view_state(float(target_start), current_bp_per_px)
+	genome_view.clear_region_selection()
+	_schedule_fetch()
 
 func _format_read_snps(snps: PackedInt32Array) -> String:
 	if snps.is_empty():
@@ -2424,6 +2457,8 @@ func _close_feature_panel() -> void:
 	_feature_panel_open = false
 	_track_settings_open = false
 	_active_track_settings_id = ""
+	genome_view.clear_selected_feature()
+	genome_view.clear_selected_read()
 	if _track_settings_box != null:
 		_track_settings_box.visible = false
 	if _search_controller != null:

@@ -269,7 +269,7 @@ func _prepare_track_payload(track: Dictionary, track_reads: Array[Dictionary], t
 	var fragment_log := bool(track.get("fragment_log", true))
 	var max_rows := int(track.get("max_rows", 500))
 	var prepared_reads: Array[Dictionary] = []
-	for read_any in track_reads:
+	for read_any in _dedupe_reads(track_reads):
 		if typeof(read_any) != TYPE_DICTIONARY:
 			continue
 		var read: Dictionary = (read_any as Dictionary).duplicate(true)
@@ -284,6 +284,43 @@ func _prepare_track_payload(track: Dictionary, track_reads: Array[Dictionary], t
 		"strand_forward_rows": int(layout.get("strand_forward_rows", 0)),
 		"strand_reverse_rows": int(layout.get("strand_reverse_rows", 0))
 }
+
+func _dedupe_reads(reads_in: Array[Dictionary]) -> Array[Dictionary]:
+	var by_key: Dictionary = {}
+	for read_any in reads_in:
+		if typeof(read_any) != TYPE_DICTIONARY:
+			continue
+		var read: Dictionary = read_any
+		var key := _read_dedupe_key(read)
+		if key.is_empty():
+			continue
+		if not by_key.has(key):
+			by_key[key] = read
+			continue
+		var existing: Dictionary = by_key[key]
+		if _read_quality_score(read) > _read_quality_score(existing):
+			by_key[key] = read
+	var out: Array[Dictionary] = []
+	for k in by_key.keys():
+		out.append(by_key[k])
+	return out
+
+func _read_dedupe_key(read: Dictionary) -> String:
+	var name := str(read.get("name", ""))
+	var start_bp := int(read.get("start", 0))
+	var end_bp := int(read.get("end", start_bp))
+	var mate_start := int(read.get("mate_start", -1))
+	var mate_end := int(read.get("mate_end", -1))
+	var reverse := int(read.get("reverse", false))
+	var flags := int(read.get("flags", 0))
+	if name.is_empty() and start_bp == 0 and end_bp == 0:
+		return ""
+	return "%s|%d|%d|%d|%d|%d|%d" % [name, start_bp, end_bp, mate_start, mate_end, reverse, flags]
+
+func _read_quality_score(read: Dictionary) -> int:
+	var snps: PackedInt32Array = read.get("snps", PackedInt32Array())
+	var mapq := int(read.get("mapq", 0))
+	return snps.size() * 1000 + mapq
 
 func _compute_tile_zoom(bp_per_px: float) -> int:
 	if _compute_tile_zoom_cb.is_valid():

@@ -128,7 +128,12 @@ var _zoom_to_start_bp := 0.0
 var _feature_hitboxes: Array[Dictionary] = []
 var _read_hitboxes: Array[Dictionary] = []
 var _selected_feature_key := ""
-var _selected_read_key := ""
+var _selected_read_index := -1
+var _selected_read_pair_name := ""
+var _selected_read_pair_a_start := -1
+var _selected_read_pair_a_end := -1
+var _selected_read_pair_b_start := -1
+var _selected_read_pair_b_end := -1
 var _trackpad_pan_sensitivity := 1.0
 var _trackpad_pinch_sensitivity := 1.0
 var _reads_scrollbar: VScrollBar
@@ -925,7 +930,8 @@ func _draw_read_tracks(area: Rect2) -> void:
 	var draw_snp_text := _can_draw_read_snp_letters()
 	var snp_font := get_theme_default_font()
 	var snp_font_size := _read_text_font_size()
-	for read in _laid_out_reads:
+	for i in range(_laid_out_reads.size()):
+		var read: Dictionary = _laid_out_reads[i]
 		var read_start: int = read["start"]
 		var read_end: int = read["end"]
 		if read_end < int(view_start_bp) || read_start > int(_viewport_end_bp()):
@@ -946,28 +952,40 @@ func _draw_read_tracks(area: Rect2) -> void:
 			_draw_pair_connector(read, y)
 			_draw_mate_block(read, y)
 		draw_rect(rect, palette["read"], true)
-		if not _selected_read_key.is_empty() and _read_key(read) == _selected_read_key:
+		var draw_selected := false
+		if i == _selected_read_index:
+			draw_selected = true
+		elif not _selected_read_pair_name.is_empty():
+			var rname := str(read.get("name", ""))
+			if rname == _selected_read_pair_name:
+				if read_start == _selected_read_pair_a_start and read_end == _selected_read_pair_a_end:
+					draw_selected = true
+				elif read_start == _selected_read_pair_b_start and read_end == _selected_read_pair_b_end:
+					draw_selected = true
+		if draw_selected:
 			var border_col: Color = palette.get("text", _axis_text_color())
 			draw_rect(rect.grow(1.5), border_col, false, 2.0)
 		_read_hitboxes.append({
 			"rect": rect,
 			"read": read
+			,"read_index": i
 		})
 		if _read_view_mode == READ_VIEW_PAIRED or _read_view_mode == READ_VIEW_FRAGMENT:
 			var mate_rect := _mate_rect_for_read(read, y)
 			if mate_rect.size.x > 0.0 and mate_rect.size.y > 0.0:
-				if not _selected_read_key.is_empty() and _read_key(read) == _selected_read_key:
+				if draw_selected:
 					var mate_border: Color = palette.get("text", _axis_text_color())
 					draw_rect(mate_rect.grow(1.5), mate_border, false, 2.0)
 				_read_hitboxes.append({
 					"rect": mate_rect,
 					"read": read
+					,"read_index": i
 				})
 		if bp_per_px <= SNP_MARK_MAX_BP_PER_PX:
 			var snps: PackedInt32Array = read.get("snps", PackedInt32Array())
 			var snp_bases: PackedByteArray = read.get("snp_bases", PackedByteArray())
-			for i in range(snps.size()):
-				var snp_bp := int(snps[i])
+			for j in range(snps.size()):
+				var snp_bp := int(snps[j])
 				if snp_bp < int(view_start_bp) or snp_bp > int(_viewport_end_bp()):
 					continue
 				var sx := _bp_to_screen_center(float(snp_bp))
@@ -975,8 +993,8 @@ func _draw_read_tracks(area: Rect2) -> void:
 					continue
 				var snp_w := maxf(1.0, 1.0 / bp_per_px)
 				var base_text := ""
-				if draw_snp_text and i < snp_bases.size():
-					var b := char(int(snp_bases[i]))
+				if draw_snp_text and j < snp_bases.size():
+					var b := char(int(snp_bases[j]))
 					base_text = "N" if b.is_empty() else b
 					var base_w := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x + 2.0
 					snp_w = maxf(snp_w, base_w)
@@ -1566,20 +1584,39 @@ func _feature_key(feature: Dictionary) -> String:
 	var ftype := str(feature.get("type", ""))
 	return "%s|%d|%d|%s|%s" % [seq_name, start_bp, end_bp, name, ftype]
 
-func set_selected_read(read: Dictionary, toggle: bool = false) -> void:
-	var next_key := _read_key(read)
-	if next_key.is_empty():
+func set_selected_read(read: Dictionary, read_index: int, toggle: bool = false) -> void:
+	if read_index < 0:
 		return
-	if toggle and next_key == _selected_read_key:
-		_selected_read_key = ""
+	if toggle and read_index == _selected_read_index:
+		clear_selected_read()
+		return
+	_selected_read_index = read_index
+	_selected_read_pair_name = str(read.get("name", ""))
+	var a_start := int(read.get("start", 0))
+	var a_end := int(read.get("end", a_start))
+	var b_start := int(read.get("mate_start", -1))
+	var b_end := int(read.get("mate_end", -1))
+	if b_start >= 0 and b_end > b_start:
+		_selected_read_pair_a_start = a_start
+		_selected_read_pair_a_end = a_end
+		_selected_read_pair_b_start = b_start
+		_selected_read_pair_b_end = b_end
 	else:
-		_selected_read_key = next_key
+		_selected_read_pair_a_start = a_start
+		_selected_read_pair_a_end = a_end
+		_selected_read_pair_b_start = -1
+		_selected_read_pair_b_end = -1
 	queue_redraw()
 
 func clear_selected_read() -> void:
-	if _selected_read_key.is_empty():
+	if _selected_read_index < 0:
 		return
-	_selected_read_key = ""
+	_selected_read_index = -1
+	_selected_read_pair_name = ""
+	_selected_read_pair_a_start = -1
+	_selected_read_pair_a_end = -1
+	_selected_read_pair_b_start = -1
+	_selected_read_pair_b_end = -1
 	queue_redraw()
 
 func _read_key(read: Dictionary) -> String:
@@ -1591,7 +1628,8 @@ func _read_key(read: Dictionary) -> String:
 	var mate_start := int(read.get("mate_start", -1))
 	var mate_end := int(read.get("mate_end", -1))
 	var reverse := int(read.get("reverse", false))
-	return "%s|%d|%d|%d|%d|%d" % [name, start_bp, end_bp, mate_start, mate_end, reverse]
+	var flags := int(read.get("flags", 0))
+	return "%s|%d|%d|%d|%d|%d|%d" % [name, start_bp, end_bp, mate_start, mate_end, reverse, flags]
 
 func _can_draw_aa_letters() -> bool:
 	if reference_sequence.is_empty():
@@ -1988,7 +2026,7 @@ func _gui_input(event: InputEvent) -> void:
 				var read_rect_hit: Rect2 = read_hit["rect"]
 				if read_rect_hit.has_point(mouse_pos):
 					clear_selected_feature()
-					set_selected_read(read_hit["read"], true)
+					set_selected_read(read_hit["read"], int(read_hit.get("read_index", -1)), true)
 					hit_read = true
 					emit_signal("read_clicked", read_hit["read"])
 					accept_event()
@@ -2009,7 +2047,7 @@ func _gui_input(event: InputEvent) -> void:
 				var read_rect_any: Rect2 = read_hit_any["rect"]
 				if read_rect_any.has_point(mouse_pos):
 					clear_selected_feature()
-					set_selected_read(read_hit_any["read"], true)
+					set_selected_read(read_hit_any["read"], int(read_hit_any.get("read_index", -1)), true)
 					hit_read = true
 					emit_signal("read_clicked", read_hit_any["read"])
 					accept_event()
