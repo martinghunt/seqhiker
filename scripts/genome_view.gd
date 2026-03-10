@@ -128,6 +128,7 @@ var _zoom_to_start_bp := 0.0
 var _feature_hitboxes: Array[Dictionary] = []
 var _read_hitboxes: Array[Dictionary] = []
 var _selected_feature_key := ""
+var _selected_read_key := ""
 var _trackpad_pan_sensitivity := 1.0
 var _trackpad_pinch_sensitivity := 1.0
 var _reads_scrollbar: VScrollBar
@@ -945,6 +946,9 @@ func _draw_read_tracks(area: Rect2) -> void:
 			_draw_pair_connector(read, y)
 			_draw_mate_block(read, y)
 		draw_rect(rect, palette["read"], true)
+		if not _selected_read_key.is_empty() and _read_key(read) == _selected_read_key:
+			var border_col: Color = palette.get("text", _axis_text_color())
+			draw_rect(rect.grow(1.5), border_col, false, 2.0)
 		_read_hitboxes.append({
 			"rect": rect,
 			"read": read
@@ -952,6 +956,9 @@ func _draw_read_tracks(area: Rect2) -> void:
 		if _read_view_mode == READ_VIEW_PAIRED or _read_view_mode == READ_VIEW_FRAGMENT:
 			var mate_rect := _mate_rect_for_read(read, y)
 			if mate_rect.size.x > 0.0 and mate_rect.size.y > 0.0:
+				if not _selected_read_key.is_empty() and _read_key(read) == _selected_read_key:
+					var mate_border: Color = palette.get("text", _axis_text_color())
+					draw_rect(mate_rect.grow(1.5), mate_border, false, 2.0)
 				_read_hitboxes.append({
 					"rect": mate_rect,
 					"read": read
@@ -1559,6 +1566,33 @@ func _feature_key(feature: Dictionary) -> String:
 	var ftype := str(feature.get("type", ""))
 	return "%s|%d|%d|%s|%s" % [seq_name, start_bp, end_bp, name, ftype]
 
+func set_selected_read(read: Dictionary, toggle: bool = false) -> void:
+	var next_key := _read_key(read)
+	if next_key.is_empty():
+		return
+	if toggle and next_key == _selected_read_key:
+		_selected_read_key = ""
+	else:
+		_selected_read_key = next_key
+	queue_redraw()
+
+func clear_selected_read() -> void:
+	if _selected_read_key.is_empty():
+		return
+	_selected_read_key = ""
+	queue_redraw()
+
+func _read_key(read: Dictionary) -> String:
+	if read.is_empty():
+		return ""
+	var name := str(read.get("name", ""))
+	var start_bp := int(read.get("start", 0))
+	var end_bp := int(read.get("end", start_bp))
+	var mate_start := int(read.get("mate_start", -1))
+	var mate_end := int(read.get("mate_end", -1))
+	var reverse := int(read.get("reverse", false))
+	return "%s|%d|%d|%d|%d|%d" % [name, start_bp, end_bp, mate_start, mate_end, reverse]
+
 func _can_draw_aa_letters() -> bool:
 	if reference_sequence.is_empty():
 		return false
@@ -1947,12 +1981,15 @@ func _gui_input(event: InputEvent) -> void:
 		var in_reads := read_rect.size.x > 0.0 and read_rect.has_point(mouse_pos)
 		var in_aa := aa_rect.has_point(mouse_pos)
 		var hit_feature := false
+		var hit_read := false
 		if in_reads:
 			for i in range(_read_hitboxes.size() - 1, -1, -1):
 				var read_hit: Dictionary = _read_hitboxes[i]
 				var read_rect_hit: Rect2 = read_hit["rect"]
 				if read_rect_hit.has_point(mouse_pos):
 					clear_selected_feature()
+					set_selected_read(read_hit["read"], true)
+					hit_read = true
 					emit_signal("read_clicked", read_hit["read"])
 					accept_event()
 					return
@@ -1960,6 +1997,7 @@ func _gui_input(event: InputEvent) -> void:
 			for hit in _feature_hitboxes:
 				var rect: Rect2 = hit["rect"]
 				if rect.has_point(mouse_pos):
+					clear_selected_read()
 					set_selected_feature(hit["feature"], true)
 					hit_feature = true
 					emit_signal("feature_clicked", hit["feature"])
@@ -1971,6 +2009,8 @@ func _gui_input(event: InputEvent) -> void:
 				var read_rect_any: Rect2 = read_hit_any["rect"]
 				if read_rect_any.has_point(mouse_pos):
 					clear_selected_feature()
+					set_selected_read(read_hit_any["read"], true)
+					hit_read = true
 					emit_signal("read_clicked", read_hit_any["read"])
 					accept_event()
 					return
@@ -1978,12 +2018,14 @@ func _gui_input(event: InputEvent) -> void:
 			for hit_any in _feature_hitboxes:
 				var feat_rect_any: Rect2 = hit_any["rect"]
 				if feat_rect_any.has_point(mouse_pos):
+					clear_selected_read()
 					set_selected_feature(hit_any["feature"], true)
 					hit_feature = true
 					emit_signal("feature_clicked", hit_any["feature"])
 					accept_event()
 					return
 			if _can_start_region_selection(mouse_pos):
+				clear_selected_read()
 				clear_selected_feature()
 				var edge := _x_to_bp_edge(mouse_pos.x)
 				_region_select_dragging = true
@@ -1993,6 +2035,8 @@ func _gui_input(event: InputEvent) -> void:
 				queue_redraw()
 				accept_event()
 				return
+		if not hit_feature and not hit_read:
+			clear_selected_read()
 		if not hit_feature:
 			clear_selected_feature()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
