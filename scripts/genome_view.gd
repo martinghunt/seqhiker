@@ -127,6 +127,7 @@ var _zoom_from_start_bp := 0.0
 var _zoom_to_start_bp := 0.0
 var _feature_hitboxes: Array[Dictionary] = []
 var _read_hitboxes: Array[Dictionary] = []
+var _selected_feature_key := ""
 var _trackpad_pan_sensitivity := 1.0
 var _trackpad_pinch_sensitivity := 1.0
 var _reads_scrollbar: VScrollBar
@@ -1470,6 +1471,10 @@ func _draw_aa_tracks(area: Rect2) -> void:
 		var feature_col: Color = palette["feature"]
 		feature_col.a = 1.0
 		draw_rect(rect, feature_col, true)
+		var key := _feature_key(feature)
+		if not _selected_feature_key.is_empty() and key == _selected_feature_key:
+			var border_col: Color = palette.get("feature_text", _axis_text_color())
+			draw_rect(rect.grow(1.5), border_col, false, 2.0)
 		drawn += 1
 		var click_rect := rect.grow(3.0) if show_feature_detail else rect
 		_feature_hitboxes.append({
@@ -1523,6 +1528,36 @@ func _draw_aa_tracks(area: Rect2) -> void:
 
 func annotation_debug_stats() -> Dictionary:
 	return _annotation_debug_stats.duplicate()
+
+func set_selected_feature(feature: Dictionary, toggle: bool = false) -> void:
+	var next_key := _feature_key(feature)
+	if next_key.is_empty():
+		return
+	if toggle and next_key == _selected_feature_key:
+		_selected_feature_key = ""
+	else:
+		_selected_feature_key = next_key
+	queue_redraw()
+
+func set_selected_feature_key(key: String) -> void:
+	_selected_feature_key = key
+	queue_redraw()
+
+func clear_selected_feature() -> void:
+	if _selected_feature_key.is_empty():
+		return
+	_selected_feature_key = ""
+	queue_redraw()
+
+func _feature_key(feature: Dictionary) -> String:
+	if feature.is_empty():
+		return ""
+	var start_bp := int(feature.get("start", 0))
+	var end_bp := int(feature.get("end", start_bp))
+	var seq_name := str(feature.get("seq_name", ""))
+	var name := str(feature.get("name", ""))
+	var ftype := str(feature.get("type", ""))
+	return "%s|%d|%d|%s|%s" % [seq_name, start_bp, end_bp, name, ftype]
 
 func _can_draw_aa_letters() -> bool:
 	if reference_sequence.is_empty():
@@ -1911,11 +1946,13 @@ func _gui_input(event: InputEvent) -> void:
 		var aa_rect := _track_rect(TRACK_ID_AA)
 		var in_reads := read_rect.size.x > 0.0 and read_rect.has_point(mouse_pos)
 		var in_aa := aa_rect.has_point(mouse_pos)
+		var hit_feature := false
 		if in_reads:
 			for i in range(_read_hitboxes.size() - 1, -1, -1):
 				var read_hit: Dictionary = _read_hitboxes[i]
 				var read_rect_hit: Rect2 = read_hit["rect"]
 				if read_rect_hit.has_point(mouse_pos):
+					clear_selected_feature()
 					emit_signal("read_clicked", read_hit["read"])
 					accept_event()
 					return
@@ -1923,6 +1960,8 @@ func _gui_input(event: InputEvent) -> void:
 			for hit in _feature_hitboxes:
 				var rect: Rect2 = hit["rect"]
 				if rect.has_point(mouse_pos):
+					set_selected_feature(hit["feature"], true)
+					hit_feature = true
 					emit_signal("feature_clicked", hit["feature"])
 					accept_event()
 					return
@@ -1931,6 +1970,7 @@ func _gui_input(event: InputEvent) -> void:
 				var read_hit_any: Dictionary = _read_hitboxes[i]
 				var read_rect_any: Rect2 = read_hit_any["rect"]
 				if read_rect_any.has_point(mouse_pos):
+					clear_selected_feature()
 					emit_signal("read_clicked", read_hit_any["read"])
 					accept_event()
 					return
@@ -1938,10 +1978,13 @@ func _gui_input(event: InputEvent) -> void:
 			for hit_any in _feature_hitboxes:
 				var feat_rect_any: Rect2 = hit_any["rect"]
 				if feat_rect_any.has_point(mouse_pos):
+					set_selected_feature(hit_any["feature"], true)
+					hit_feature = true
 					emit_signal("feature_clicked", hit_any["feature"])
 					accept_event()
 					return
 			if _can_start_region_selection(mouse_pos):
+				clear_selected_feature()
 				var edge := _x_to_bp_edge(mouse_pos.x)
 				_region_select_dragging = true
 				_region_select_has_selection = false
@@ -1950,6 +1993,8 @@ func _gui_input(event: InputEvent) -> void:
 				queue_redraw()
 				accept_event()
 				return
+		if not hit_feature:
+			clear_selected_feature()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 		if _region_select_dragging:
 			_finish_region_selection_drag()

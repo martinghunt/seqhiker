@@ -140,6 +140,7 @@ var _bam_tracks: Array[Dictionary] = []
 var _bam_track_serial := 0
 var _center_strand_scroll_pending := false
 var _has_fasta_loaded := false
+var _pending_annotation_highlight: Dictionary = {}
 var _cache_start := -1
 var _cache_end := -1
 var _cache_zoom := -1
@@ -1223,8 +1224,11 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	var target_start := maxi(0, int(floor(center_bp - 0.5 * float(view_span_bp))))
 	genome_view.set_view_state(float(target_start), current_bp_per_px)
 	if hit_kind == "dna":
+		_pending_annotation_highlight = {}
+		genome_view.clear_selected_feature()
 		genome_view.set_region_selection(start_bp, maxi(start_bp, end_bp - 1))
 	else:
+		_pending_annotation_highlight = hit.duplicate(true)
 		genome_view.clear_region_selection()
 	_schedule_fetch()
 
@@ -1636,6 +1640,33 @@ func _apply_sequence_view(reset_viewport: bool) -> void:
 		genome_view.set_concat_segments([])
 	_invalidate_cache()
 
+func _apply_pending_annotation_highlight(features: Array[Dictionary]) -> void:
+	if _pending_annotation_highlight.is_empty():
+		return
+	var hit: Dictionary = _pending_annotation_highlight
+	_pending_annotation_highlight = {}
+	if features.is_empty():
+		return
+	var hit_start := int(hit.get("start", 0))
+	var hit_end := int(hit.get("end", hit_start + 1))
+	var hit_label := str(hit.get("label", "")).strip_edges()
+	var hit_chr := str(hit.get("chr_name", "")).strip_edges()
+	for f_any in features:
+		var f: Dictionary = f_any
+		if int(f.get("start", 0)) != hit_start:
+			continue
+		if int(f.get("end", hit_start + 1)) != hit_end:
+			continue
+		if not hit_chr.is_empty() and str(f.get("seq_name", "")) != hit_chr:
+			continue
+		if not hit_label.is_empty():
+			var fname := str(f.get("name", "")).strip_edges()
+			var ftype := str(f.get("type", "")).strip_edges()
+			if hit_label != fname and hit_label != ftype:
+				continue
+		genome_view.set_selected_feature(f, false)
+		return
+
 func _scope_cache_key() -> String:
 	if _seq_view_mode == SEQ_VIEW_SINGLE:
 		return "single:%d" % _current_chr_id
@@ -1725,6 +1756,7 @@ func _refresh_visible_data() -> void:
 			ref_sequence = _build_concat_reference(query_start, query_end, overlaps)
 	genome_view.set_features(features)
 	genome_view.set_reference_slice(ref_start, ref_sequence)
+	_apply_pending_annotation_highlight(features)
 	_tile_fetch_serial += 1
 	_pending_tile_apply = {
 		"serial": _tile_fetch_serial,
