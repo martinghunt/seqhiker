@@ -13,7 +13,7 @@ const DEFAULT_CONCAT_GAP_BP := 50
 const DEFAULT_READ_THICKNESS := 8.0
 const DEFAULT_READ_MAX_ROWS := 500
 const ANNOT_TILE_BASE_BP := 1024
-const ANNOT_MAX_TILES := 64
+const ANNOT_MAX_TILES := 128
 const ANNOT_MIN_TOTAL := 800
 const ANNOT_MAX_TOTAL := 12000
 const ANNOT_TILE_CACHE_MAX_ENTRIES := 512
@@ -1793,25 +1793,45 @@ func _refresh_visible_data() -> void:
 	return
 
 func _annotation_pixel_budget() -> int:
-	var span := maxi(1, _last_end - _last_start)
-	var px := int(ceil(float(span) / maxf(0.001, _last_bp_per_px)))
-	var max_budget := clampi(_annotation_max_on_screen, ANNOT_MAX_ON_SCREEN_MIN, ANNOT_MAX_ON_SCREEN_MAX)
-	if _last_bp_per_px >= 20.0:
-		return maxi(120, int(round(float(max_budget) * 0.18)))
-	if _last_bp_per_px >= 10.0:
-		return maxi(220, int(round(float(max_budget) * 0.33)))
-	if _last_bp_per_px >= 5.0:
-		return maxi(320, int(round(float(max_budget) * 0.5)))
-	return clampi(px * 2, ANNOT_MIN_TOTAL, max_budget)
+	return ANNOT_MAX_ON_SCREEN_MAX
 
 func _annotation_min_feature_len_bp() -> int:
-	return clampi(int(ceil(1.2 * _last_bp_per_px)), 1, 200)
+	var min_px := 3.0
+	var raw := int(ceil(min_px * _last_bp_per_px))
+	return maxi(raw, 1)
 
 func _annotation_tile_key(chr_id: int, zoom: int, tile_index: int, min_len_bp: int) -> String:
 	return "%s|%d|%d|%d|%d" % [_scope_cache_key(), chr_id, zoom, tile_index, min_len_bp]
 
 func _get_annotations_window_preloaded(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
 	return _get_annotations_window_tiled(chr_id, start_bp, end_bp)
+
+func _annotation_select_spread(features_in: Array[Dictionary], start_bp: int, end_bp: int, cap_total: int) -> Array[Dictionary]:
+	if cap_total <= 0 or features_in.is_empty() or end_bp <= start_bp:
+		return []
+	var span := maxi(1, end_bp - start_bp)
+	var bin_w := maxi(1, int(ceil(float(span) / float(cap_total))))
+	var seen_bins := {}
+	var primary: Array[Dictionary] = []
+	var overflow: Array[Dictionary] = []
+	for feat in features_in:
+		var s := int(feat.get("start", 0))
+		var anchor := clampi(s, start_bp, end_bp - 1)
+		var bin_idx := int(floor(float(anchor - start_bp) / float(bin_w)))
+		var bkey := str(bin_idx)
+		if not seen_bins.get(bkey, false):
+			seen_bins[bkey] = true
+			primary.append(feat)
+		else:
+			overflow.append(feat)
+	if primary.size() >= cap_total:
+		primary.resize(cap_total)
+		return primary
+	for feat in overflow:
+		primary.append(feat)
+		if primary.size() >= cap_total:
+			break
+	return primary
 
 func _get_annotations_window_tiled(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
 	var t0 := Time.get_ticks_usec()
@@ -1830,6 +1850,7 @@ func _get_annotations_window_tiled(chr_id: int, start_bp: int, end_bp: int) -> D
 	var seen: Dictionary = {}
 	if total_tiles > ANNOT_MAX_TILES:
 		var chunk_count := ANNOT_MAX_TILES
+		cap_total = maxi(cap_total, chunk_count)
 		var span := maxi(1, end_bp - start_bp)
 		var cap_per_chunk := clampi(int(ceil(float(cap_total) / float(maxi(1, chunk_count)) * 2.0)), 64, cap_total)
 		for i in range(chunk_count):
@@ -1857,18 +1878,6 @@ func _get_annotations_window_tiled(chr_id: int, start_bp: int, end_bp: int) -> D
 					continue
 				seen[key_f] = true
 				out.append(feat)
-				if out.size() >= cap_total:
-					out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-						var sa := int(a.get("start", 0))
-						var sb := int(b.get("start", 0))
-						if sa == sb:
-							return int(a.get("end", sa)) < int(b.get("end", sb))
-						return sa < sb
-					)
-					if _debug_enabled:
-						_dbg_ann_features_out += out.size()
-						_dbg_ann_fetch_time_ms += float(Time.get_ticks_usec() - t0) / 1000.0
-					return {"ok": true, "features": out}
 	else:
 		var tile_count := total_tiles
 		var cap_per_tile := clampi(int(ceil(float(cap_total) / float(maxi(1, tile_count)) * 1.5)), 128, cap_total)
@@ -1906,18 +1915,6 @@ func _get_annotations_window_tiled(chr_id: int, start_bp: int, end_bp: int) -> D
 					continue
 				seen[key_f] = true
 				out.append(feat)
-				if out.size() >= cap_total:
-					out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-						var sa := int(a.get("start", 0))
-						var sb := int(b.get("start", 0))
-						if sa == sb:
-							return int(a.get("end", sa)) < int(b.get("end", sb))
-						return sa < sb
-					)
-					if _debug_enabled:
-						_dbg_ann_features_out += out.size()
-						_dbg_ann_fetch_time_ms += float(Time.get_ticks_usec() - t0) / 1000.0
-					return {"ok": true, "features": out}
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var sa := int(a.get("start", 0))
 		var sb := int(b.get("start", 0))
@@ -1925,6 +1922,8 @@ func _get_annotations_window_tiled(chr_id: int, start_bp: int, end_bp: int) -> D
 			return int(a.get("end", sa)) < int(b.get("end", sb))
 		return sa < sb
 	)
+	if out.size() > cap_total:
+		out = _annotation_select_spread(out, start_bp, end_bp, cap_total)
 	if _debug_enabled:
 		_dbg_ann_features_out += out.size()
 		_dbg_ann_fetch_time_ms += float(Time.get_ticks_usec() - t0) / 1000.0

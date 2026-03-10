@@ -1436,18 +1436,6 @@ func _draw_aa_tracks(area: Rect2) -> void:
 	var area_start := area.position.y
 	var show_aa_letters := _can_draw_aa_letters()
 	var show_feature_detail := bp_per_px <= FEATURE_DETAIL_MAX_BP_PER_PX
-	var max_ann := clampi(_annotation_max_on_screen, 200, 50000)
-	var draw_cap := maxi(200, int(round(float(max_ann) * 0.5)))
-	if bp_per_px >= 10.0:
-		draw_cap = maxi(120, int(round(float(max_ann) * 0.18)))
-	elif bp_per_px >= 5.0:
-		draw_cap = maxi(220, int(round(float(max_ann) * 0.33)))
-	elif bp_per_px >= 2.0:
-		draw_cap = maxi(320, int(round(float(max_ann) * 0.64)))
-	else:
-		draw_cap = max_ann
-	var use_density_bins := bp_per_px >= 2.0
-	var density_bins := {}
 	var frame_label_boxes: Array = []
 	var pending_labels: Array[Dictionary] = []
 	frame_label_boxes.resize(6)
@@ -1482,16 +1470,6 @@ func _draw_aa_tracks(area: Rect2) -> void:
 		var feature_w := fx1 - fx0
 		if feature_w < FEATURE_MIN_DRAW_PX:
 			continue
-		if drawn >= draw_cap:
-			culled_density += 1
-			continue
-		if use_density_bins:
-			var bin_x := int(floor((fx0 - TRACK_LEFT_PAD) / 2.0))
-			var dkey := "%d|%d" % [frame, bin_x]
-			if density_bins.get(dkey, false):
-				culled_density += 1
-				continue
-			density_bins[dkey] = true
 		var rect := Rect2(Vector2(fx0, fy), Vector2(feature_w, AA_ROW_H - 8.0))
 		var feature_col: Color = palette["feature"]
 		feature_col.a = 1.0
@@ -1580,9 +1558,9 @@ func _feature_key(feature: Dictionary) -> String:
 	var start_bp := int(feature.get("start", 0))
 	var end_bp := int(feature.get("end", start_bp))
 	var seq_name := str(feature.get("seq_name", ""))
-	var name := str(feature.get("name", ""))
+	var feat_name := str(feature.get("name", ""))
 	var ftype := str(feature.get("type", ""))
-	return "%s|%d|%d|%s|%s" % [seq_name, start_bp, end_bp, name, ftype]
+	return "%s|%d|%d|%s|%s" % [seq_name, start_bp, end_bp, feat_name, ftype]
 
 func set_selected_read(read: Dictionary, read_index: int, toggle: bool = false) -> void:
 	if read_index < 0:
@@ -1622,14 +1600,14 @@ func clear_selected_read() -> void:
 func _read_key(read: Dictionary) -> String:
 	if read.is_empty():
 		return ""
-	var name := str(read.get("name", ""))
+	var read_name := str(read.get("name", ""))
 	var start_bp := int(read.get("start", 0))
 	var end_bp := int(read.get("end", start_bp))
 	var mate_start := int(read.get("mate_start", -1))
 	var mate_end := int(read.get("mate_end", -1))
 	var reverse := int(read.get("reverse", false))
 	var flags := int(read.get("flags", 0))
-	return "%s|%d|%d|%d|%d|%d|%d" % [name, start_bp, end_bp, mate_start, mate_end, reverse, flags]
+	return "%s|%d|%d|%d|%d|%d|%d" % [read_name, start_bp, end_bp, mate_start, mate_end, reverse, flags]
 
 func _can_draw_aa_letters() -> bool:
 	if reference_sequence.is_empty():
