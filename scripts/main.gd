@@ -1427,6 +1427,8 @@ func _apply_theme(theme_name: String) -> void:
 	feature_strand_label.add_theme_color_override("default_color", palette["text"])
 	feature_source_label.add_theme_color_override("default_color", palette["text"])
 	feature_seq_label.add_theme_color_override("default_color", palette["text"])
+	_apply_panel_style(settings_panel, palette)
+	_apply_panel_style(feature_panel, palette)
 	_apply_search_theme(palette)
 	_apply_topbar_button_font_size()
 	_apply_settings_scrollbar_style()
@@ -1439,6 +1441,18 @@ func _apply_settings_scrollbar_style() -> void:
 		vbar.add_theme_constant_override("scroll_size", 14)
 		vbar.custom_minimum_size.x = 14
 		vbar.size.x = 14
+
+func _apply_panel_style(panel: PanelContainer, palette: Dictionary) -> void:
+	if panel == null:
+		return
+	var panel_sb := StyleBoxFlat.new()
+	var bg: Color = palette["panel"]
+	bg.a = 0.95
+	panel_sb.bg_color = bg
+	panel_sb.border_color = palette["border"]
+	panel_sb.set_border_width_all(1)
+	panel_sb.set_corner_radius_all(10)
+	panel.add_theme_stylebox_override("panel", panel_sb)
 
 func _apply_search_theme(palette: Dictionary) -> void:
 	if _search_controller != null:
