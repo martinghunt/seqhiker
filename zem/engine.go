@@ -30,8 +30,7 @@ const (
 	covTileCacheKind    uint8 = 2
 	plotTileCacheKind   uint8 = 3
 	maxScannedTileReads       = 2000000
-	maxSNPsPerRead            = 32
-	snpDetailMaxZoom    uint8 = 4
+	snpDetailMaxZoom    uint8 = 5
 	plotTileBins              = 256
 )
 
@@ -1056,9 +1055,6 @@ func recordSNPPositions(rec *sam.Record, windowStart, windowEnd int, includeSNPs
 				if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
 					if pos >= windowStart && pos < windowEnd {
 						out = append(out, uint32(pos))
-						if len(out) >= maxSNPsPerRead {
-							return out
-						}
 					}
 					pos++
 					i++
@@ -1093,9 +1089,6 @@ func snpPositionsFromCigar(rec *sam.Record, windowStart, windowEnd int, refSeq s
 				p := refPos + i
 				if p >= windowStart && p < windowEnd {
 					out = append(out, uint32(p))
-					if len(out) >= maxSNPsPerRead {
-						return out
-					}
 				}
 			}
 			queryPos += ln
@@ -1125,9 +1118,6 @@ func snpPositionsFromCigar(rec *sam.Record, windowStart, windowEnd int, refSeq s
 					}
 					if rb != qb {
 						out = append(out, uint32(p))
-						if len(out) >= maxSNPsPerRead {
-							return out
-						}
 					}
 				}
 			}
