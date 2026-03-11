@@ -56,6 +56,10 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var background: ColorRect = $Background
 @onready var genome_view: Control = $Root/ContentMargin/ViewportLayer/GenomeView
 @onready var settings_panel: PanelContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel
+@onready var _viewport_layer: Control = $Root/ContentMargin/ViewportLayer
+@onready var _settings_margin: MarginContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin
+@onready var _settings_layout: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout
+@onready var _settings_header: HBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader
 @onready var top_bar: HBoxContainer = $Root/TopBar
 @onready var settings_toggle_button: Button = $Root/TopBar/SettingsToggleButton
 @onready var search_button: Button = $Root/TopBar/ActionClipper/ActionStrip/SearchButton
@@ -96,6 +100,7 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var settings_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent
 @onready var _track_order_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityLabel
 @onready var _track_visibility_box: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox
+@onready var _bam_cov_cutoff_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffLabel
 @onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffSpin
 @onready var close_settings_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader/CloseSettingsButton
 
@@ -247,6 +252,10 @@ func _ready() -> void:
 	_setup_view_slot_shortcuts()
 	if viewport_label != null:
 		viewport_label.visible = true
+	_settings_open = false
+	_apply_settings_panel_offsets(false)
+	settings_panel.visible = false
+	_slide_feature_panel(false, false)
 	call_deferred("_initialize_settings_panel")
 	call_deferred("_startup_connect_local_zem")
 	if get_window().has_signal("files_dropped"):
@@ -254,8 +263,7 @@ func _ready() -> void:
 
 func _initialize_settings_panel() -> void:
 	_set_status("Disconnected")
-	_slide_settings(false, false)
-	_slide_feature_panel(false, false)
+	call_deferred("_update_settings_panel_width")
 
 func _startup_connect_local_zem() -> void:
 	var host := "127.0.0.1"
@@ -453,16 +461,27 @@ func _close_settings() -> void:
 func _slide_settings(open: bool, animated: bool) -> void:
 	if _settings_tween and _settings_tween.is_running():
 		_settings_tween.kill()
-	var panel_w := maxf(settings_panel.size.x, settings_panel.custom_minimum_size.x)
-	var closed_x: float = -float(ceili(panel_w)) - 2.0
-	var target_x: float = 0.0 if open else closed_x
+	if open:
+		settings_panel.visible = true
+	var panel_w := _settings_panel_target_width()
+	var open_left := 0.0
+	var open_right := panel_w
+	var closed_left := -panel_w - 2.0
+	var closed_right := -2.0
 	if animated:
 		_settings_tween = create_tween()
 		_settings_tween.set_trans(Tween.TRANS_CUBIC)
 		_settings_tween.set_ease(Tween.EASE_OUT)
-		_settings_tween.tween_property(settings_panel, "position:x", target_x, 0.24)
+		_settings_tween.parallel().tween_property(settings_panel, "offset_left", open_left if open else closed_left, 0.24)
+		_settings_tween.parallel().tween_property(settings_panel, "offset_right", open_right if open else closed_right, 0.24)
+		if not open:
+			_settings_tween.finished.connect(func() -> void:
+				if not _settings_open:
+					settings_panel.visible = false
+			, CONNECT_ONE_SHOT)
 	else:
-		settings_panel.position.x = target_x
+		_apply_settings_panel_offsets(open)
+		settings_panel.visible = open
 
 func _slide_feature_panel(open: bool, animated: bool) -> void:
 	if _feature_tween and _feature_tween.is_running():
@@ -602,12 +621,14 @@ func _setup_debug_controls() -> void:
 	_debug_toggle.toggled.connect(_on_debug_toggled)
 	settings_content.add_child(_debug_toggle)
 	_debug_stats_label = Label.new()
-	_debug_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_stats_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+	_debug_stats_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_debug_stats_label.visible = _debug_enabled
 	_debug_stats_label.text = ""
 	settings_content.add_child(_debug_stats_label)
 	_debug_loaded_files_label = Label.new()
-	_debug_loaded_files_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_loaded_files_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+	_debug_loaded_files_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_debug_loaded_files_label.visible = _debug_enabled
 	_debug_loaded_files_label.text = ""
 	settings_content.add_child(_debug_loaded_files_label)
@@ -775,6 +796,7 @@ func _update_loaded_files_debug_label() -> void:
 		for path in _loaded_file_paths:
 			lines.append(path)
 	_debug_loaded_files_label.text = "\n".join(lines)
+	call_deferred("_update_settings_panel_width")
 
 func _on_track_order_list_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
@@ -1455,6 +1477,58 @@ func _apply_theme(theme_name: String) -> void:
 		_debug_loaded_files_label.add_theme_color_override("font_color", palette["text"])
 	_apply_topbar_button_font_size()
 	_apply_settings_scrollbar_style()
+	call_deferred("_update_settings_panel_width")
+
+func _update_settings_panel_width() -> void:
+	if settings_panel == null or _settings_layout == null or _settings_margin == null or _viewport_layer == null or _settings_header == null:
+		return
+	var layout_min_w := maxf(
+		_settings_header.get_combined_minimum_size().x,
+		_measure_settings_content_width(settings_content)
+	)
+	var margin_left := float(_settings_margin.get_theme_constant("margin_left"))
+	var margin_right := float(_settings_margin.get_theme_constant("margin_right"))
+	var scroll_right := 22.0
+	var width_slack := 18.0
+	var target_w := ceilf(layout_min_w + margin_left + margin_right + scroll_right + width_slack)
+	if _bam_cov_cutoff_label != null:
+		target_w = maxf(target_w, ceilf(_bam_cov_cutoff_label.get_combined_minimum_size().x + margin_left + margin_right + scroll_right + width_slack))
+	target_w = maxf(target_w, 300.0)
+	var max_w := maxf(300.0, _viewport_layer.size.x - 24.0)
+	target_w = minf(target_w, max_w)
+	settings_panel.custom_minimum_size.x = target_w
+	_apply_settings_panel_offsets(_settings_open)
+
+func _settings_panel_target_width() -> float:
+	return maxf(settings_panel.custom_minimum_size.x, 300.0)
+
+func _apply_settings_panel_offsets(open: bool) -> void:
+	var panel_w := _settings_panel_target_width()
+	if open:
+		settings_panel.offset_left = 0.0
+		settings_panel.offset_right = panel_w
+	else:
+		settings_panel.offset_left = -panel_w - 2.0
+		settings_panel.offset_right = -2.0
+
+func _measure_settings_content_width(node: Node) -> float:
+	if node == null:
+		return 0.0
+	if node is Label:
+		var label := node as Label
+		if label.autowrap_mode != TextServer.AUTOWRAP_OFF:
+			return 0.0
+	if node is Control:
+		var control := node as Control
+		var own_width := control.get_combined_minimum_size().x
+		var child_width := 0.0
+		for child in control.get_children():
+			child_width = maxf(child_width, _measure_settings_content_width(child))
+		return maxf(own_width, child_width)
+	var widest := 0.0
+	for child in node.get_children():
+		widest = maxf(widest, _measure_settings_content_width(child))
+	return widest
 
 func _apply_settings_scrollbar_style() -> void:
 	if settings_scroll == null:
