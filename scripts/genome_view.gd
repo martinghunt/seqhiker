@@ -131,6 +131,7 @@ var _feature_hitboxes: Array[Dictionary] = []
 var _read_hitboxes: Array[Dictionary] = []
 var _selected_feature_key := ""
 var _selected_read_index := -1
+var _selected_read_track_id := ""
 var _selected_read_pair_name := ""
 var _selected_read_pair_a_start := -1
 var _selected_read_pair_a_end := -1
@@ -887,6 +888,7 @@ func _track_index_for_y(y: float) -> int:
 func _draw_read_tracks(area: Rect2) -> void:
 	if area.size.y <= 24.0:
 		return
+	var track_id := _active_read_track_id
 	draw_rect(area, palette["bg"], true)
 	_draw_grid(area)
 	if not _read_loading_message.is_empty():
@@ -955,9 +957,9 @@ func _draw_read_tracks(area: Rect2) -> void:
 			_draw_mate_block(read, y)
 		draw_rect(rect, palette["read"], true)
 		var draw_selected := false
-		if i == _selected_read_index:
+		if track_id == _selected_read_track_id and i == _selected_read_index:
 			draw_selected = true
-		elif not _selected_read_pair_name.is_empty():
+		elif track_id == _selected_read_track_id and not _selected_read_pair_name.is_empty():
 			var rname := str(read.get("name", ""))
 			if rname == _selected_read_pair_name:
 				if read_start == _selected_read_pair_a_start and read_end == _selected_read_pair_a_end:
@@ -969,8 +971,9 @@ func _draw_read_tracks(area: Rect2) -> void:
 			draw_rect(rect.grow(1.5), border_col, false, 2.0)
 		_read_hitboxes.append({
 			"rect": rect,
-			"read": read
-			,"read_index": i
+			"read": read,
+			"read_index": i,
+			"track_id": track_id
 		})
 		if _read_view_mode == READ_VIEW_PAIRED or _read_view_mode == READ_VIEW_FRAGMENT:
 			var mate_rect := _mate_rect_for_read(read, y)
@@ -980,8 +983,9 @@ func _draw_read_tracks(area: Rect2) -> void:
 					draw_rect(mate_rect.grow(1.5), mate_border, false, 2.0)
 				_read_hitboxes.append({
 					"rect": mate_rect,
-					"read": read
-					,"read_index": i
+					"read": read,
+					"read_index": i,
+					"track_id": track_id
 				})
 		if bp_per_px <= SNP_MARK_MAX_BP_PER_PX:
 			var snps: PackedInt32Array = read.get("snps", PackedInt32Array())
@@ -1564,13 +1568,14 @@ func _feature_key(feature: Dictionary) -> String:
 	var ftype := str(feature.get("type", ""))
 	return "%s|%d|%d|%s|%s" % [seq_name, start_bp, end_bp, feat_name, ftype]
 
-func set_selected_read(read: Dictionary, read_index: int, toggle: bool = false) -> void:
+func set_selected_read(read: Dictionary, read_index: int, track_id: String, toggle: bool = false) -> void:
 	if read_index < 0:
 		return
-	if toggle and read_index == _selected_read_index:
+	if toggle and track_id == _selected_read_track_id and read_index == _selected_read_index:
 		clear_selected_read()
 		return
 	_selected_read_index = read_index
+	_selected_read_track_id = track_id
 	_selected_read_pair_name = str(read.get("name", ""))
 	var a_start := int(read.get("start", 0))
 	var a_end := int(read.get("end", a_start))
@@ -1589,9 +1594,8 @@ func set_selected_read(read: Dictionary, read_index: int, toggle: bool = false) 
 	queue_redraw()
 
 func clear_selected_read() -> void:
-	if _selected_read_index < 0:
-		return
 	_selected_read_index = -1
+	_selected_read_track_id = ""
 	_selected_read_pair_name = ""
 	_selected_read_pair_a_start = -1
 	_selected_read_pair_a_end = -1
@@ -2007,7 +2011,7 @@ func _gui_input(event: InputEvent) -> void:
 				var read_rect_hit: Rect2 = read_hit["rect"]
 				if read_rect_hit.has_point(mouse_pos):
 					clear_selected_feature()
-					set_selected_read(read_hit["read"], int(read_hit.get("read_index", -1)), false)
+					set_selected_read(read_hit["read"], int(read_hit.get("read_index", -1)), str(read_hit.get("track_id", "")), false)
 					hit_read = true
 					emit_signal("read_clicked", read_hit["read"])
 					if mb.double_click:
@@ -2032,7 +2036,7 @@ func _gui_input(event: InputEvent) -> void:
 				var read_rect_any: Rect2 = read_hit_any["rect"]
 				if read_rect_any.has_point(mouse_pos):
 					clear_selected_feature()
-					set_selected_read(read_hit_any["read"], int(read_hit_any.get("read_index", -1)), false)
+					set_selected_read(read_hit_any["read"], int(read_hit_any.get("read_index", -1)), str(read_hit_any.get("track_id", "")), false)
 					hit_read = true
 					emit_signal("read_clicked", read_hit_any["read"])
 					if mb.double_click:
