@@ -205,9 +205,16 @@ func (e *Engine) LoadGenome(path string) error {
 				snapshot.ChromLength[chr] = len(seq)
 			}
 		case inputKindGFF3:
-			gffFeatures, err := parseGFF3(p)
+			gffSeqs, gffFeatures, err := parseGFF3(p)
 			if err != nil {
 				return err
+			}
+			if len(gffSeqs) > 0 {
+				hasSequenceInput = true
+				for chr, seq := range gffSeqs {
+					snapshot.Sequences[chr] = seq
+					snapshot.ChromLength[chr] = len(seq)
+				}
 			}
 			mergeFeatures(snapshot.Features, gffFeatures)
 			for chr, feats := range gffFeatures {
@@ -1890,18 +1897,70 @@ func parseFASTA(path string) (map[string]string, error) {
 	return seqs, nil
 }
 
-func parseGFF3(path string) (map[string][]Feature, error) {
+func parseGFF3(path string) (map[string]string, map[string][]Feature, error) {
 	f, err := xopen.Ropen(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
 	out := make(map[string][]Feature)
+	seqs := make(map[string]string)
+	inFASTA := false
+	var fastaName string
+	var fastaBuilder strings.Builder
+
+	flushFASTA := func() error {
+		if fastaName == "" {
+			return nil
+		}
+		seq := strings.ToUpper(fastaBuilder.String())
+		if seq == "" {
+			return fmt.Errorf("empty FASTA sequence for %s in %s", fastaName, path)
+		}
+		seqs[fastaName] = seq
+		fastaName = ""
+		fastaBuilder.Reset()
+		return nil
+	}
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		rawLine := scanner.Text()
+		line := strings.TrimSpace(rawLine)
+		if inFASTA {
+			if line == "" {
+				continue
+			}
+			if strings.HasPrefix(line, ">") {
+				if err := flushFASTA(); err != nil {
+					return nil, nil, err
+				}
+				hdr := strings.TrimSpace(line[1:])
+				fields := strings.Fields(hdr)
+				if len(fields) == 0 {
+					return nil, nil, fmt.Errorf("invalid embedded FASTA header in %s", path)
+				}
+				fastaName = fields[0]
+				continue
+			}
+			if fastaName == "" {
+				return nil, nil, fmt.Errorf("embedded FASTA sequence before header in %s", path)
+			}
+			for _, r := range line {
+				if unicode.IsLetter(r) || r == '*' || r == '-' {
+					fastaBuilder.WriteRune(unicode.ToUpper(r))
+				}
+			}
+			continue
+		}
+		if line == "" {
+			continue
+		}
+		if line == "##FASTA" {
+			inFASTA = true
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
 			continue
 		}
 		cols := strings.Split(line, "\t")
@@ -1932,9 +1991,14 @@ func parseGFF3(path string) (map[string][]Feature, error) {
 		out[feat.SeqName] = append(out[feat.SeqName], feat)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return out, nil
+	if inFASTA {
+		if err := flushFASTA(); err != nil {
+			return nil, nil, err
+		}
+	}
+	return seqs, out, nil
 }
 
 func parseFlatFile(path string) (map[string]string, map[string][]Feature, error) {
