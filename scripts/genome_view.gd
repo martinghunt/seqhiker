@@ -1700,7 +1700,7 @@ func _is_hidden_full_length_region(feature: Dictionary) -> bool:
 	if _show_full_length_regions:
 		return false
 	var feature_type := str(feature.get("type", "")).to_lower()
-	if feature_type != "region":
+	if feature_type != "region" and feature_type != "source":
 		return false
 	var start_bp := int(feature.get("start", 0))
 	var end_bp := int(feature.get("end", 0))

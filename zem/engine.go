@@ -88,14 +88,16 @@ type tileCacheKey struct {
 }
 
 type bamSource struct {
-	ID         uint16
-	Path       string
-	IndexPath  string
-	Generation uint64
-	Index      *bam.Index
-	Refs       map[string]*sam.Reference
-	CovPrefix  map[uint16][]uint64
-	CovReady   bool
+	ID          uint16
+	Path        string
+	IndexPath   string
+	Generation  uint64
+	Index       *bam.Index
+	Refs        map[string]*sam.Reference
+	RefByChrID  map[uint16]*sam.Reference
+	RefNameToID map[string]uint16
+	CovPrefix   map[uint16][]uint64
+	CovReady    bool
 }
 
 type tileCacheEntry struct {
@@ -326,7 +328,6 @@ func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 	}
 
 	refs := make(map[string]*sam.Reference)
-	localLengths := make(map[string]int)
 	totalRefLen := 0
 	headerRefs := reader.Header().Refs()
 	for _, ref := range headerRefs {
@@ -334,18 +335,21 @@ func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 			continue
 		}
 		refs[ref.Name()] = ref
-		localLengths[ref.Name()] = ref.Len()
 		totalRefLen += max(0, ref.Len())
 	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	for chr, ln := range localLengths {
-		if e.chrLength[chr] < ln {
-			e.chrLength[chr] = ln
+	refByChrID := make(map[uint16]*sam.Reference, len(refs))
+	refNameToID := make(map[string]uint16, len(refs))
+	for _, ref := range headerRefs {
+		if ref == nil {
+			continue
 		}
-		e.ensureChromosomeLocked(chr, e.chrLength[chr])
+		chrID := e.resolveBAMRefChromIDLocked(ref.Name(), ref.Len())
+		refByChrID[chrID] = ref
+		refNameToID[ref.Name()] = chrID
 	}
 	sourceID := e.nextBAMSourceID
 	e.nextBAMSourceID++
@@ -354,14 +358,16 @@ func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 	}
 	shouldPrecomputeCov := precomputeCutoffBP > 0 && totalRefLen > 0 && totalRefLen <= precomputeCutoffBP
 	e.bamSources[sourceID] = &bamSource{
-		ID:         sourceID,
-		Path:       path,
-		IndexPath:  idxPath,
-		Generation: e.globalGeneration + 1,
-		Index:      idx,
-		Refs:       refs,
-		CovPrefix:  map[uint16][]uint64{},
-		CovReady:   !shouldPrecomputeCov,
+		ID:          sourceID,
+		Path:        path,
+		IndexPath:   idxPath,
+		Generation:  e.globalGeneration + 1,
+		Index:       idx,
+		Refs:        refs,
+		RefByChrID:  refByChrID,
+		RefNameToID: refNameToID,
+		CovPrefix:   map[uint16][]uint64{},
+		CovReady:    !shouldPrecomputeCov,
 	}
 	e.bamOrder = append(e.bamOrder, sourceID)
 	e.globalGeneration++
@@ -584,6 +590,40 @@ func (e *Engine) ensureChromosomeLocked(name string, length int) uint16 {
 	return id
 }
 
+func (e *Engine) resolveBAMRefChromIDLocked(name string, length int) uint16 {
+	if id, ok := e.chrToID[name]; ok {
+		if e.chrLength[name] < length {
+			e.chrLength[name] = length
+		}
+		return id
+	}
+	normalized := normalizeChromAlias(name)
+	for _, chr := range e.chromOrder {
+		if e.chrLength[chr] != length {
+			continue
+		}
+		if normalizeChromAlias(chr) != normalized {
+			continue
+		}
+		return e.chrToID[chr]
+	}
+	return e.ensureChromosomeLocked(name, length)
+}
+
+func normalizeChromAlias(name string) string {
+	dot := strings.LastIndex(name, ".")
+	if dot <= 0 || dot >= len(name)-1 {
+		return name
+	}
+	suffix := name[dot+1:]
+	for _, r := range suffix {
+		if r < '0' || r > '9' {
+			return name
+		}
+	}
+	return name[:dot]
+}
+
 func resolveBAMIndexPath(bamPath string) (string, error) {
 	candidates := []string{
 		bamPath + ".bai",
@@ -610,7 +650,7 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 		e.mu.Unlock()
 		return nil, fmt.Errorf("unknown chromosome id %d", chrID)
 	}
-	ref := src.Refs[chr]
+	ref := src.RefByChrID[chrID]
 	if ref == nil {
 		e.mu.Unlock()
 		return nil, fmt.Errorf("chromosome %s is missing from BAM header", chr)
@@ -687,7 +727,7 @@ func (e *Engine) precomputeCoverageForSource(sourceID uint16, bamPath string, re
 		return
 	}
 	for chrName, prefix := range covPrefixByName {
-		if chrID, ok := e.chrToID[chrName]; ok {
+		if chrID, ok := src.RefNameToID[chrName]; ok {
 			src.CovPrefix[chrID] = prefix
 		}
 	}
