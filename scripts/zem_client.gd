@@ -525,7 +525,7 @@ func _extract_name(attrs: String, fallback: String) -> String:
 			var end: int = attrs.find(";", start)
 			if end == -1:
 				end = attrs.length()
-			return attrs.substr(start, end - start)
+			return _trim_attr_value(attrs.substr(start, end - start))
 	return fallback
 
 func _extract_first_attr(attrs: String, keys: Array) -> String:
@@ -537,8 +537,14 @@ func _extract_first_attr(attrs: String, keys: Array) -> String:
 		var end: int = attrs.find(";", start)
 		if end == -1:
 			end = attrs.length()
-		return attrs.substr(start, end - start)
+		return _trim_attr_value(attrs.substr(start, end - start))
 	return ""
+
+func _trim_attr_value(value: String) -> String:
+	var out := value.strip_edges()
+	if out.length() >= 2 and out.begins_with("\"") and out.ends_with("\""):
+		out = out.substr(1, out.length() - 2)
+	return out
 
 func _next_request_id() -> int:
 	_request_id = (_request_id + 1) & 0xFFFF

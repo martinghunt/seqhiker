@@ -1913,10 +1913,15 @@ func parseFlatFile(path string) (map[string]string, map[string][]Feature, error)
 	var inFeatures bool
 	var inSeq bool
 	var pending *Feature
+	var qualifierParts []string
 
 	flushPending := func() {
 		if pending == nil || recName == "" {
 			return
+		}
+		if len(qualifierParts) > 0 {
+			pending.Attributes = strings.Join(qualifierParts, ";")
+			qualifierParts = nil
 		}
 		feats[recName] = append(feats[recName], *pending)
 		pending = nil
@@ -1933,6 +1938,7 @@ func parseFlatFile(path string) (map[string]string, map[string][]Feature, error)
 		inFeatures = false
 		inSeq = false
 		pending = nil
+		qualifierParts = nil
 	}
 
 	for scanner.Scan() {
@@ -1985,16 +1991,11 @@ func parseFlatFile(path string) (map[string]string, map[string][]Feature, error)
 			continue
 		}
 
-		if strings.Contains(line, "/") && strings.Contains(strings.TrimSpace(line), "=") {
-			if pending != nil {
-				q := strings.TrimSpace(line)
-				if pending.Attributes == "" {
-					pending.Attributes = q
-				} else {
-					pending.Attributes += ";" + q
-				}
+		if pending != nil {
+			if q, ok := parseFlatFileQualifier(line); ok {
+				qualifierParts = append(qualifierParts, q)
+				continue
 			}
-			continue
 		}
 
 		featureType, location, ok := parseFeatureLine(line)
@@ -2025,6 +2026,23 @@ func parseFlatFile(path string) (map[string]string, map[string][]Feature, error)
 	flushRecord()
 
 	return seqs, feats, nil
+}
+
+func parseFlatFileQualifier(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", false
+	}
+	trimmed = strings.TrimPrefix(trimmed, "/")
+	eq := strings.Index(trimmed, "=")
+	if eq < 0 {
+		return trimmed, true
+	}
+	key := strings.TrimSpace(trimmed[:eq])
+	value := strings.TrimSpace(trimmed[eq+1:])
+	value = strings.TrimPrefix(value, "\"")
+	value = strings.TrimSuffix(value, "\"")
+	return key + "=" + value, true
 }
 
 func parseFeatureLine(line string) (featureType, location string, ok bool) {
