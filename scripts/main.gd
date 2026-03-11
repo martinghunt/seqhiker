@@ -325,8 +325,10 @@ func _connect_ui() -> void:
 	search_button.pressed.connect(_toggle_search_panel)
 	go_button.pressed.connect(_toggle_go_panel)
 	genome_view.viewport_changed.connect(_on_viewport_changed)
-	genome_view.feature_clicked.connect(_on_feature_clicked)
-	genome_view.read_clicked.connect(_on_read_clicked)
+	genome_view.feature_clicked.connect(_on_feature_selected)
+	genome_view.feature_activated.connect(_on_feature_clicked)
+	genome_view.read_clicked.connect(_on_read_selected)
+	genome_view.read_activated.connect(_on_read_clicked)
 	genome_view.region_selection_changed.connect(_on_region_selection_changed)
 	genome_view.track_settings_requested.connect(_on_track_settings_requested)
 	genome_view.track_order_changed.connect(_on_track_order_changed)
@@ -2612,6 +2614,11 @@ func _on_feature_clicked(feature: Dictionary) -> void:
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)
 
+func _on_feature_selected(feature: Dictionary) -> void:
+	if not _feature_panel_open:
+		return
+	_on_feature_clicked(feature)
+
 func _on_read_clicked(read: Dictionary) -> void:
 	_track_settings_open = false
 	_active_track_settings_id = ""
@@ -2664,6 +2671,11 @@ func _on_read_clicked(read: Dictionary) -> void:
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)
 
+func _on_read_selected(read: Dictionary) -> void:
+	if not _feature_panel_open:
+		return
+	_on_read_clicked(read)
+
 func _jump_to_mate(start_bp: int, end_bp: int) -> void:
 	if _current_chr_len <= 0:
 		return
@@ -2694,8 +2706,6 @@ func _close_feature_panel() -> void:
 	_feature_panel_open = false
 	_track_settings_open = false
 	_active_track_settings_id = ""
-	genome_view.clear_selected_feature()
-	genome_view.clear_selected_read()
 	if _track_settings_box != null:
 		_track_settings_box.visible = false
 	if _search_controller != null:

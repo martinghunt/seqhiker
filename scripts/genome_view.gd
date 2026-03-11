@@ -6,7 +6,9 @@ const ReadLayoutHelperScript = preload("res://scripts/read_layout_helper.gd")
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
 signal feature_clicked(feature: Dictionary)
+signal feature_activated(feature: Dictionary)
 signal read_clicked(read: Dictionary)
+signal read_activated(read: Dictionary)
 signal track_settings_requested(track_id: String)
 signal track_order_changed(order: PackedStringArray)
 signal track_visibility_changed(track_id: String, visible: bool)
@@ -1991,6 +1993,7 @@ func _intersects_any(rect: Rect2, existing: Array) -> bool:
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		var mb := event as InputEventMouseButton
 		var mouse_pos: Vector2 = event.position
 		var read_rect := _any_read_track_rect_at_point(mouse_pos)
 		var aa_rect := _track_rect(TRACK_ID_AA)
@@ -2004,9 +2007,11 @@ func _gui_input(event: InputEvent) -> void:
 				var read_rect_hit: Rect2 = read_hit["rect"]
 				if read_rect_hit.has_point(mouse_pos):
 					clear_selected_feature()
-					set_selected_read(read_hit["read"], int(read_hit.get("read_index", -1)), true)
+					set_selected_read(read_hit["read"], int(read_hit.get("read_index", -1)), false)
 					hit_read = true
 					emit_signal("read_clicked", read_hit["read"])
+					if mb.double_click:
+						emit_signal("read_activated", read_hit["read"])
 					accept_event()
 					return
 		if in_aa:
@@ -2014,9 +2019,11 @@ func _gui_input(event: InputEvent) -> void:
 				var rect: Rect2 = hit["rect"]
 				if rect.has_point(mouse_pos):
 					clear_selected_read()
-					set_selected_feature(hit["feature"], true)
+					set_selected_feature(hit["feature"], false)
 					hit_feature = true
 					emit_signal("feature_clicked", hit["feature"])
+					if mb.double_click:
+						emit_signal("feature_activated", hit["feature"])
 					accept_event()
 					return
 		if not in_reads:
@@ -2025,9 +2032,11 @@ func _gui_input(event: InputEvent) -> void:
 				var read_rect_any: Rect2 = read_hit_any["rect"]
 				if read_rect_any.has_point(mouse_pos):
 					clear_selected_feature()
-					set_selected_read(read_hit_any["read"], int(read_hit_any.get("read_index", -1)), true)
+					set_selected_read(read_hit_any["read"], int(read_hit_any.get("read_index", -1)), false)
 					hit_read = true
 					emit_signal("read_clicked", read_hit_any["read"])
+					if mb.double_click:
+						emit_signal("read_activated", read_hit_any["read"])
 					accept_event()
 					return
 		if not in_aa:
@@ -2035,9 +2044,11 @@ func _gui_input(event: InputEvent) -> void:
 				var feat_rect_any: Rect2 = hit_any["rect"]
 				if feat_rect_any.has_point(mouse_pos):
 					clear_selected_read()
-					set_selected_feature(hit_any["feature"], true)
+					set_selected_feature(hit_any["feature"], false)
 					hit_feature = true
 					emit_signal("feature_clicked", hit_any["feature"])
+					if mb.double_click:
+						emit_signal("feature_activated", hit_any["feature"])
 					accept_event()
 					return
 			if _can_start_region_selection(mouse_pos):
