@@ -13,6 +13,8 @@ const MSG_SHUTDOWN := 9
 const MSG_GET_CHROMOSOMES := 10
 const MSG_GET_GC_PLOT_TILE := 11
 const MSG_GET_ANNOTATION_COUNTS := 12
+const MSG_GET_LOAD_STATE := 13
+const MSG_INSPECT_INPUT := 14
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -105,6 +107,30 @@ func get_annotation_counts() -> Dictionary:
 	if not resp.get("ok", false):
 		return resp
 	resp["counts"] = _parse_annotation_counts(resp["payload"])
+	return resp
+
+func get_load_state() -> Dictionary:
+	var resp := _send_request(MSG_GET_LOAD_STATE, PackedByteArray())
+	if not resp.get("ok", false):
+		return resp
+	var payload: PackedByteArray = resp.get("payload", PackedByteArray())
+	resp["has_sequence"] = payload.size() > 0 and payload[0] != 0
+	return resp
+
+func inspect_input(path: String) -> Dictionary:
+	var path_bytes := path.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(2 + path_bytes.size())
+	payload.encode_u16(0, path_bytes.size())
+	for i in range(path_bytes.size()):
+		payload[2 + i] = path_bytes[i]
+	var resp := _send_request(MSG_INSPECT_INPUT, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	var raw: PackedByteArray = resp.get("payload", PackedByteArray())
+	var flags := raw[0] if raw.size() > 0 else 0
+	resp["has_sequence"] = (flags & 1) != 0
+	resp["has_annotation"] = (flags & 2) != 0
 	return resp
 
 func get_tile(chr_id: int, zoom: int, tile_index: int, source_id: int = 0) -> Dictionary:

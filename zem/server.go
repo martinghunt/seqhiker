@@ -105,6 +105,18 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		return MsgGetChromosomes, encodeChromosomes(engine.ListChromosomes()), nil
 	case MsgGetAnnotationCounts:
 		return MsgGetAnnotationCounts, encodeAnnotationCounts(engine.ListAnnotationCounts()), nil
+	case MsgGetLoadState:
+		return MsgGetLoadState, encodeLoadState(engine.HasSequenceLoaded()), nil
+	case MsgInspectInput:
+		path, err := decodePathPayload(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		hasSequence, hasAnnotation, err := engine.InspectInput(path)
+		if err != nil {
+			return 0, nil, err
+		}
+		return MsgInspectInput, encodeInputInfo(hasSequence, hasAnnotation), nil
 
 	case MsgGetTile:
 		if len(payload) < 7 {

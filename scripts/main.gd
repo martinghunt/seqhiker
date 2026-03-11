@@ -50,7 +50,6 @@ const DEPTH_SERIES_COLORS := [
 	Color("4f772d"),
 	Color("b56576")
 ]
-const FILE_LIST_PLACEHOLDER := "none"
 const VIEW_SLOT_COUNT := 9
 const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
 const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
@@ -95,7 +94,6 @@ const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 @onready var theme_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ThemeOption
 @onready var settings_scroll: ScrollContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll
 @onready var settings_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent
-@onready var file_list: ItemList = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/FileList
 @onready var _track_order_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityLabel
 @onready var _track_visibility_box: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox
 @onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffSpin
@@ -138,7 +136,7 @@ var _has_bam_loaded := false
 var _bam_tracks: Array[Dictionary] = []
 var _bam_track_serial := 0
 var _center_strand_scroll_pending := false
-var _has_fasta_loaded := false
+var _has_sequence_loaded := false
 var _pending_annotation_highlight: Dictionary = {}
 var _cache_start := -1
 var _cache_end := -1
@@ -197,6 +195,7 @@ var _active_track_settings_id := ""
 var _debug_enabled := false
 var _debug_toggle: CheckBox
 var _debug_stats_label: Label
+var _debug_loaded_files_label: Label
 var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
 var _annotation_counts_by_chr := {}
@@ -213,6 +212,7 @@ var _last_bp_per_px_message := "0.00 bp/px"
 var _view_slots: Dictionary = {}
 var _view_slot_shortcut_buttons: Array[Button] = []
 var _pan_step_percent := 75.0
+var _loaded_file_paths := PackedStringArray()
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -230,7 +230,6 @@ func _ready() -> void:
 	_setup_debug_controls()
 	_setup_track_settings_panel()
 	_connect_ui()
-	_refresh_file_list_ui()
 	_load_or_init_config()
 	_apply_gc_plot_y_scale()
 	_apply_depth_plot_y_scale()
@@ -607,6 +606,12 @@ func _setup_debug_controls() -> void:
 	_debug_stats_label.visible = _debug_enabled
 	_debug_stats_label.text = ""
 	settings_content.add_child(_debug_stats_label)
+	_debug_loaded_files_label = Label.new()
+	_debug_loaded_files_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_loaded_files_label.visible = _debug_enabled
+	_debug_loaded_files_label.text = ""
+	settings_content.add_child(_debug_loaded_files_label)
+	_update_loaded_files_debug_label()
 
 func _on_bam_cov_cutoff_changed(value: float) -> void:
 	_bam_cov_precompute_cutoff_bp = maxi(0, int(round(value)))
@@ -714,8 +719,11 @@ func _on_debug_toggled(enabled: bool) -> void:
 	_debug_enabled = enabled
 	if _debug_stats_label != null:
 		_debug_stats_label.visible = enabled
+	if _debug_loaded_files_label != null:
+		_debug_loaded_files_label.visible = enabled
 	if enabled:
 		_update_debug_stats_label()
+		_update_loaded_files_debug_label()
 
 func _reset_debug_annotation_counters() -> void:
 	_dbg_ann_tile_requests = 0
@@ -756,6 +764,17 @@ func _update_debug_stats_label() -> void:
 	]
 	if int(draw_stats.get("culled_density", 0)) > 0:
 		_debug_stats_label.text += "\nAnn draw culled_density=%d" % int(draw_stats.get("culled_density", 0))
+
+func _update_loaded_files_debug_label() -> void:
+	if _debug_loaded_files_label == null:
+		return
+	var lines := PackedStringArray(["Loaded files:"])
+	if _loaded_file_paths.is_empty():
+		lines.append("none")
+	else:
+		for path in _loaded_file_paths:
+			lines.append(path)
+	_debug_loaded_files_label.text = "\n".join(lines)
 
 func _on_track_order_list_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
@@ -1430,6 +1449,10 @@ func _apply_theme(theme_name: String) -> void:
 	_apply_panel_style(settings_panel, palette)
 	_apply_panel_style(feature_panel, palette)
 	_apply_search_theme(palette)
+	if _debug_stats_label != null:
+		_debug_stats_label.add_theme_color_override("font_color", palette["text"])
+	if _debug_loaded_files_label != null:
+		_debug_loaded_files_label.add_theme_color_override("font_color", palette["text"])
 	_apply_topbar_button_font_size()
 	_apply_settings_scrollbar_style()
 
@@ -1476,39 +1499,37 @@ func _apply_topbar_button_font_size() -> void:
 		b.add_theme_font_size_override("font_size", topbar_font_size)
 
 func _on_files_dropped(files: PackedStringArray) -> void:
-	var dropped_fasta := _has_fasta(files)
-	var dropped_gff3 := _has_gff3(files)
-	var dropped_sequence := _has_sequence_file(files)
-	if dropped_gff3 and not (_has_fasta_loaded or dropped_fasta):
-		_set_status("Refusing GFF3 load: drop a FASTA first.", true)
-		return
-	if dropped_fasta:
-		_reset_loaded_state()
-	elif dropped_sequence:
-		_view_slots.clear()
-	for f in files:
-		if _is_file_list_placeholder():
-			file_list.clear()
-		if not _file_list_has(f):
-			file_list.add_item(f)
-	_refresh_file_list_ui()
-	genome_view.load_files(files)
 	if not _ensure_server_connected():
 		return
+	var drop_info := _inspect_dropped_files(files)
+	if not drop_info.get("ok", false):
+		_set_status(str(drop_info.get("error", "Unable to inspect dropped files.")), true)
+		return
+	var dropped_sequence := bool(drop_info.get("has_sequence", false))
+	if int(drop_info.get("sequence_root_count", 0)) > 1:
+		_set_status("Drop only one sequence-bearing genome source at a time.", true)
+		return
+	if dropped_sequence:
+		_reset_loaded_state()
+	else:
+		_view_slots.clear()
 	if not _load_dropped_files(files):
 		return
-	if dropped_fasta:
-		_has_fasta_loaded = true
+	_record_loaded_files(files, dropped_sequence)
+	genome_view.load_files(files)
+	_refresh_sequence_loaded_state()
 	_refresh_chromosomes()
 	_refresh_visible_data()
 
 func _ensure_server_connected() -> bool:
 	if _zem.ensure_connected():
+		_refresh_sequence_loaded_state()
 		_set_status("Connected")
 		return true
 	var host := "127.0.0.1"
 	var port := ZEM_DEFAULT_PORT
 	if _connect_with_local_fallback(host, port):
+		_refresh_sequence_loaded_state()
 		_set_status("Connected %s:%d" % [host, port])
 		return true
 	var msg := "Disconnected"
@@ -1516,6 +1537,27 @@ func _ensure_server_connected() -> bool:
 		msg = _last_connect_error
 	_set_status(msg, true)
 	return false
+
+func _refresh_sequence_loaded_state() -> void:
+	var resp: Dictionary = _zem.get_load_state()
+	if resp.get("ok", false):
+		_has_sequence_loaded = bool(resp.get("has_sequence", false))
+
+func _inspect_dropped_files(files: PackedStringArray) -> Dictionary:
+	var sequence_root_count := 0
+	for path in files:
+		if path.get_extension().to_lower() == "bam":
+			continue
+		var resp: Dictionary = _zem.inspect_input(path)
+		if not resp.get("ok", false):
+			return {"ok": false, "error": "Inspect input failed: %s" % resp.get("error", "error")}
+		if bool(resp.get("has_sequence", false)):
+			sequence_root_count += 1
+	return {
+		"ok": true,
+		"has_sequence": sequence_root_count > 0,
+		"sequence_root_count": sequence_root_count
+	}
 
 func _connect_with_local_fallback(host: String, port: int, connect_timeout_ms: int = 1200, wait_attempts: int = 15, wait_step_ms: int = 120) -> bool:
 	_last_connect_error = ""
@@ -1652,19 +1694,36 @@ func _shutdown_local_zem_on_exit() -> void:
 	_zem.disconnect_from_server()
 
 func _load_dropped_files(files: PackedStringArray) -> bool:
-	var genome_targets: Dictionary = {}
+	var genome_targets: Array[String] = []
 	var bam_targets: Array[String] = []
 	for path in files:
 		var ext := path.get_extension().to_lower()
 		if ext == "bam":
 			bam_targets.append(path)
 		else:
-			genome_targets[path] = true
-	for target in genome_targets.keys():
-		var resp: Dictionary = _zem.load_genome(target)
-		if not resp.get("ok", false):
-			_set_status("Load genome failed: %s" % resp.get("error", "error"), true)
+			if genome_targets.find(path) < 0:
+				genome_targets.append(path)
+	var pending := genome_targets.duplicate()
+	while not pending.is_empty():
+		var deferred: Array[String] = []
+		var progress := false
+		for target in pending:
+			var resp: Dictionary = _zem.load_genome(target)
+			if resp.get("ok", false):
+				progress = true
+				continue
+			var err_msg := str(resp.get("error", "error"))
+			if err_msg.contains("no reference sequence loaded"):
+				deferred.append(target)
+				continue
+			_set_status("Load genome failed: %s" % err_msg, true)
 			return false
+		if deferred.is_empty():
+			break
+		if not progress:
+			_set_status("Load genome failed: no reference sequence loaded; load a sequence file first.", true)
+			return false
+		pending = deferred
 
 	genome_view.set_read_loading_message("Loading BAMs...")
 	for bam_path in bam_targets:
@@ -2220,63 +2279,17 @@ func _compute_tile_zoom(bp_per_px: float) -> int:
 	var z := int(round(log(max(bp_per_px, 0.001)) / log(2.0)))
 	return clampi(z, 0, 16)
 
-func _file_list_has(path: String) -> bool:
-	if _is_file_list_placeholder():
-		return false
-	for i in range(file_list.item_count):
-		if file_list.get_item_text(i) == path:
-			return true
-	return false
-
-func _is_file_list_placeholder() -> bool:
-	return file_list.item_count == 1 and file_list.get_item_text(0) == FILE_LIST_PLACEHOLDER
-
-func _refresh_file_list_ui() -> void:
-	if file_list == null:
-		return
-	file_list.size_flags_vertical = Control.SIZE_FILL
-	if file_list.item_count == 0:
-		file_list.add_item(FILE_LIST_PLACEHOLDER)
-		file_list.set_item_disabled(0, true)
-	for i in range(file_list.item_count):
-		if file_list.is_item_disabled(i):
-			var muted := _theme_text_color
-			muted.a = 0.7
-			file_list.set_item_custom_fg_color(i, muted)
-		else:
-			file_list.set_item_custom_fg_color(i, _theme_text_color)
-	var font := file_list.get_theme_font("font")
-	var font_size := file_list.get_theme_font_size("font_size")
-	var row_h := 20.0
-	if font != null and font_size > 0:
-		row_h = maxf(16.0, font.get_height(font_size) + 6.0)
-	file_list.custom_minimum_size.y = row_h * float(file_list.item_count) + 8.0
-
-func _has_fasta(files: PackedStringArray) -> bool:
+func _record_loaded_files(files: PackedStringArray, replace_existing: bool) -> void:
+	if replace_existing:
+		_loaded_file_paths = PackedStringArray()
 	for path in files:
-		var ext := path.get_extension().to_lower()
-		if ext in ["fa", "fasta", "fna", "ffn", "frn", "faa"]:
-			return true
-	return false
-
-func _has_gff3(files: PackedStringArray) -> bool:
-	for path in files:
-		var ext := path.get_extension().to_lower()
-		if ext in ["gff", "gff3"]:
-			return true
-	return false
-
-func _has_sequence_file(files: PackedStringArray) -> bool:
-	for path in files:
-		var ext := path.get_extension().to_lower()
-		if ext in ["bam", "gff", "gff3"]:
-			continue
-		return true
-	return false
+		if not _loaded_file_paths.has(path):
+			_loaded_file_paths.append(path)
+	_update_loaded_files_debug_label()
 
 func _reset_loaded_state() -> void:
-	file_list.clear()
-	_refresh_file_list_ui()
+	_loaded_file_paths = PackedStringArray()
+	_update_loaded_files_debug_label()
 	_view_slots.clear()
 	_current_chr_id = -1
 	_current_chr_name = ""
@@ -2287,7 +2300,7 @@ func _reset_loaded_state() -> void:
 	_has_bam_loaded = false
 	_bam_tracks.clear()
 	_bam_track_serial = 0
-	_has_fasta_loaded = false
+	_has_sequence_loaded = false
 	_chromosomes.clear()
 	_annotation_counts_by_chr.clear()
 	_concat_segments.clear()
@@ -2463,6 +2476,8 @@ func _load_or_init_config() -> void:
 		_debug_toggle.button_pressed = _debug_enabled
 	if _debug_stats_label != null:
 		_debug_stats_label.visible = _debug_enabled
+	if _debug_loaded_files_label != null:
+		_debug_loaded_files_label.visible = _debug_enabled
 	_refresh_track_order_list(genome_view.get_track_order())
 
 func _select_theme_option(theme_name: String) -> void:

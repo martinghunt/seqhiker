@@ -26,6 +26,9 @@ Then `length` bytes of payload.
 - `9 MsgShutdown`
 - `10 MsgGetChromosomes`
 - `11 MsgGetGCPlotTile`
+- `12 MsgGetAnnotationCounts`
+- `13 MsgGetLoadState`
+- `14 MsgInspectInput`
 
 ## Request Payloads
 
@@ -84,6 +87,19 @@ Tile width = `1024 << zoom`, start = `tile_index * tile_width`.
 
 - empty payload, returns ACK and shuts down the zem server process.
 
+### `MsgGetAnnotationCounts`
+
+- empty payload
+
+### `MsgGetLoadState`
+
+- empty payload
+
+### `MsgInspectInput`
+
+- `uint16 path_len`
+- `[]byte path`
+
 ## Response Payloads
 
 ### `MsgAck`
@@ -104,6 +120,23 @@ Tile width = `1024 << zoom`, start = `tile_index * tile_width`.
   - `uint32 length`
   - `uint16 name_len`
   - `[]byte name`
+
+### `MsgGetAnnotationCounts`
+
+- `uint16 count`
+- repeated `count` times:
+  - `uint16 id`
+  - `uint32 count`
+
+### `MsgGetLoadState`
+
+- `uint8 has_sequence` (`1` if a reference sequence is loaded, else `0`)
+
+### `MsgInspectInput`
+
+- `uint8 flags`
+  - bit 0: path contains sequence-bearing input
+  - bit 1: path contains annotation input
 
 ### `MsgGetTile` (alignment tile)
 

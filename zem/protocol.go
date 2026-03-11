@@ -7,18 +7,20 @@ import (
 )
 
 const (
-	MsgLoadGenome        uint16 = 1
-	MsgLoadBAM           uint16 = 2
-	MsgGetTile           uint16 = 3
-	MsgGetCoverageTile   uint16 = 4
-	MsgGetAnnotations    uint16 = 5
-	MsgGetReferenceSlice uint16 = 6
-	MsgAck               uint16 = 7
-	MsgError             uint16 = 8
-	MsgShutdown          uint16 = 9
-	MsgGetChromosomes    uint16 = 10
-	MsgGetGCPlotTile     uint16 = 11
+	MsgLoadGenome          uint16 = 1
+	MsgLoadBAM             uint16 = 2
+	MsgGetTile             uint16 = 3
+	MsgGetCoverageTile     uint16 = 4
+	MsgGetAnnotations      uint16 = 5
+	MsgGetReferenceSlice   uint16 = 6
+	MsgAck                 uint16 = 7
+	MsgError               uint16 = 8
+	MsgShutdown            uint16 = 9
+	MsgGetChromosomes      uint16 = 10
+	MsgGetGCPlotTile       uint16 = 11
 	MsgGetAnnotationCounts uint16 = 12
+	MsgGetLoadState        uint16 = 13
+	MsgInspectInput        uint16 = 14
 )
 
 type FrameHeader struct {
@@ -116,4 +118,22 @@ func encodeBAMLoaded(sourceID uint16, msg string) []byte {
 	binary.LittleEndian.PutUint16(buf[2:4], uint16(len(msg)))
 	copy(buf[4:], msg)
 	return buf
+}
+
+func encodeLoadState(hasSequence bool) []byte {
+	if hasSequence {
+		return []byte{1}
+	}
+	return []byte{0}
+}
+
+func encodeInputInfo(hasSequence bool, hasAnnotation bool) []byte {
+	var flags byte
+	if hasSequence {
+		flags |= 1
+	}
+	if hasAnnotation {
+		flags |= 2
+	}
+	return []byte{flags}
 }

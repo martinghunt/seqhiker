@@ -539,6 +539,36 @@ func (e *Engine) ListAnnotationCounts() []AnnotationCountInfo {
 	return out
 }
 
+func (e *Engine) HasSequenceLoaded() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return len(e.sequences) > 0
+}
+
+func (e *Engine) InspectInput(path string) (bool, bool, error) {
+	entries, err := gatherInputFiles(path)
+	if err != nil {
+		return false, false, err
+	}
+	hasSequence := false
+	hasAnnotation := false
+	for _, p := range entries {
+		kind, err := detectInputKind(p)
+		if err != nil {
+			return false, false, err
+		}
+		switch kind {
+		case inputKindFASTA, inputKindFlatFile:
+			hasSequence = true
+		case inputKindGFF3:
+			hasAnnotation = true
+		default:
+			return false, false, fmt.Errorf("unsupported genome/annotation file: %s", p)
+		}
+	}
+	return hasSequence, hasAnnotation, nil
+}
+
 func (e *Engine) ensureChromosomeLocked(name string, length int) uint16 {
 	if id, ok := e.chrToID[name]; ok {
 		if e.chrLength[name] < length {
