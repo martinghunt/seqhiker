@@ -988,10 +988,11 @@ func _draw_read_tracks(area: Rect2) -> void:
 				if draw_selected:
 					var mate_border: Color = palette.get("text", _axis_text_color())
 					draw_rect(mate_rect.grow(1.5), mate_border, false, 2.0)
+				var mate_hit := _mate_hitbox_payload(read, i)
 				_read_hitboxes.append({
 					"rect": mate_rect,
-					"read": read,
-					"read_index": i,
+					"read": mate_hit.get("read", read),
+					"read_index": int(mate_hit.get("read_index", i)),
 					"track_id": track_id
 				})
 		if bp_per_px <= SNP_MARK_MAX_BP_PER_PX:
@@ -1113,6 +1114,40 @@ func _mate_rect_for_read(read: Dictionary, y: float) -> Rect2:
 	var mx0 := TRACK_LEFT_PAD + _bp_to_x(mate_start)
 	var mx1 := TRACK_LEFT_PAD + _bp_to_x(mate_end)
 	return Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), _read_row_h))
+
+func _mate_hitbox_payload(read: Dictionary, current_index: int) -> Dictionary:
+	var mate_start := int(read.get("mate_start", -1))
+	var mate_end := int(read.get("mate_end", -1))
+	var pair_key := _pair_render_key(read)
+	if not pair_key.is_empty():
+		for i in range(_laid_out_reads.size()):
+			if i == current_index:
+				continue
+			var candidate: Dictionary = _laid_out_reads[i]
+			if _pair_render_key(candidate) != pair_key:
+				continue
+			if int(candidate.get("start", 0)) != mate_start or int(candidate.get("end", 0)) != mate_end:
+				continue
+			return {
+				"read": candidate,
+				"read_index": i
+			}
+	var mate_read := read.duplicate(true)
+	var read_start := int(read.get("start", 0))
+	var read_end := int(read.get("end", read_start))
+	mate_read["start"] = mate_start
+	mate_read["end"] = mate_end
+	mate_read["mate_start"] = read_start
+	mate_read["mate_end"] = read_end
+	mate_read["reverse"] = (int(read.get("flags", 0)) & 32) != 0
+	mate_read["cigar"] = ""
+	mate_read["snps"] = PackedInt32Array()
+	mate_read["snp_bases"] = PackedByteArray()
+	mate_read["is_mate_hit"] = true
+	return {
+		"read": mate_read,
+		"read_index": current_index
+	}
 
 func _pair_render_key(read: Dictionary) -> String:
 	var mate_start := int(read.get("mate_start", -1))
@@ -2683,6 +2718,10 @@ func _layout_read_scrollbar() -> void:
 		return
 	var max_offset := maxf(0.0, float(max_rows) - visible_rows)
 	var was_visible := _reads_scrollbar.visible
+	var prev_page := _reads_scrollbar.page
+	var prev_max_value := _reads_scrollbar.max_value
+	var prev_offset_max := maxf(0.0, prev_max_value - prev_page)
+	var was_at_bottom := was_visible and absf(_reads_scrollbar.value - prev_offset_max) <= 0.001
 	_reads_scrollbar.visible = max_offset > 0.0
 	# Godot scrollbar effective drag range is (max_value - page).
 	# Configure values so effective range equals our logical max_offset.
@@ -2690,7 +2729,11 @@ func _layout_read_scrollbar() -> void:
 	_reads_scrollbar.page = stack_page
 	_reads_scrollbar.max_value = max_offset + stack_page
 	_reads_scrollbar.step = 0.1
-	var clamped_stack := max_offset if (_reads_scrollbar.visible and not was_visible) else clampf(_reads_scrollbar.value, 0.0, max_offset)
+	var clamped_stack := _reads_scrollbar.value
+	if _reads_scrollbar.visible and (not was_visible or was_at_bottom):
+		clamped_stack = max_offset
+	else:
+		clamped_stack = clampf(clamped_stack, 0.0, max_offset)
 	if absf(clamped_stack - _reads_scrollbar.value) > 0.001:
 		_reads_scrollbar.value = clamped_stack
 

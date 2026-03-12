@@ -110,6 +110,8 @@ func build_layout(reads_in: Array[Dictionary], view_mode: int, fragment_log: boo
 	}
 
 func _pack_reads_into_rows(source_reads: Array[Dictionary], use_pair_span: bool, row_limit: int, view_start: int, view_end: int) -> Dictionary:
+	if use_pair_span:
+		return _pack_paired_reads_into_rows(source_reads, row_limit, view_start, view_end)
 	var laid_out_reads: Array[Dictionary] = []
 	if source_reads.is_empty():
 		return {"laid_out_reads": laid_out_reads, "row_count": 0}
@@ -143,6 +145,61 @@ func _pack_reads_into_rows(source_reads: Array[Dictionary], use_pair_span: bool,
 		laid_out_reads.append(laid_out)
 	return {"laid_out_reads": laid_out_reads, "row_count": row_ends.size()}
 
+func _pack_paired_reads_into_rows(source_reads: Array[Dictionary], row_limit: int, view_start: int, view_end: int) -> Dictionary:
+	var laid_out_reads: Array[Dictionary] = []
+	if source_reads.is_empty():
+		return {"laid_out_reads": laid_out_reads, "row_count": 0}
+	var groups_by_key := {}
+	var group_order: Array[String] = []
+	for read_any in source_reads:
+		var read: Dictionary = read_any
+		var key := _pair_group_key(read, view_start, view_end)
+		if not groups_by_key.has(key):
+			groups_by_key[key] = {
+				"reads": [],
+				"start": _layout_span_start(read, true, view_start, view_end),
+				"end": _layout_span_end(read, true, view_start, view_end)
+			}
+			group_order.append(key)
+		var group: Dictionary = groups_by_key[key]
+		var group_reads: Array = group.get("reads", [])
+		group_reads.append(read)
+		group["reads"] = group_reads
+		group["start"] = mini(int(group.get("start", 0)), _layout_span_start(read, true, view_start, view_end))
+		group["end"] = maxi(int(group.get("end", 0)), _layout_span_end(read, true, view_start, view_end))
+		groups_by_key[key] = group
+	group_order.sort_custom(func(a_key: String, b_key: String) -> bool:
+		var a_group: Dictionary = groups_by_key[a_key]
+		var b_group: Dictionary = groups_by_key[b_key]
+		var sa := int(a_group.get("start", 0))
+		var sb := int(b_group.get("start", 0))
+		if sa == sb:
+			return int(a_group.get("end", 0)) < int(b_group.get("end", 0))
+		return sa < sb
+	)
+	var row_ends: Array[int] = []
+	for key in group_order:
+		var group: Dictionary = groups_by_key[key]
+		var s := int(group.get("start", 0))
+		var e := int(group.get("end", s + 1))
+		var chosen := -1
+		for i in range(row_ends.size()):
+			if s > row_ends[i]:
+				chosen = i
+				break
+		if chosen == -1:
+			if row_limit > 0 and row_ends.size() >= row_limit:
+				continue
+			chosen = row_ends.size()
+			row_ends.append(e)
+		else:
+			row_ends[chosen] = e
+		for read_any in group.get("reads", []):
+			var laid_out := (read_any as Dictionary).duplicate(true)
+			laid_out["row"] = chosen
+			laid_out_reads.append(laid_out)
+	return {"laid_out_reads": laid_out_reads, "row_count": row_ends.size()}
+
 func _layout_span_start(read: Dictionary, use_pair_span: bool, view_start: int, view_end: int) -> int:
 	var s := int(read.get("start", 0))
 	if not use_pair_span or not _should_use_mate_span_for_packing(read, view_start, view_end):
@@ -174,3 +231,30 @@ func _should_use_mate_span_for_packing(read: Dictionary, view_start: int, view_e
 	var read_center := int((read_start + read_end) / 2.0)
 	var mate_center := int((mate_start + mate_end) / 2.0)
 	return absi(mate_center - read_center) <= max_distance
+
+func _pair_group_key(read: Dictionary, view_start: int, view_end: int) -> String:
+	if not _should_use_mate_span_for_packing(read, view_start, view_end):
+		return _single_read_group_key(read)
+	var name := str(read.get("name", ""))
+	var a0 := int(read.get("start", 0))
+	var a1 := int(read.get("end", a0 + 1))
+	var b0 := int(read.get("mate_start", -1))
+	var b1 := int(read.get("mate_end", b0 + 1))
+	if b0 < 0 or b1 <= b0:
+		return _single_read_group_key(read)
+	if a0 > b0 or (a0 == b0 and a1 > b1):
+		var t0 := a0
+		var t1 := a1
+		a0 = b0
+		a1 = b1
+		b0 = t0
+		b1 = t1
+	return "%s|%d|%d|%d|%d" % [name, a0, a1, b0, b1]
+
+func _single_read_group_key(read: Dictionary) -> String:
+	var name := str(read.get("name", ""))
+	var start_bp := int(read.get("start", 0))
+	var end_bp := int(read.get("end", start_bp + 1))
+	var reverse := int(read.get("reverse", false))
+	var flags := int(read.get("flags", 0))
+	return "%s|%d|%d|%d|%d" % [name, start_bp, end_bp, reverse, flags]

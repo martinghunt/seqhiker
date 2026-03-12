@@ -2872,7 +2872,9 @@ func _on_read_clicked(read: Dictionary) -> void:
 	var end_bp := int(read.get("end", start_bp))
 	var read_len := maxi(0, end_bp - start_bp)
 	var cigar := str(read.get("cigar", ""))
-	if cigar.is_empty():
+	if cigar.is_empty() and bool(read.get("is_mate_hit", false)):
+		cigar = "(mate CIGAR unavailable)"
+	elif cigar.is_empty():
 		cigar = "-"
 	var mapq := int(read.get("mapq", 0))
 	var flags := int(read.get("flags", 0))
@@ -2883,13 +2885,12 @@ func _on_read_clicked(read: Dictionary) -> void:
 	if mate_start >= 0 and mate_end > mate_start:
 		mate_text = "Mate: %d - %d" % [mate_start, mate_end]
 	var frag_len := int(read.get("fragment_len", 0))
-	var snp_text := _format_read_snps(read.get("snps", PackedInt32Array()) as PackedInt32Array)
 	feature_name_label.text = "Read: %s" % read_name
 	feature_type_label.text = "Range: %d - %d (%d bp)" % [start_bp, end_bp, read_len]
 	feature_range_label.text = "CIGAR: %s" % cigar
 	feature_strand_label.text = "Strand: %s | MAPQ: %d | Flags: %d" % [strand, mapq, flags]
 	feature_source_label.text = "%s | Fragment: %d bp" % [mate_text, frag_len]
-	feature_seq_label.text = "SNPs: %s\nFlags:\n%s" % [snp_text, _format_read_flags(flags)]
+	feature_seq_label.text = "Flags:\n%s" % _format_read_flags(flags)
 	if mate_start >= 0 and mate_end > mate_start:
 		if _read_mate_jump_button == null:
 			_read_mate_jump_button = Button.new()
@@ -2925,17 +2926,6 @@ func _jump_to_mate(start_bp: int, end_bp: int) -> void:
 	genome_view.set_view_state(float(target_start), current_bp_per_px)
 	genome_view.clear_region_selection()
 	_schedule_fetch()
-
-func _format_read_snps(snps: PackedInt32Array) -> String:
-	if snps.is_empty():
-		return "none"
-	var parts: Array[String] = []
-	var limit := mini(12, snps.size())
-	for i in range(limit):
-		parts.append(str(int(snps[i])))
-	if snps.size() > limit:
-		parts.append("...")
-	return "%d [%s]" % [snps.size(), ", ".join(parts)]
 
 func _format_read_flags(flags: int) -> String:
 	var lines: Array[String] = []
