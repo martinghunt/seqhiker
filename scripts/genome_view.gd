@@ -2682,6 +2682,7 @@ func _layout_read_scrollbar() -> void:
 			_reads_scrollbar.value = next_val
 		return
 	var max_offset := maxf(0.0, float(max_rows) - visible_rows)
+	var was_visible := _reads_scrollbar.visible
 	_reads_scrollbar.visible = max_offset > 0.0
 	# Godot scrollbar effective drag range is (max_value - page).
 	# Configure values so effective range equals our logical max_offset.
@@ -2689,7 +2690,7 @@ func _layout_read_scrollbar() -> void:
 	_reads_scrollbar.page = stack_page
 	_reads_scrollbar.max_value = max_offset + stack_page
 	_reads_scrollbar.step = 0.1
-	var clamped_stack := clampf(_reads_scrollbar.value, 0.0, max_offset)
+	var clamped_stack := max_offset if (_reads_scrollbar.visible and not was_visible) else clampf(_reads_scrollbar.value, 0.0, max_offset)
 	if absf(clamped_stack - _reads_scrollbar.value) > 0.001:
 		_reads_scrollbar.value = clamped_stack
 
