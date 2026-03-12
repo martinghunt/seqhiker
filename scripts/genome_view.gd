@@ -1631,7 +1631,7 @@ func _genome_feature_row_center_y(area: Rect2, line_y: float, row: int) -> float
 		1:
 			return area.position.y + area.size.y * 0.5
 		2:
-			return _text_center_y(font, _font_size_large, line_y + 30.0)
+			return _text_center_y(font, _font_size_large, line_y + 38.0)
 		_:
 			return area.position.y + area.size.y * 0.5
 
@@ -2012,7 +2012,7 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 	if i_end - i_start + 1 > NUC_TEXT_MAX_BASES:
 		i_end = i_start + NUC_TEXT_MAX_BASES - 1
 	var fwd_y := line_y - 12.0
-	var rev_y := line_y + 30.0
+	var rev_y := line_y + 38.0
 	var base_colors := {
 		"A": Color("2b9348"),
 		"C": Color("1d4ed8"),
