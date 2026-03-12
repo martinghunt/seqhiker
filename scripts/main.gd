@@ -2204,6 +2204,7 @@ func _refresh_visible_data() -> void:
 	var show_gc_plot: bool = bool(genome_view.is_track_visible(TRACK_GC_PLOT))
 	var show_depth_plot: bool = bool(genome_view.is_track_visible(TRACK_DEPTH_PLOT))
 	var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
+	var need_annotations: bool = show_aa or show_genome
 	var need_reference: bool = genome_view.needs_reference_data(show_aa, show_genome)
 	var span: int = maxi(1, _last_end - _last_start)
 	var right_span_mult := 3 if _auto_play_enabled else 2
@@ -2221,7 +2222,7 @@ func _refresh_visible_data() -> void:
 		visible_track_ids[track_vis_id] = genome_view.is_track_visible(track_vis_id)
 
 	if _seq_view_mode == SEQ_VIEW_SINGLE:
-		if show_aa:
+		if need_annotations:
 			var ann_resp := _get_annotations_window_preloaded(_current_chr_id, query_start, query_end)
 			if not ann_resp.get("ok", false):
 				_set_status("Annotation query failed: %s" % ann_resp.get("error", "error"), true)
@@ -2239,7 +2240,7 @@ func _refresh_visible_data() -> void:
 			ref_sequence = str(ref_resp.get("sequence", ""))
 	else:
 		overlaps = _segments_overlapping(query_start, query_end)
-		ann_overlaps = _segments_overlapping(query_start, query_end) if show_aa else ([] as Array[Dictionary])
+		ann_overlaps = _segments_overlapping(query_start, query_end) if need_annotations else ([] as Array[Dictionary])
 		for aov in ann_overlaps:
 			var a_chr_id := int(aov["id"])
 			var a_offset := int(aov["offset"])

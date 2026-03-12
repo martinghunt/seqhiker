@@ -1589,7 +1589,7 @@ func _draw_genome_feature_tracks(area: Rect2, line_y: float) -> void:
 	for feature in features:
 		if _is_hidden_full_length_region(feature):
 			continue
-		if _feature_uses_frame(feature):
+		if _feature_shows_in_aa_track(feature):
 			continue
 		var row := _feature_to_genome_row(feature)
 		if row < 0 or row > 2:
@@ -1872,8 +1872,12 @@ func _draw_genome_track(area: Rect2) -> void:
 		_draw_ticks(y, line_y)
 	else:
 		_draw_concat_genome_axis(y, line_y)
-	_draw_genome_feature_tracks(area, line_y)
-	_draw_nucleotide_letters(y, line_y)
+	if is_track_visible(TRACK_ID_AA):
+		_draw_genome_feature_tracks(area, line_y)
+		_draw_nucleotide_letters(y, line_y)
+	else:
+		_draw_nucleotide_letters(y, line_y)
+		_draw_genome_feature_tracks(area, line_y)
 
 func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 	var axis_left := TRACK_LEFT_PAD
@@ -2402,7 +2406,7 @@ func _axis_tick_step(span: float) -> int:
 	return step6
 
 func _feature_to_frame(feature: Dictionary) -> int:
-	if not _feature_uses_frame(feature):
+	if not _feature_shows_in_aa_track(feature):
 		return -1
 	var strand: String = str(feature.get("strand", "+"))
 	var start: int = int(feature.get("start", 0))
@@ -2415,6 +2419,9 @@ func _feature_to_frame(feature: Dictionary) -> int:
 func _feature_uses_frame(feature: Dictionary) -> bool:
 	var feature_type := str(feature.get("type", "")).to_lower()
 	return feature_type == "cds" or feature_type == "gene"
+
+func _feature_shows_in_aa_track(feature: Dictionary) -> bool:
+	return _feature_uses_frame(feature) and is_track_visible(TRACK_ID_AA)
 
 func _feature_to_genome_row(feature: Dictionary) -> int:
 	var strand := str(feature.get("strand", "")).strip_edges()
