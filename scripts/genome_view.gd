@@ -2694,7 +2694,7 @@ func _layout_read_scrollbar() -> void:
 		var split_at_reverse_bottom := content_bottom - reverse_extent
 		var range_px := maxf(0.0, split_at_forward_top - split_at_reverse_bottom)
 		var prev_max := _reads_scrollbar.max_value
-		var prev_page := _reads_scrollbar.page
+		var prev_strand_page := _reads_scrollbar.page
 		var prev_size_y := _reads_scrollbar.size.y
 		_reads_scrollbar.visible = range_px > 0.0
 		# Godot scrollbar effective drag range is (max_value - page).
@@ -2706,7 +2706,7 @@ func _layout_read_scrollbar() -> void:
 		var next_val := clampf(_reads_scrollbar.value, 0.0, range_px)
 		var layout_changed := (
 			absf(range_px - prev_max) > 0.001 or
-			absf(_reads_scrollbar.page - prev_page) > 0.001 or
+			absf(_reads_scrollbar.page - prev_strand_page) > 0.001 or
 			absf(_reads_scrollbar.size.y - prev_size_y) > 0.001
 		)
 		# Preserve split-line lock on layout changes, but never while the user drags
