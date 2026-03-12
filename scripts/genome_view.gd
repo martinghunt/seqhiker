@@ -39,6 +39,7 @@ const TRACK_ID_AA := "aa"
 const TRACK_ID_GC_PLOT := "gc_plot"
 const TRACK_ID_DEPTH_PLOT := "depth_plot"
 const TRACK_ID_GENOME := "genome"
+const TRACK_ID_MAP := "map"
 const PLOT_Y_UNIT := 0
 const PLOT_Y_AUTOSCALE := 1
 const PLOT_Y_FIXED := 2
@@ -49,6 +50,10 @@ const READ_VIEW_FRAGMENT := 3
 const STRAND_SPLIT_LINE_WIDTH := 2.5
 const READ_SCROLLBAR_MIN_GRABBER_SIZE := 36
 const READ_RENDER_MAX_BP_PER_PX := 128.0
+const MAP_TRACK_H := 72.0
+const MAP_VIEW_MIN_PX := 5.0
+const MAP_SEQUENCE_H := AA_ROW_H - 6.0
+const MAP_VIEW_EXTRA_H := 6.0
 const COMPLEMENT_MAP := {
 	"A": "T",
 	"T": "A",
@@ -87,6 +92,7 @@ const CODON_TO_AA := {
 }
 
 var chromosome_length := 50000
+var chromosome_name := ""
 var view_start_bp := 0.0
 var bp_per_px := 8.0
 var min_bp_per_px := 0.02
@@ -162,13 +168,14 @@ var _depth_plot_y_max := 1.0
 var _axis_coords_with_commas := false
 var _gc_plot_h := DEFAULT_PLOT_H
 var _depth_plot_h := DEFAULT_PLOT_H
-var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_DEPTH_PLOT, TRACK_ID_GC_PLOT, TRACK_ID_AA, TRACK_ID_GENOME])
+var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_DEPTH_PLOT, TRACK_ID_GC_PLOT, TRACK_ID_AA, TRACK_ID_GENOME, TRACK_ID_MAP])
 var _track_visible := {
 	TRACK_ID_READS: false,
 	TRACK_ID_AA: true,
 	TRACK_ID_GC_PLOT: false,
 	TRACK_ID_DEPTH_PLOT: false,
-	TRACK_ID_GENOME: true
+	TRACK_ID_GENOME: true,
+	TRACK_ID_MAP: true
 }
 var _track_rows := {}
 var _track_drag_active := false
@@ -192,6 +199,8 @@ var _read_track_states := {}
 var _active_read_track_id := TRACK_ID_READS
 var _dragging_scrollbar: VScrollBar = null
 var _read_loading_message := ""
+var _map_drag_active := false
+var _map_drag_bp_offset := 0.0
 
 func _ready() -> void:
 	clip_contents = true
@@ -225,6 +234,7 @@ func _ready() -> void:
 	_emit_viewport_changed()
 
 func set_chromosome(_chr_name: String, length_bp: int) -> void:
+	chromosome_name = _chr_name
 	chromosome_length = max(length_bp, 1)
 	view_start_bp = 0.0
 	reference_start_bp = 0
@@ -638,7 +648,7 @@ func set_track_visible(track_id: String, show_track: bool) -> void:
 
 func set_track_order(order: PackedStringArray) -> void:
 	var prev := _track_order
-	var valid := PackedStringArray([TRACK_ID_AA, TRACK_ID_GC_PLOT, TRACK_ID_DEPTH_PLOT, TRACK_ID_GENOME])
+	var valid := PackedStringArray([TRACK_ID_AA, TRACK_ID_GC_PLOT, TRACK_ID_DEPTH_PLOT, TRACK_ID_GENOME, TRACK_ID_MAP])
 	var seen: Dictionary = {}
 	var next := PackedStringArray()
 	for id_any in order:
@@ -818,6 +828,8 @@ func _draw() -> void:
 						_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]))
 				TRACK_ID_GENOME:
 					_draw_genome_track(area)
+				TRACK_ID_MAP:
+					_draw_map_track(area)
 	_draw_region_selection(track_rects)
 	if _track_drag_active and _track_drag_target_index >= 0 and _track_drag_target_index < _track_order.size():
 		var target_id := _track_order[_track_drag_target_index]
@@ -839,9 +851,6 @@ func _input(event: InputEvent) -> void:
 func _draw_region_selection(track_rects: Dictionary) -> void:
 	if not _region_select_has_selection and not _region_select_dragging:
 		return
-	var view_rect := _tracks_view_rect(track_rects)
-	if view_rect.size.y <= 0.0:
-		return
 	var bp0 := mini(_region_select_start_edge, _region_select_end_edge)
 	var bp1 := maxi(_region_select_start_edge, _region_select_end_edge)
 	if bp1 <= bp0:
@@ -849,13 +858,18 @@ func _draw_region_selection(track_rects: Dictionary) -> void:
 	var x0 := clampf(_bp_to_screen_edge(bp0), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
 	var x1 := clampf(_bp_to_screen_edge(bp1), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
 	var w := maxf(1.0, x1 - x0)
-	var rect := Rect2(x0, view_rect.position.y, w, view_rect.size.y)
 	var fill: Color = palette.get("genome", Color(0.25, 0.45, 0.75))
 	fill.a = 0.28
-	draw_rect(rect, fill, true)
 	var border: Color = palette["text"]
 	border.a = 0.55
-	draw_rect(rect, border, false, 1.0)
+	var selection_spans := _region_selection_spans(track_rects)
+	for span_any in selection_spans:
+		var span: Rect2 = span_any
+		if span.size.y <= 0.0:
+			continue
+		var rect := Rect2(x0, span.position.y, w, span.size.y)
+		draw_rect(rect, fill, true)
+		draw_rect(rect, border, false, 1.0)
 
 func _track_label_for_id(track_id: String) -> String:
 	if _is_read_track(track_id):
@@ -871,6 +885,8 @@ func _track_label_for_id(track_id: String) -> String:
 			return "Depth Plot"
 		TRACK_ID_GENOME:
 			return "Genome"
+		TRACK_ID_MAP:
+			return "Map"
 		_:
 			return track_id
 
@@ -1879,6 +1895,68 @@ func _draw_genome_track(area: Rect2) -> void:
 		_draw_nucleotide_letters(y, line_y)
 		_draw_genome_feature_tracks(area, line_y)
 
+func _draw_map_track(area: Rect2) -> void:
+	if area.size.y <= 24.0:
+		return
+	draw_rect(area, palette["bg"], true)
+	var axis_left := TRACK_LEFT_PAD
+	var axis_right := area.position.x + area.size.x - TRACK_RIGHT_PAD
+	if axis_right <= axis_left:
+		return
+	var total_len: int = max(chromosome_length, 1)
+	var has_loaded_genome := not loaded_files.is_empty()
+	var viewport_rect := Rect2()
+	if has_loaded_genome:
+		viewport_rect = _map_view_rect(area, total_len)
+	var seq_center_y := viewport_rect.get_center().y
+	if not has_loaded_genome:
+		seq_center_y = area.position.y + area.size.y * 0.5
+	var seq_top := seq_center_y - MAP_SEQUENCE_H * 0.5
+	var seq_font := get_theme_default_font()
+	var seq_font_size := _font_size_small
+	var base_seq_color: Color = palette["bg"]
+	var alt_seq_color: Color = palette.get("aa_alt_bg", base_seq_color)
+	if concat_segments.is_empty():
+		var seq_rect := Rect2(axis_left, seq_top, axis_right - axis_left, MAP_SEQUENCE_H)
+		draw_rect(seq_rect, base_seq_color, true)
+		draw_rect(seq_rect, palette["text"], false, 1.0)
+		var seq_name := chromosome_name.strip_edges()
+		if has_loaded_genome and not seq_name.is_empty():
+			var label := _truncate_label_to_width(seq_name, seq_rect.size.x - 10.0, 4, seq_font, seq_font_size)
+			if not label.is_empty():
+				var label_y := _text_baseline_for_center(seq_rect.get_center().y, seq_font, seq_font_size)
+				draw_string(seq_font, Vector2(seq_rect.position.x + 5.0, label_y), label, HORIZONTAL_ALIGNMENT_LEFT, seq_rect.size.x - 10.0, seq_font_size, palette["text"])
+	else:
+		for i in range(concat_segments.size()):
+			var seg: Dictionary = concat_segments[i]
+			var seg_start := float(seg.get("start", 0))
+			var seg_end := float(seg.get("end", 0))
+			if seg_end <= seg_start:
+				continue
+			var x0 := _map_bp_to_x(seg_start, area, total_len)
+			var x1 := _map_bp_to_x(seg_end, area, total_len)
+			if x1 <= x0:
+				continue
+			var seq_rect := Rect2(x0, seq_top, x1 - x0, MAP_SEQUENCE_H)
+			var seq_color: Color = base_seq_color if (i % 2) == 0 else alt_seq_color
+			draw_rect(seq_rect, seq_color, true)
+			draw_rect(seq_rect, palette["text"], false, 1.0)
+			if not has_loaded_genome:
+				continue
+			var seq_name := str(seg.get("name", "")).strip_edges()
+			if seq_name.is_empty():
+				continue
+			var label := _truncate_label_to_width(seq_name, seq_rect.size.x - 10.0, 4, seq_font, seq_font_size)
+			if label.is_empty():
+				continue
+			var label_y := _text_baseline_for_center(seq_rect.get_center().y, seq_font, seq_font_size)
+			draw_string(seq_font, Vector2(seq_rect.position.x + 5.0, label_y), label, HORIZONTAL_ALIGNMENT_LEFT, seq_rect.size.x - 10.0, seq_font_size, palette["text"])
+	if has_loaded_genome:
+		var fill: Color = palette.get("genome", Color(0.25, 0.45, 0.75))
+		fill.a = 0.5
+		draw_rect(viewport_rect, fill, true)
+		draw_rect(viewport_rect, palette["text"], false, 1.5)
+
 func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 	var axis_left := TRACK_LEFT_PAD
 	var axis_right := size.x - TRACK_RIGHT_PAD
@@ -2143,9 +2221,33 @@ func _intersects_any(rect: Rect2, existing: Array) -> bool:
 	return false
 
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+	if event is InputEventMouseMotion and _map_drag_active:
+		var motion := event as InputEventMouseMotion
+		var map_rect := _map_track_rect()
+		if map_rect.size.x > 0.0 and map_rect.size.y > 0.0:
+			var total_len: int = max(chromosome_length, 1)
+			var anchor_bp := _map_x_to_bp(motion.position.x, map_rect, total_len)
+			var desired_start := _clamp_start(anchor_bp - _map_drag_bp_offset)
+			view_start_bp = desired_start
+			queue_redraw()
+			_emit_viewport_changed()
+			accept_event()
+			return
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		var mb := event as InputEventMouseButton
-		var mouse_pos: Vector2 = event.position
+		var mouse_pos: Vector2 = mb.position
+		var map_rect := _map_track_rect()
+		if map_rect.size.x > 0.0 and map_rect.size.y > 0.0 and map_rect.has_point(mouse_pos):
+			var total_len: int = max(chromosome_length, 1)
+			var viewport_rect := _map_view_rect(map_rect, total_len)
+			if viewport_rect.has_point(mouse_pos):
+				_map_drag_active = true
+				_map_drag_bp_offset = _map_x_to_bp(mouse_pos.x, map_rect, total_len) - view_start_bp
+			else:
+				_map_drag_active = false
+				_jump_map_view_to(_map_x_to_bp(mouse_pos.x, map_rect, total_len))
+			accept_event()
+			return
 		var read_rect := _any_read_track_rect_at_point(mouse_pos)
 		var aa_rect := _track_rect(TRACK_ID_AA)
 		var in_reads := read_rect.size.x > 0.0 and read_rect.has_point(mouse_pos)
@@ -2164,7 +2266,7 @@ func _gui_input(event: InputEvent) -> void:
 					if mb.double_click:
 						emit_signal("read_activated", read_hit["read"])
 					accept_event()
-					return
+			return
 		if in_aa:
 			for hit in _feature_hitboxes:
 				var rect: Rect2 = hit["rect"]
@@ -2218,6 +2320,10 @@ func _gui_input(event: InputEvent) -> void:
 		if not hit_feature:
 			clear_selected_feature()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		if _map_drag_active:
+			_map_drag_active = false
+			accept_event()
+			return
 		if _region_select_dragging:
 			_finish_region_selection_drag()
 			queue_redraw()
@@ -2431,6 +2537,44 @@ func _feature_to_genome_row(feature: Dictionary) -> int:
 		return 2
 	return 1
 
+func _map_bp_to_x(bp: float, area: Rect2, total_len: int) -> float:
+	var axis_left := TRACK_LEFT_PAD
+	var axis_right := area.position.x + area.size.x - TRACK_RIGHT_PAD
+	var usable_w := maxf(1.0, axis_right - axis_left)
+	var norm := clampf(bp / float(max(total_len, 1)), 0.0, 1.0)
+	return axis_left + norm * usable_w
+
+func _map_x_to_bp(x: float, area: Rect2, total_len: int) -> float:
+	var axis_left := TRACK_LEFT_PAD
+	var axis_right := area.position.x + area.size.x - TRACK_RIGHT_PAD
+	var usable_w := maxf(1.0, axis_right - axis_left)
+	var norm := clampf((x - axis_left) / usable_w, 0.0, 1.0)
+	return norm * float(max(total_len, 1))
+
+func _map_view_rect(area: Rect2, total_len: int) -> Rect2:
+	var visible_span := minf(get_visible_span_bp(), float(max(total_len, 1)))
+	var x0 := _map_bp_to_x(view_start_bp, area, total_len)
+	var x1 := _map_bp_to_x(view_start_bp + visible_span, area, total_len)
+	var axis_left := TRACK_LEFT_PAD
+	var axis_right := area.position.x + area.size.x - TRACK_RIGHT_PAD
+	var usable_w := maxf(1.0, axis_right - axis_left)
+	var w := minf(usable_w, maxf(MAP_VIEW_MIN_PX, x1 - x0))
+	if x0 + w > axis_right:
+		x0 = axis_right - w
+	x0 = clampf(x0, axis_left, axis_right - w)
+	var rect_h := MAP_SEQUENCE_H + MAP_VIEW_EXTRA_H
+	var rect_y := area.position.y + (area.size.y - rect_h) * 0.5
+	return Rect2(x0, rect_y, w, rect_h)
+
+func _map_track_rect() -> Rect2:
+	return _track_rect(TRACK_ID_MAP)
+
+func _jump_map_view_to(bp_center: float) -> void:
+	var target_start := _clamp_start(bp_center - get_visible_span_bp() * 0.5)
+	view_start_bp = target_start
+	queue_redraw()
+	_emit_viewport_changed()
+
 func _generate_mock_data() -> void:
 	reads.clear()
 	features.clear()
@@ -2516,6 +2660,8 @@ func _track_fixed_height(track_id: String) -> float:
 			return _depth_plot_h
 		TRACK_ID_GENOME:
 			return GENOME_H
+		TRACK_ID_MAP:
+			return MAP_TRACK_H
 		_:
 			return -1.0
 
@@ -2568,6 +2714,36 @@ func _tracks_view_rect(track_rects: Dictionary) -> Rect2:
 	if min_y == INF or max_y <= min_y:
 		return Rect2(0.0, TOP_PAD, size.x, maxf(0.0, size.y - TOP_PAD - BOTTOM_PAD))
 	return Rect2(0.0, min_y, size.x, max_y - min_y)
+
+func _region_selection_spans(track_rects: Dictionary) -> Array[Rect2]:
+	var spans: Array[Rect2] = []
+	var current_start := INF
+	var current_end := -INF
+	for track_id_any in _track_order:
+		var track_id := str(track_id_any)
+		if track_id == TRACK_ID_MAP:
+			if current_start != INF and current_end > current_start:
+				spans.append(Rect2(0.0, current_start, size.x, current_end - current_start))
+			current_start = INF
+			current_end = -INF
+			continue
+		if not track_rects.has(track_id):
+			continue
+		var r: Rect2 = track_rects[track_id]
+		if r.size.y <= 0.0:
+			continue
+		if current_start == INF:
+			current_start = r.position.y
+			current_end = r.position.y + r.size.y
+		else:
+			current_end = r.position.y + r.size.y
+	if current_start != INF and current_end > current_start:
+		spans.append(Rect2(0.0, current_start, size.x, current_end - current_start))
+	if spans.is_empty():
+		var fallback := _tracks_view_rect(track_rects)
+		if fallback.size.y > 0.0:
+			spans.append(fallback)
+	return spans
 
 func _layout_reads() -> void:
 	var layout := _read_layout_helper.build_layout(

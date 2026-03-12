@@ -954,6 +954,8 @@ func _track_label_for_id(track_id: String) -> String:
 			return "Depth Plot"
 		"genome":
 			return "Genome"
+		"map":
+			return "Map"
 		_:
 			return track_id
 
