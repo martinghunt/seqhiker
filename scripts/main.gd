@@ -13,6 +13,8 @@ const READ_RENDER_MAX_BP_PER_PX := 128.0
 const DEFAULT_CONCAT_GAP_BP := 50
 const DEFAULT_READ_THICKNESS := 8.0
 const DEFAULT_READ_MAX_ROWS := 500
+const DEFAULT_READ_MIN_MAPQ := 0
+const DEFAULT_READ_HIDDEN_FLAGS := 256 | 512 | 1024 | 2048
 const ANNOT_TILE_BASE_BP := 1024
 const ANNOT_MAX_TILES := 128
 const ANNOT_MIN_TOTAL := 800
@@ -57,6 +59,19 @@ const SAM_FLAG_LABELS := [
 	{"bit": 1, "label": "paired"},
 	{"bit": 2, "label": "proper pair"},
 	{"bit": 4, "label": "unmapped"},
+	{"bit": 8, "label": "mate unmapped"},
+	{"bit": 16, "label": "reverse strand"},
+	{"bit": 32, "label": "mate reverse strand"},
+	{"bit": 64, "label": "first in pair"},
+	{"bit": 128, "label": "second in pair"},
+	{"bit": 256, "label": "secondary alignment"},
+	{"bit": 512, "label": "QC fail"},
+	{"bit": 1024, "label": "duplicate"},
+	{"bit": 2048, "label": "supplementary"}
+]
+const READ_FILTER_FLAG_LABELS := [
+	{"bit": 1, "label": "paired"},
+	{"bit": 2, "label": "proper pair"},
 	{"bit": 8, "label": "mate unmapped"},
 	{"bit": 16, "label": "reverse strand"},
 	{"bit": 32, "label": "mate reverse strand"},
@@ -1045,10 +1060,92 @@ func _on_track_settings_requested(track_id: String) -> void:
 		max_rows_spin.allow_greater = false
 		max_rows_spin.allow_lesser = false
 		max_rows_spin.value = float(int(track_meta.get("max_rows", DEFAULT_READ_MAX_ROWS)))
+		var filter_title := Label.new()
+		filter_title.text = "Filter Reads"
+		var mapq_label := Label.new()
+		mapq_label.text = "Minimum MAPQ"
+		var mapq_spin := SpinBox.new()
+		mapq_spin.min_value = 0
+		mapq_spin.max_value = 255
+		mapq_spin.step = 1
+		mapq_spin.allow_greater = false
+		mapq_spin.allow_lesser = false
+		mapq_spin.value = float(int(track_meta.get("min_mapq", DEFAULT_READ_MIN_MAPQ)))
+		var hidden_flags := int(track_meta.get("hidden_flags", DEFAULT_READ_HIDDEN_FLAGS))
 		_track_settings_box.add_child(thickness_label)
 		_track_settings_box.add_child(thickness_spin)
 		_track_settings_box.add_child(max_rows_label)
 		_track_settings_box.add_child(max_rows_spin)
+		_track_settings_box.add_child(filter_title)
+		_track_settings_box.add_child(mapq_label)
+		_track_settings_box.add_child(mapq_spin)
+		for entry_any in READ_FILTER_FLAG_LABELS:
+			var entry: Dictionary = entry_any
+			var flag_bit := int(entry.get("bit", 0))
+			var flag_cb := CheckBox.new()
+			flag_cb.text = "Hide %s" % str(entry.get("label", ""))
+			flag_cb.button_pressed = (hidden_flags & flag_bit) != 0
+			flag_cb.toggled.connect(func(enabled: bool) -> void:
+				for i in range(_bam_tracks.size()):
+					var t: Dictionary = _bam_tracks[i]
+					if str(t.get("track_id", "")) != track_id:
+						continue
+					var next_hidden := int(t.get("hidden_flags", 0))
+					if enabled:
+						next_hidden |= flag_bit
+					else:
+						next_hidden &= ~flag_bit
+					t["hidden_flags"] = next_hidden
+					_bam_tracks[i] = t
+					break
+				_schedule_fetch()
+			)
+			_track_settings_box.add_child(flag_cb)
+			if flag_bit == 2:
+				var improper_pair_cb := CheckBox.new()
+				improper_pair_cb.text = "Hide improper pair"
+				improper_pair_cb.button_pressed = bool(track_meta.get("hide_improper_pair", false))
+				improper_pair_cb.toggled.connect(func(enabled: bool) -> void:
+					for i in range(_bam_tracks.size()):
+						var t: Dictionary = _bam_tracks[i]
+						if str(t.get("track_id", "")) != track_id:
+							continue
+						t["hide_improper_pair"] = enabled
+						_bam_tracks[i] = t
+						break
+					_schedule_fetch()
+				)
+				_track_settings_box.add_child(improper_pair_cb)
+			elif flag_bit == 8:
+				var mate_forward_cb := CheckBox.new()
+				mate_forward_cb.text = "Hide mate forward strand"
+				mate_forward_cb.button_pressed = bool(track_meta.get("hide_mate_forward_strand", false))
+				mate_forward_cb.toggled.connect(func(enabled: bool) -> void:
+					for i in range(_bam_tracks.size()):
+						var t: Dictionary = _bam_tracks[i]
+						if str(t.get("track_id", "")) != track_id:
+							continue
+						t["hide_mate_forward_strand"] = enabled
+						_bam_tracks[i] = t
+						break
+					_schedule_fetch()
+				)
+				_track_settings_box.add_child(mate_forward_cb)
+			elif flag_bit == 16:
+				var forward_cb := CheckBox.new()
+				forward_cb.text = "Hide forward strand"
+				forward_cb.button_pressed = bool(track_meta.get("hide_forward_strand", false))
+				forward_cb.toggled.connect(func(enabled: bool) -> void:
+					for i in range(_bam_tracks.size()):
+						var t: Dictionary = _bam_tracks[i]
+						if str(t.get("track_id", "")) != track_id:
+							continue
+						t["hide_forward_strand"] = enabled
+						_bam_tracks[i] = t
+						break
+					_schedule_fetch()
+				)
+				_track_settings_box.add_child(forward_cb)
 		view_option.item_selected.connect(func(index: int) -> void:
 			frag_cb.visible = index == 3
 			for i in range(_bam_tracks.size()):
@@ -1082,6 +1179,15 @@ func _on_track_settings_requested(track_id: String) -> void:
 				var t: Dictionary = _bam_tracks[i]
 				if str(t.get("track_id", "")) == track_id:
 					t["max_rows"] = maxi(0, int(round(value)))
+					_bam_tracks[i] = t
+					break
+			_schedule_fetch()
+		)
+		mapq_spin.value_changed.connect(func(value: float) -> void:
+			for i in range(_bam_tracks.size()):
+				var t: Dictionary = _bam_tracks[i]
+				if str(t.get("track_id", "")) == track_id:
+					t["min_mapq"] = clampi(int(round(value)), 0, 255)
 					_bam_tracks[i] = t
 					break
 			_schedule_fetch()
@@ -1841,7 +1947,12 @@ func _load_dropped_files(files: PackedStringArray) -> bool:
 			"view_mode": 0,
 			"fragment_log": true,
 			"thickness": DEFAULT_READ_THICKNESS,
-			"max_rows": DEFAULT_READ_MAX_ROWS
+			"max_rows": DEFAULT_READ_MAX_ROWS,
+			"min_mapq": DEFAULT_READ_MIN_MAPQ,
+			"hidden_flags": DEFAULT_READ_HIDDEN_FLAGS,
+			"hide_improper_pair": false,
+			"hide_forward_strand": false,
+			"hide_mate_forward_strand": false
 		})
 		_has_bam_loaded = true
 		_center_strand_scroll_pending = true

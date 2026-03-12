@@ -268,11 +268,26 @@ func _prepare_track_payload(track: Dictionary, track_reads: Array[Dictionary], t
 	var view_mode := int(track.get("view_mode", 0))
 	var fragment_log := bool(track.get("fragment_log", true))
 	var max_rows := int(track.get("max_rows", 500))
+	var min_mapq := int(track.get("min_mapq", 0))
+	var hidden_flags := int(track.get("hidden_flags", 0))
+	var hide_improper_pair := bool(track.get("hide_improper_pair", false))
+	var hide_forward_strand := bool(track.get("hide_forward_strand", false))
+	var hide_mate_forward_strand := bool(track.get("hide_mate_forward_strand", false))
 	var prepared_reads: Array[Dictionary] = []
 	for read_any in _dedupe_reads(track_reads):
 		if typeof(read_any) != TYPE_DICTIONARY:
 			continue
 		var read: Dictionary = (read_any as Dictionary).duplicate(true)
+		if int(read.get("mapq", 0)) < min_mapq:
+			continue
+		if (int(read.get("flags", 0)) & hidden_flags) != 0:
+			continue
+		if hide_improper_pair and (int(read.get("flags", 0)) & 2) == 0:
+			continue
+		if hide_forward_strand and (int(read.get("flags", 0)) & 16) == 0:
+			continue
+		if hide_mate_forward_strand and (int(read.get("flags", 0)) & 32) == 0:
+			continue
 		_read_layout_helper.attach_indel_markers(read)
 		prepared_reads.append(read)
 	var layout := _read_layout_helper.build_layout(prepared_reads, view_mode, fragment_log, max_rows, view_start, view_end)
