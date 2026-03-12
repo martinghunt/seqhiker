@@ -47,12 +47,17 @@ layout_mode = 2
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="FeatureContent" type="VBoxContainer" parent="FeatureMargin/FeatureLayout/FeatureScroll"]
+[node name="FeaturePadding" type="MarginContainer" parent="FeatureMargin/FeatureLayout/FeatureScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/margin_right = 16
+
+[node name="FeatureContent" type="VBoxContainer" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
-[node name="FeatureNameLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+[node name="FeatureNameLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Name: -"
@@ -60,7 +65,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureTypeLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+[node name="FeatureTypeLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Type: -"
@@ -68,7 +73,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureRangeLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+[node name="FeatureRangeLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Range: -"
@@ -76,7 +81,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureStrandLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+[node name="FeatureStrandLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Strand: -"
@@ -84,7 +89,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureSourceLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+[node name="FeatureSourceLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Source: -"
@@ -92,7 +97,7 @@ fit_content = true
 scroll_active = false
 selection_enabled = true
 
-[node name="FeatureSeqLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent"]
+[node name="FeatureSeqLabel" type="RichTextLabel" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent"]
 layout_mode = 2
 focus_mode = 2
 text = "Sequence: -"

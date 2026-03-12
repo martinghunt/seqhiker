@@ -104,15 +104,19 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var stop_button: Button = $Root/TopBar/ActionClipper/ActionStrip/StopButton
 @onready var viewport_label: Label = $Root/TopBar/ActionClipper/ActionStrip/ViewportLabel
 @onready var feature_panel: PanelContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel
+@onready var _feature_margin: MarginContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin
+@onready var _feature_layout: VBoxContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout
+@onready var _feature_header: HBoxContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureHeader
 @onready var feature_close_button: Button = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureHeader/FeatureCloseButton
 @onready var feature_title_label: Label = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureHeader/FeatureTitle
-@onready var feature_name_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent/FeatureNameLabel
-@onready var feature_type_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent/FeatureTypeLabel
-@onready var feature_range_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent/FeatureRangeLabel
-@onready var feature_strand_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent/FeatureStrandLabel
-@onready var feature_source_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent/FeatureSourceLabel
-@onready var feature_seq_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent/FeatureSeqLabel
-@onready var feature_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeatureContent
+@onready var feature_name_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent/FeatureNameLabel
+@onready var feature_type_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent/FeatureTypeLabel
+@onready var feature_range_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent/FeatureRangeLabel
+@onready var feature_strand_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent/FeatureStrandLabel
+@onready var feature_source_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent/FeatureSourceLabel
+@onready var feature_seq_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent/FeatureSeqLabel
+@onready var feature_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent
+@onready var feature_scroll: ScrollContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll
 @onready var ui_scale_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UIScaleSlider
 @onready var ui_scale_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UIScaleValue
 @onready var _font_size_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/FontSizeSpin
@@ -284,7 +288,8 @@ func _ready() -> void:
 	_settings_open = false
 	_apply_settings_panel_offsets(false)
 	settings_panel.visible = false
-	_slide_feature_panel(false, false)
+	_update_feature_panel_width()
+	_apply_feature_panel_offsets(false)
 	call_deferred("_initialize_settings_panel")
 	call_deferred("_startup_connect_local_zem")
 	if get_window().has_signal("files_dropped"):
@@ -293,6 +298,7 @@ func _ready() -> void:
 func _initialize_settings_panel() -> void:
 	_set_status("Disconnected")
 	call_deferred("_update_settings_panel_width")
+	call_deferred("_update_feature_panel_width")
 
 func _startup_connect_local_zem() -> void:
 	var host := "127.0.0.1"
@@ -517,7 +523,8 @@ func _slide_settings(open: bool, animated: bool) -> void:
 func _slide_feature_panel(open: bool, animated: bool) -> void:
 	if _feature_tween and _feature_tween.is_running():
 		_feature_tween.kill()
-	var panel_w := maxf(feature_panel.size.x, feature_panel.custom_minimum_size.x)
+	_update_feature_panel_width()
+	var panel_w := _feature_panel_target_width()
 	var closed_w: float = float(ceili(panel_w)) + 2.0
 	var target_left: float = -panel_w if open else 0.0
 	var target_right: float = 0.0 if open else closed_w
@@ -528,8 +535,7 @@ func _slide_feature_panel(open: bool, animated: bool) -> void:
 		_feature_tween.parallel().tween_property(feature_panel, "offset_left", target_left, 0.24)
 		_feature_tween.parallel().tween_property(feature_panel, "offset_right", target_right, 0.24)
 	else:
-		feature_panel.offset_left = target_left
-		feature_panel.offset_right = target_right
+		_apply_feature_panel_offsets(open)
 
 func _on_ui_scale_value_changed(value: float) -> void:
 	ui_scale_value.text = "%.2fx" % value
@@ -1600,6 +1606,7 @@ func _apply_theme(theme_name: String) -> void:
 	_apply_topbar_button_font_size()
 	_apply_settings_scrollbar_style()
 	call_deferred("_update_settings_panel_width")
+	call_deferred("_update_feature_panel_width")
 
 func _update_settings_panel_width() -> void:
 	if settings_panel == null or _settings_layout == null or _settings_margin == null or _viewport_layer == null or _settings_header == null:
@@ -1624,6 +1631,9 @@ func _update_settings_panel_width() -> void:
 func _settings_panel_target_width() -> float:
 	return maxf(settings_panel.custom_minimum_size.x, 300.0)
 
+func _feature_panel_target_width() -> float:
+	return maxf(feature_panel.custom_minimum_size.x, 320.0)
+
 func _apply_settings_panel_offsets(open: bool) -> void:
 	var panel_w := _settings_panel_target_width()
 	if open:
@@ -1632,6 +1642,16 @@ func _apply_settings_panel_offsets(open: bool) -> void:
 	else:
 		settings_panel.offset_left = -panel_w - 2.0
 		settings_panel.offset_right = -2.0
+
+func _apply_feature_panel_offsets(open: bool) -> void:
+	var panel_w := _feature_panel_target_width()
+	var closed_w := float(ceili(panel_w)) + 2.0
+	if open:
+		feature_panel.offset_left = -panel_w
+		feature_panel.offset_right = 0.0
+	else:
+		feature_panel.offset_left = 0.0
+		feature_panel.offset_right = closed_w
 
 func _measure_settings_content_width(node: Node) -> float:
 	if node == null:
@@ -1652,10 +1672,32 @@ func _measure_settings_content_width(node: Node) -> float:
 		widest = maxf(widest, _measure_settings_content_width(child))
 	return widest
 
-func _apply_settings_scrollbar_style() -> void:
-	if settings_scroll == null:
+func _update_feature_panel_width() -> void:
+	if feature_panel == null or _feature_layout == null or _feature_margin == null or _viewport_layer == null or _feature_header == null:
 		return
-	var vbar := settings_scroll.get_v_scroll_bar()
+	var layout_min_w := maxf(
+		_feature_header.get_combined_minimum_size().x,
+		_measure_settings_content_width(feature_content)
+	)
+	var margin_left := float(_feature_margin.get_theme_constant("margin_left"))
+	var margin_right := float(_feature_margin.get_theme_constant("margin_right"))
+	var scroll_right := 22.0
+	var width_slack := 18.0
+	var target_w := ceilf(layout_min_w + margin_left + margin_right + scroll_right + width_slack)
+	target_w = maxf(target_w, 320.0)
+	var max_w := maxf(320.0, _viewport_layer.size.x - 24.0)
+	target_w = minf(target_w, max_w)
+	feature_panel.custom_minimum_size.x = target_w
+	_apply_feature_panel_offsets(_feature_panel_open)
+
+func _apply_settings_scrollbar_style() -> void:
+	_apply_scrollbar_width(settings_scroll)
+	_apply_scrollbar_width(feature_scroll)
+
+func _apply_scrollbar_width(scroll: ScrollContainer) -> void:
+	if scroll == null:
+		return
+	var vbar := scroll.get_v_scroll_bar()
 	if vbar != null:
 		vbar.add_theme_constant_override("scroll_size", 14)
 		vbar.custom_minimum_size.x = 14
@@ -2761,6 +2803,12 @@ func _on_feature_clicked(feature: Dictionary) -> void:
 	_active_track_settings_id = ""
 	feature_title_label.text = "Feature Details"
 	_set_feature_labels_visible(true)
+	feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feature_strand_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feature_source_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feature_seq_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	feature_name_label.visible = true
 	if _track_settings_box != null:
 		_track_settings_box.visible = false
@@ -2806,6 +2854,12 @@ func _on_read_clicked(read: Dictionary) -> void:
 	_active_track_settings_id = ""
 	feature_title_label.text = "Feature Details"
 	_set_feature_labels_visible(true)
+	feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feature_strand_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feature_source_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feature_seq_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	feature_name_label.visible = true
 	if _track_settings_box != null:
 		_track_settings_box.visible = false
