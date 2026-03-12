@@ -53,6 +53,20 @@ const DEPTH_SERIES_COLORS := [
 const VIEW_SLOT_COUNT := 9
 const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
 const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
+const SAM_FLAG_LABELS := [
+	{"bit": 1, "label": "paired"},
+	{"bit": 2, "label": "proper pair"},
+	{"bit": 4, "label": "unmapped"},
+	{"bit": 8, "label": "mate unmapped"},
+	{"bit": 16, "label": "reverse strand"},
+	{"bit": 32, "label": "mate reverse strand"},
+	{"bit": 64, "label": "first in pair"},
+	{"bit": 128, "label": "second in pair"},
+	{"bit": 256, "label": "secondary alignment"},
+	{"bit": 512, "label": "QC fail"},
+	{"bit": 1024, "label": "duplicate"},
+	{"bit": 2048, "label": "supplementary"}
+]
 @onready var background: ColorRect = $Background
 @onready var genome_view: Control = $Root/ContentMargin/ViewportLayer/GenomeView
 @onready var settings_panel: PanelContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel
@@ -2653,7 +2667,7 @@ func _on_read_clicked(read: Dictionary) -> void:
 	feature_range_label.text = "CIGAR: %s" % cigar
 	feature_strand_label.text = "Strand: %s | MAPQ: %d | Flags: %d" % [strand, mapq, flags]
 	feature_source_label.text = "%s | Fragment: %d bp" % [mate_text, frag_len]
-	feature_seq_label.text = "SNPs: %s" % snp_text
+	feature_seq_label.text = "SNPs: %s\nFlags:\n%s" % [snp_text, _format_read_flags(flags)]
 	if mate_start >= 0 and mate_end > mate_start:
 		if _read_mate_jump_button == null:
 			_read_mate_jump_button = Button.new()
@@ -2700,6 +2714,15 @@ func _format_read_snps(snps: PackedInt32Array) -> String:
 	if snps.size() > limit:
 		parts.append("...")
 	return "%d [%s]" % [snps.size(), ", ".join(parts)]
+
+func _format_read_flags(flags: int) -> String:
+	var lines: Array[String] = []
+	for entry_any in SAM_FLAG_LABELS:
+		var entry: Dictionary = entry_any
+		var bit := int(entry.get("bit", 0))
+		var marker := "✓" if (flags & bit) != 0 else "✗"
+		lines.append("%s %s (%d)" % [marker, str(entry.get("label", "")), bit])
+	return "\n".join(lines)
 
 func _close_feature_panel() -> void:
 	_maybe_save_genome_track_settings()
