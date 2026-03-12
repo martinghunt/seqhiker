@@ -249,6 +249,8 @@ func _set_font_colors(theme: Theme, p: Dictionary) -> void:
 	theme.set_color("font_focus_color", "CheckBox", text)
 	theme.set_color("font_disabled_color", "CheckBox", text_muted)
 	theme.set_color("font_color", "LineEdit", text)
+	theme.set_color("caret_color", "LineEdit", text)
+	theme.set_color("selection_color", "LineEdit", text)
 	theme.set_color("font_color", "OptionButton", text)
 	theme.set_color("font_color", "ItemList", text)
 	theme.set_color("font_color", "PopupMenu", text)
