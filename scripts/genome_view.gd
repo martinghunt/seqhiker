@@ -1442,6 +1442,7 @@ func _draw_aa_tracks(area: Rect2) -> void:
 	var area_start := area.position.y
 	var show_aa_letters := _can_draw_aa_letters()
 	var show_feature_detail := bp_per_px <= FEATURE_DETAIL_MAX_BP_PER_PX
+	var aa_feature_height := AA_ROW_H - 6.0
 	var frame_label_boxes: Array = []
 	var pending_labels: Array[Dictionary] = []
 	frame_label_boxes.resize(6)
@@ -1470,13 +1471,14 @@ func _draw_aa_tracks(area: Rect2) -> void:
 		var f_end: int = feature["end"]
 		if f_end < int(view_start_bp) || f_start > int(_viewport_end_bp()):
 			continue
-		var fy := area_start + frame * (AA_ROW_H + AA_ROW_GAP) + 4.0
+		var row_center_y := _aa_frame_row_center_y(area_start, frame)
+		var fy := row_center_y - aa_feature_height * 0.5
 		var fx0 := TRACK_LEFT_PAD + _bp_to_x(f_start)
 		var fx1 := TRACK_LEFT_PAD + _bp_to_x(f_end)
 		var feature_w := fx1 - fx0
 		if feature_w < FEATURE_MIN_DRAW_PX:
 			continue
-		var rect := Rect2(Vector2(fx0, fy), Vector2(feature_w, AA_ROW_H - 8.0))
+		var rect := Rect2(Vector2(fx0, fy), Vector2(feature_w, aa_feature_height))
 		var feature_col: Color = palette["feature"]
 		feature_col.a = 1.0
 		draw_rect(rect, feature_col, true)
@@ -1503,8 +1505,9 @@ func _draw_aa_tracks(area: Rect2) -> void:
 				var label_rect := Rect2(Vector2(label_x_min, rect.position.y + 2.0), Vector2(draw_w, AA_ROW_H - 8.0))
 				if not _intersects_any(label_rect, frame_label_boxes[frame]):
 					var ann_text_col: Color = palette.get("feature_text", _axis_text_color())
+					var label_center_y := rect.position.y + rect.size.y * 0.5
 					pending_labels.append({
-						"pos": Vector2(label_x_min, rect.position.y + 14.0),
+						"pos": Vector2(label_x_min, _text_baseline_for_center(label_center_y, font, font_size)),
 						"text": label,
 						"max_w": label_w,
 						"font_size": font_size,
@@ -1534,6 +1537,103 @@ func _draw_aa_tracks(area: Rect2) -> void:
 		"culled_density": culled_density,
 		"draw_ms": float(Time.get_ticks_usec() - t0) / 1000.0
 	}
+
+func _draw_genome_feature_tracks(area: Rect2, line_y: float) -> void:
+	var show_feature_labels := not _can_draw_nucleotide_letters()
+	var row_height := AA_ROW_H - 6.0
+	var row_label_boxes: Array = [[], [], []]
+	var pending_labels: Array[Dictionary] = []
+	var text_col: Color = palette.get("feature_text", _axis_text_color())
+	for feature in features:
+		if _is_hidden_full_length_region(feature):
+			continue
+		if _feature_uses_frame(feature):
+			continue
+		var row := _feature_to_genome_row(feature)
+		if row < 0 or row > 2:
+			continue
+		var f_start := int(feature.get("start", 0))
+		var f_end := int(feature.get("end", f_start))
+		if f_end < int(view_start_bp) || f_start > int(_viewport_end_bp()):
+			continue
+		var fx0 := TRACK_LEFT_PAD + _bp_to_x(f_start)
+		var fx1 := TRACK_LEFT_PAD + _bp_to_x(f_end)
+		var feature_w := fx1 - fx0
+		if feature_w < FEATURE_MIN_DRAW_PX:
+			continue
+		var row_center_y := _genome_feature_row_center_y(area, line_y, row)
+		var rect := Rect2(Vector2(fx0, row_center_y - row_height * 0.5), Vector2(feature_w, row_height))
+		var feature_col: Color = palette["feature"]
+		feature_col.a = 0.9
+		draw_rect(rect, feature_col, true)
+		var key := _feature_key(feature)
+		if not _selected_feature_key.is_empty() and key == _selected_feature_key:
+			draw_rect(rect.grow(1.5), text_col, false, 2.0)
+		_feature_hitboxes.append({
+			"rect": rect.grow(3.0),
+			"feature": feature
+		})
+		if not show_feature_labels:
+			continue
+		var label_x_min := maxf(rect.position.x + 4.0, TRACK_LEFT_PAD + 2.0)
+		var label_x_max := minf(rect.position.x + rect.size.x - 4.0, size.x - TRACK_RIGHT_PAD - 2.0)
+		var label_w := maxf(0.0, label_x_max - label_x_min)
+		var label := _feature_annotation_label(feature, label_w)
+		if label.is_empty():
+			continue
+		var font := get_theme_default_font()
+		var font_size := _font_size_small
+		var text_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		var draw_w := minf(label_w, text_w)
+		var label_rect := Rect2(Vector2(label_x_min, rect.position.y + 2.0), Vector2(draw_w, row_height - 4.0))
+		if _intersects_any(label_rect, row_label_boxes[row]):
+			continue
+		var label_center_y := rect.position.y + rect.size.y * 0.5
+		pending_labels.append({
+			"pos": Vector2(label_x_min, _text_baseline_for_center(label_center_y, font, font_size)),
+			"text": label,
+			"max_w": label_w,
+			"font_size": font_size,
+			"color": text_col
+		})
+		row_label_boxes[row].append(label_rect)
+	var label_font := get_theme_default_font()
+	for entry in pending_labels:
+		draw_string(
+			label_font,
+			entry.get("pos", Vector2.ZERO),
+			str(entry.get("text", "")),
+			HORIZONTAL_ALIGNMENT_LEFT,
+			float(entry.get("max_w", -1.0)),
+			int(entry.get("font_size", _font_size_small)),
+			entry.get("color", text_col)
+		)
+
+func _text_center_y(font: Font, font_size: int, baseline_y: float) -> float:
+	var ascent := font.get_ascent(font_size)
+	var descent := font.get_descent(font_size)
+	return baseline_y + (descent - ascent) * 0.5
+
+func _text_baseline_for_center(center_y: float, font: Font, font_size: int) -> float:
+	var ascent := font.get_ascent(font_size)
+	var descent := font.get_descent(font_size)
+	return center_y + (ascent - descent) * 0.5
+
+func _aa_frame_row_center_y(area_start: float, frame: int) -> float:
+	var font := get_theme_default_font()
+	return _text_center_y(font, _font_size_medium, area_start + frame * (AA_ROW_H + AA_ROW_GAP) + 17.0)
+
+func _genome_feature_row_center_y(area: Rect2, line_y: float, row: int) -> float:
+	var font := get_theme_default_font()
+	match row:
+		0:
+			return _text_center_y(font, _font_size_large, line_y - 12.0)
+		1:
+			return area.position.y + area.size.y * 0.5
+		2:
+			return _text_center_y(font, _font_size_large, line_y + 30.0)
+		_:
+			return area.position.y + area.size.y * 0.5
 
 func annotation_debug_stats() -> Dictionary:
 	return _annotation_debug_stats.duplicate()
@@ -1730,6 +1830,7 @@ func _draw_genome_track(area: Rect2) -> void:
 		_draw_ticks(y, line_y)
 	else:
 		_draw_concat_genome_axis(y, line_y)
+	_draw_genome_feature_tracks(area, line_y)
 	_draw_nucleotide_letters(y, line_y)
 
 func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
@@ -2259,6 +2360,8 @@ func _axis_tick_step(span: float) -> int:
 	return step6
 
 func _feature_to_frame(feature: Dictionary) -> int:
+	if not _feature_uses_frame(feature):
+		return -1
 	var strand: String = str(feature.get("strand", "+"))
 	var start: int = int(feature.get("start", 0))
 	var end: int = int(feature.get("end", 0))
@@ -2266,6 +2369,18 @@ func _feature_to_frame(feature: Dictionary) -> int:
 		var reverse_phase := ((2 - ((end - 1) % 3)) + 3) % 3
 		return 3 + reverse_phase
 	return ((start % 3) + 3) % 3
+
+func _feature_uses_frame(feature: Dictionary) -> bool:
+	var feature_type := str(feature.get("type", "")).to_lower()
+	return feature_type == "cds" or feature_type == "gene"
+
+func _feature_to_genome_row(feature: Dictionary) -> int:
+	var strand := str(feature.get("strand", "")).strip_edges()
+	if strand == "+":
+		return 0
+	if strand == "-":
+		return 2
+	return 1
 
 func _generate_mock_data() -> void:
 	reads.clear()
