@@ -907,8 +907,15 @@ func _draw_read_tracks(area: Rect2) -> void:
 
 	var content_top := area.position.y + 30.0
 	var content_bottom := area.position.y + area.size.y - 4.0
-	var scroll_sign := -1.0 if _read_view_mode == READ_VIEW_STRAND else 1.0
-	var scroll_px := scroll_sign * _reads_scrollbar.value * (_read_row_h + READ_ROW_GAP)
+	var scroll_px := 0.0
+	if _read_view_mode == READ_VIEW_FRAGMENT:
+		scroll_px = _reads_scrollbar.value * (_read_row_h + READ_ROW_GAP)
+	elif _read_view_mode == READ_VIEW_STRAND:
+		scroll_px = -_reads_scrollbar.value * (_read_row_h + READ_ROW_GAP)
+	else:
+		var max_offset := maxf(0.0, _reads_scrollbar.max_value - _reads_scrollbar.page)
+		var effective_offset := maxf(0.0, max_offset - _reads_scrollbar.value)
+		scroll_px = effective_offset * (_read_row_h + READ_ROW_GAP)
 	var strand_split_y := 0.0
 	if _read_view_mode == READ_VIEW_STRAND:
 		var step_px := _read_row_h + READ_ROW_GAP
