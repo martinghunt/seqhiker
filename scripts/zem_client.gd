@@ -484,6 +484,7 @@ func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:
 		off += attr_len
 		var name := _extract_first_attr(attrs, DISPLAY_NAME_KEYS)
 		var feature_id := _extract_first_attr(attrs, ["ID="])
+		var parent_id := _extract_first_attr(attrs, ["Parent="])
 		if name.is_empty():
 			name = _extract_name(attrs, feature_type)
 		out.append({
@@ -494,7 +495,8 @@ func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:
 			"source": source,
 			"type": feature_type,
 			"name": name,
-			"id": feature_id
+			"id": feature_id,
+			"parent": parent_id
 		})
 	return out
 

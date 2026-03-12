@@ -2085,6 +2085,47 @@ func _apply_pending_annotation_highlight(features: Array[Dictionary]) -> void:
 		genome_view.set_selected_feature(f, false)
 		return
 
+func _collapse_gene_cds_features(features_in: Array[Dictionary]) -> Array[Dictionary]:
+	var gene_index_by_key := {}
+	for i in range(features_in.size()):
+		var feature: Dictionary = features_in[i]
+		if str(feature.get("type", "")).to_lower() != "gene":
+			continue
+		gene_index_by_key[_feature_pair_key(feature)] = i
+	var drop_indexes := {}
+	for i in range(features_in.size()):
+		var feature: Dictionary = features_in[i]
+		if str(feature.get("type", "")).to_lower() != "cds":
+			continue
+		var parent_id := str(feature.get("parent", "")).strip_edges()
+		if parent_id.is_empty():
+			continue
+		var pair_key := _feature_pair_key(feature)
+		if not gene_index_by_key.has(pair_key):
+			continue
+		var gene_idx := int(gene_index_by_key[pair_key])
+		var gene_feature: Dictionary = features_in[gene_idx]
+		if parent_id != str(gene_feature.get("id", "")).strip_edges():
+			continue
+		gene_feature["paired_cds"] = feature.duplicate(true)
+		features_in[gene_idx] = gene_feature
+		drop_indexes[i] = true
+	var out: Array[Dictionary] = []
+	for i in range(features_in.size()):
+		if drop_indexes.get(i, false):
+			continue
+		out.append(features_in[i])
+	return out
+
+func _feature_pair_key(feature: Dictionary) -> String:
+	return "%s|%s|%d|%d|%s" % [
+		str(feature.get("seq_name", "")),
+		str(feature.get("strand", "")),
+		int(feature.get("start", 0)),
+		int(feature.get("end", 0)),
+		str(feature.get("source", ""))
+	]
+
 func _scope_cache_key() -> String:
 	if _seq_view_mode == SEQ_VIEW_SINGLE:
 		return "single:%d" % _current_chr_id
@@ -2172,6 +2213,7 @@ func _refresh_visible_data() -> void:
 
 		if need_reference:
 			ref_sequence = _build_concat_reference(query_start, query_end, overlaps)
+	features = _collapse_gene_cds_features(features)
 	genome_view.set_features(features)
 	genome_view.set_reference_slice(ref_start, ref_sequence)
 	_apply_pending_annotation_highlight(features)
@@ -2735,7 +2777,22 @@ func _on_feature_clicked(feature: Dictionary) -> void:
 		feature_source_label.text = "Source: %s" % str(feature.get("source", "-"))
 	else:
 		feature_source_label.text = "Source: %s | ID=%s" % [str(feature.get("source", "-")), feature_id]
-	feature_seq_label.text = "Sequence: %s" % str(feature.get("seq_name", _current_chr_name))
+	var seq_text := "Sequence: %s" % str(feature.get("seq_name", _current_chr_name))
+	var paired_cds: Dictionary = feature.get("paired_cds", {})
+	if not paired_cds.is_empty():
+		var cds_id := str(paired_cds.get("id", "")).strip_edges()
+		var cds_source := str(paired_cds.get("source", "-"))
+		var cds_name := str(paired_cds.get("name", "-"))
+		seq_text += "\n\nCDS\nName: %s\nRange: %d - %d\nStrand: %s\nSource: %s" % [
+			cds_name,
+			int(paired_cds.get("start", 0)),
+			int(paired_cds.get("end", 0)),
+			str(paired_cds.get("strand", ".")),
+			cds_source
+		]
+		if not cds_id.is_empty():
+			seq_text += "\nID: %s" % cds_id
+	feature_seq_label.text = seq_text
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)
 
