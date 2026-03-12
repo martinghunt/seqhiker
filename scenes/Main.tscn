@@ -283,6 +283,9 @@ tooltip_text = "Close settings"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "V"
 
+[node name="TitleSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout"]
+layout_mode = 2
+
 [node name="SettingsScroll" type="ScrollContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout"]
 layout_mode = 2
 size_flags_vertical = 3
@@ -297,9 +300,6 @@ theme_override_constants/margin_right = 22
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 8
-
-[node name="TitleSeparator" type="HSeparator" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
-layout_mode = 2
 
 [node name="TrackVisibilityLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
