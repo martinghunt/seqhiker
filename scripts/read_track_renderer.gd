@@ -41,25 +41,27 @@ func draw_read_tracks(area: Rect2) -> void:
 
 	var content_top := area.position.y + 30.0
 	var content_bottom := area.position.y + area.size.y - 4.0
+	var row_h := view.current_read_row_h()
+	var row_step := view.current_read_row_step()
 	var scroll_px := 0.0
 	if view._read_view_mode == view.READ_VIEW_FRAGMENT:
-		scroll_px = view._reads_scrollbar.value * (view._read_row_h + view.READ_ROW_GAP)
+		scroll_px = view._reads_scrollbar.value * row_step
 	elif view._read_view_mode == view.READ_VIEW_STRAND:
-		scroll_px = -view._reads_scrollbar.value * (view._read_row_h + view.READ_ROW_GAP)
+		scroll_px = -view._reads_scrollbar.value * row_step
 	else:
 		var max_offset := maxf(0.0, view._reads_scrollbar.max_value - view._reads_scrollbar.page)
 		var effective_offset := maxf(0.0, max_offset - view._reads_scrollbar.value)
-		scroll_px = effective_offset * (view._read_row_h + view.READ_ROW_GAP)
+		scroll_px = effective_offset * row_step
 	var strand_split_y := 0.0
 	if view._read_view_mode == view.READ_VIEW_STRAND:
-		var step_px := view._read_row_h + view.READ_ROW_GAP
+		var step_px := row_step
 		var split_gap := view._strand_split_gap_px()
 		var forward_extent := 0.0
 		var reverse_extent := 0.0
 		if view._strand_forward_rows > 0:
-			forward_extent = view._read_row_h + float(view._strand_forward_rows - 1) * step_px + split_gap * 0.5
+			forward_extent = row_h + float(view._strand_forward_rows - 1) * step_px + split_gap * 0.5
 		if view._strand_reverse_rows > 0:
-			reverse_extent = view._read_row_h + float(view._strand_reverse_rows - 1) * step_px + split_gap * 0.5
+			reverse_extent = row_h + float(view._strand_reverse_rows - 1) * step_px + split_gap * 0.5
 		var split_at_forward_top := content_top + forward_extent
 		var split_at_reverse_bottom := content_bottom - reverse_extent
 		if split_at_forward_top <= split_at_reverse_bottom:
@@ -90,11 +92,11 @@ func draw_read_tracks(area: Rect2) -> void:
 					continue
 				drawn_pairs[pair_key] = true
 		var y := read_y_for_area(read, content_top, content_bottom, scroll_px, strand_split_y)
-		if y + view._read_row_h < content_top or y > area.position.y + area.size.y - 4.0:
+		if y + row_h < content_top or y > area.position.y + area.size.y - 4.0:
 			continue
 		var x0 := view.TRACK_LEFT_PAD + view._bp_to_x(read_start)
 		var x1 := view.TRACK_LEFT_PAD + view._bp_to_x(read_end)
-		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), view._read_row_h))
+		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), row_h))
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 			draw_pair_connector(read, y)
 			draw_mate_block(read, y)
@@ -148,27 +150,29 @@ func draw_read_tracks(area: Rect2) -> void:
 					base_text = "N" if b.is_empty() else b
 					var base_w := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x + 2.0
 					snp_w = maxf(snp_w, base_w)
-				view.draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, view._read_row_h), view.palette.get("snp", Color(0.86, 0.14, 0.14)), true)
+				view.draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, row_h), view.palette.get("snp", Color(0.86, 0.14, 0.14)), true)
 				if draw_snp_text and not base_text.is_empty():
 					var tw := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x
 					var tx := sx - tw * 0.5
-					var ty := y + (view._read_row_h + float(snp_font_size)) * 0.5 - 1.0
+					var ty := y + (row_h + float(snp_font_size)) * 0.5 - 1.0
 					view.draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
 			draw_indel_markers(read, y)
 
 
 func read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:
+	var row_h := view.current_read_row_h()
+	var row_step := view.current_read_row_step()
 	if view._read_view_mode == view.READ_VIEW_FRAGMENT:
 		var norm := clampf(float(read.get("frag_norm", 0.0)), 0.0, 1.0)
-		var span := maxf(1.0, content_bottom - content_top - view._read_row_h)
-		return content_bottom - view._read_row_h - norm * span
+		var span := maxf(1.0, content_bottom - content_top - row_h)
+		return content_bottom - row_h - norm * span
 	var row: int = int(read.get("row", 0))
 	if view._read_view_mode == view.READ_VIEW_STRAND:
 		var split_gap := view._strand_split_gap_px()
 		if bool(read.get("reverse", false)):
-			return strand_split_y + split_gap * 0.5 + row * (view._read_row_h + view.READ_ROW_GAP)
-		return strand_split_y - split_gap * 0.5 - view._read_row_h - row * (view._read_row_h + view.READ_ROW_GAP)
-	return content_bottom - view._read_row_h - row * (view._read_row_h + view.READ_ROW_GAP) + scroll_px
+			return strand_split_y + split_gap * 0.5 + row * row_step
+		return strand_split_y - split_gap * 0.5 - row_h - row * row_step
+	return content_bottom - row_h - row * row_step + scroll_px
 
 
 func draw_pair_connector(read: Dictionary, y: float) -> void:
@@ -180,31 +184,23 @@ func draw_pair_connector(read: Dictionary, y: float) -> void:
 	var mate_center := float(mate_start + mate_end) * 0.5
 	var x0 := view.TRACK_LEFT_PAD + view._bp_to_x(read_center)
 	var x1 := view.TRACK_LEFT_PAD + view._bp_to_x(mate_center)
-	var yc := y + view._read_row_h * 0.5
+	var yc := y + view.current_read_row_h() * 0.5
 	view.draw_line(Vector2(x0, yc), Vector2(x1, yc), Color(0.24, 0.24, 0.24, 0.9), 1.0)
 
 
 func can_draw_read_snp_letters() -> bool:
-	if view._read_row_h < 10.0:
-		return false
-	var font := view.get_theme_default_font()
-	var font_size := read_text_font_size()
-	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	if char_px <= 0.0:
-		return false
-	var pixels_per_bp := 1.0 / view.bp_per_px
-	return pixels_per_bp >= char_px + 1.0
+	return view.can_draw_read_snp_letters_for_row_h(view.current_read_row_h())
 
 
 func read_text_font_size() -> int:
-	var row_cap := clampi(int(floor(view._read_row_h - 1.0)), 8, view._font_size_large)
-	return mini(view._font_size_medium, row_cap)
+	return view._read_text_font_size_for_row_h(view.current_read_row_h())
 
 
 func draw_indel_markers(read: Dictionary, y: float) -> void:
-	var mid_y := y + view._read_row_h * 0.5
-	var half_h := maxf(1.0, view._read_row_h * 0.5)
-	var trim_h := maxf(0.0, (view._read_row_h - half_h) * 0.5)
+	var row_h := view.current_read_row_h()
+	var mid_y := y + row_h * 0.5
+	var half_h := maxf(1.0, row_h * 0.5)
+	var trim_h := maxf(0.0, (row_h - half_h) * 0.5)
 	var del_starts: PackedInt32Array = read.get("del_starts", PackedInt32Array())
 	var del_ends: PackedInt32Array = read.get("del_ends", PackedInt32Array())
 	var del_count := mini(del_starts.size(), del_ends.size())
@@ -219,7 +215,7 @@ func draw_indel_markers(read: Dictionary, y: float) -> void:
 		var dx1 := view.TRACK_LEFT_PAD + view._bp_to_x(float(de))
 		if trim_h > 0.0 and dx1 > dx0:
 			view.draw_rect(Rect2(dx0, y, dx1 - dx0, trim_h), view.palette["bg"], true)
-			view.draw_rect(Rect2(dx0, y + view._read_row_h - trim_h, dx1 - dx0, trim_h), view.palette["bg"], true)
+			view.draw_rect(Rect2(dx0, y + row_h - trim_h, dx1 - dx0, trim_h), view.palette["bg"], true)
 		view.draw_line(Vector2(dx0, mid_y), Vector2(dx1, mid_y), Color(0.08, 0.08, 0.08, 0.95), 1.0)
 	var ins_positions: PackedInt32Array = read.get("ins_positions", PackedInt32Array())
 	for pos in ins_positions:
@@ -228,10 +224,10 @@ func draw_indel_markers(read: Dictionary, y: float) -> void:
 			continue
 		var ix := view.TRACK_LEFT_PAD + view._bp_to_x(float(ip))
 		var y0 := y + 1.0
-		var y1 := y + view._read_row_h - 1.0
-		var cap_w := maxf(4.0, view._read_row_h * 0.7)
-		var cap_line_w := maxf(1.0, view._read_row_h * 0.15)
-		var stem_line_w := maxf(1.0, view._read_row_h * 0.3)
+		var y1 := y + row_h - 1.0
+		var cap_w := maxf(4.0, row_h * 0.7)
+		var cap_line_w := maxf(1.0, row_h * 0.15)
+		var stem_line_w := maxf(1.0, row_h * 0.3)
 		var col := Color(0.05, 0.05, 0.05, 0.98)
 		view.draw_line(Vector2(ix, y0), Vector2(ix, y1), col, stem_line_w)
 		view.draw_line(Vector2(ix - cap_w * 0.5, y0), Vector2(ix + cap_w * 0.5, y0), col, cap_line_w)
@@ -254,7 +250,7 @@ func mate_rect_for_read(read: Dictionary, y: float) -> Rect2:
 		return Rect2()
 	var mx0 := view.TRACK_LEFT_PAD + view._bp_to_x(mate_start)
 	var mx1 := view.TRACK_LEFT_PAD + view._bp_to_x(mate_end)
-	return Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), view._read_row_h))
+	return Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), view.current_read_row_h()))
 
 
 func build_mate_lookup() -> Dictionary:

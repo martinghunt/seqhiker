@@ -136,7 +136,8 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 			"hidden_flags": host.DEFAULT_READ_HIDDEN_FLAGS,
 			"hide_improper_pair": false,
 			"hide_forward_strand": false,
-			"hide_mate_forward_strand": false
+			"hide_mate_forward_strand": false,
+			"auto_expand_snp_text": true
 		})
 		host._has_bam_loaded = true
 		host._center_strand_scroll_pending = true

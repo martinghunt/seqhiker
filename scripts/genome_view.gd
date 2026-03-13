@@ -164,6 +164,7 @@ var _strand_split_lock_y := -1.0
 var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
+var _auto_expand_snp_text := false
 var _read_row_limit := 0
 var _annotation_max_on_screen := 4400
 var _show_full_length_regions := false
@@ -242,6 +243,7 @@ func _ready() -> void:
 		"read_view_mode": _read_view_mode,
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
+		"auto_expand_snp_text": _auto_expand_snp_text,
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
 	}
@@ -417,7 +419,7 @@ func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_c
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int) -> void:
+func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
 	var next_view_mode := clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
@@ -426,6 +428,7 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_read_view_mode = next_view_mode
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
+	_auto_expand_snp_text = auto_expand_snp_text
 	_read_row_limit = maxi(0, row_limit)
 	reads = _as_dict_array(payload.get("reads", []))
 	coverage_tiles = _as_dict_array(payload.get("coverage", []))
@@ -445,12 +448,13 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int) -> void:
+func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
 	_read_view_mode = clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
+	_auto_expand_snp_text = auto_expand_snp_text
 	_read_row_limit = maxi(0, row_limit)
 	_layout_reads()
 	_layout_read_scrollbar()
@@ -590,6 +594,42 @@ func set_read_thickness(value: float) -> void:
 	_layout_read_scrollbar()
 	_persist_active_read_track()
 	queue_redraw()
+
+func current_read_row_h() -> float:
+	return _effective_read_row_h()
+
+func current_read_row_step() -> float:
+	return current_read_row_h() + READ_ROW_GAP
+
+func can_draw_read_snp_letters_for_row_h(row_h: float) -> bool:
+	if row_h < 10.0:
+		return false
+	var font := get_theme_default_font()
+	var font_size := _read_text_font_size_for_row_h(row_h)
+	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	if char_px <= 0.0:
+		return false
+	var pixels_per_bp := 1.0 / bp_per_px
+	return pixels_per_bp >= char_px + 1.0
+
+func _read_text_font_size_for_row_h(row_h: float) -> int:
+	var row_cap := clampi(int(floor(row_h - 1.0)), 8, _font_size_large)
+	return mini(_font_size_medium, row_cap)
+
+func _snp_text_target_read_row_h() -> float:
+	return clampf(maxf(10.0, float(_font_size_medium) + 3.0), 2.0, 24.0)
+
+func _effective_read_row_h() -> float:
+	if not _auto_expand_snp_text:
+		return _read_row_h
+	if _read_view_mode == READ_VIEW_FRAGMENT:
+		return _read_row_h
+	if bp_per_px > SNP_MARK_MAX_BP_PER_PX:
+		return _read_row_h
+	var expanded := maxf(_read_row_h, _snp_text_target_read_row_h())
+	if can_draw_read_snp_letters_for_row_h(expanded):
+		return expanded
+	return _read_row_h
 
 func set_show_full_length_regions(enabled: bool) -> void:
 	_show_full_length_regions = enabled
@@ -2177,6 +2217,7 @@ func _ensure_read_track_state(track_id: String) -> void:
 		"read_view_mode": READ_VIEW_STACK,
 		"fragment_log_scale": true,
 		"read_row_h": READ_ROW_H,
+		"auto_expand_snp_text": false,
 		"read_row_limit": 0,
 		"scrollbar": sb
 	}
@@ -2203,6 +2244,7 @@ func _activate_read_track(track_id: String) -> void:
 	_read_view_mode = int(state.get("read_view_mode", READ_VIEW_STACK))
 	_fragment_log_scale = bool(state.get("fragment_log_scale", true))
 	_read_row_h = float(state.get("read_row_h", READ_ROW_H))
+	_auto_expand_snp_text = bool(state.get("auto_expand_snp_text", false))
 	_read_row_limit = int(state.get("read_row_limit", 0))
 	_reads_scrollbar = state.get("scrollbar", _reads_scrollbar)
 
@@ -2233,6 +2275,7 @@ func _persist_active_read_track() -> void:
 		"read_view_mode": _read_view_mode,
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
+		"auto_expand_snp_text": _auto_expand_snp_text,
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
 	}
@@ -2271,20 +2314,22 @@ func _layout_read_scrollbar() -> void:
 		_reads_scrollbar.visible = false
 		_reads_scrollbar.value = 0.0
 		return
+	var row_h := current_read_row_h()
+	var row_step := row_h + READ_ROW_GAP
 	var content_h := maxf(1.0, read_area.size.y - 34.0)
-	var visible_rows := maxf(1.0, floor(content_h / (_read_row_h + READ_ROW_GAP)))
+	var visible_rows := maxf(1.0, floor(content_h / row_step))
 	var max_rows := maxi(_read_row_count, 0)
 	if _read_view_mode == READ_VIEW_STRAND:
-		var step_px := _read_row_h + READ_ROW_GAP
+		var step_px := row_step
 		var split_gap := _strand_split_gap_px()
 		var content_top := read_area.position.y + 30.0
 		var content_bottom := read_area.position.y + read_area.size.y - 4.0
 		var forward_extent := 0.0
 		var reverse_extent := 0.0
 		if _strand_forward_rows > 0:
-			forward_extent = _read_row_h + float(_strand_forward_rows - 1) * step_px + split_gap * 0.5
+			forward_extent = row_h + float(_strand_forward_rows - 1) * step_px + split_gap * 0.5
 		if _strand_reverse_rows > 0:
-			reverse_extent = _read_row_h + float(_strand_reverse_rows - 1) * step_px + split_gap * 0.5
+			reverse_extent = row_h + float(_strand_reverse_rows - 1) * step_px + split_gap * 0.5
 		var split_at_forward_top := content_top + forward_extent
 		var split_at_reverse_bottom := content_bottom - reverse_extent
 		var range_px := maxf(0.0, split_at_forward_top - split_at_reverse_bottom)

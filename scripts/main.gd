@@ -1143,8 +1143,12 @@ func _on_track_settings_requested(track_id: String) -> void:
 		mapq_spin.allow_lesser = false
 		mapq_spin.value = float(int(track_meta.get("min_mapq", DEFAULT_READ_MIN_MAPQ)))
 		var hidden_flags := int(track_meta.get("hidden_flags", DEFAULT_READ_HIDDEN_FLAGS))
+		var auto_expand_snp_cb := CheckBox.new()
+		auto_expand_snp_cb.text = "Auto-expand to fit SNP letters"
+		auto_expand_snp_cb.button_pressed = bool(track_meta.get("auto_expand_snp_text", true))
 		_track_settings_box.add_child(thickness_label)
 		_track_settings_box.add_child(thickness_spin)
+		_track_settings_box.add_child(auto_expand_snp_cb)
 		_track_settings_box.add_child(max_rows_label)
 		_track_settings_box.add_child(max_rows_spin)
 		_track_settings_box.add_child(filter_title)
@@ -1241,6 +1245,15 @@ func _on_track_settings_requested(track_id: String) -> void:
 				var t: Dictionary = _bam_tracks[i]
 				if str(t.get("track_id", "")) == track_id:
 					t["thickness"] = clampf(value, 2.0, 24.0)
+					_bam_tracks[i] = t
+					break
+			_schedule_fetch()
+		)
+		auto_expand_snp_cb.toggled.connect(func(enabled: bool) -> void:
+			for i in range(_bam_tracks.size()):
+				var t: Dictionary = _bam_tracks[i]
+				if str(t.get("track_id", "")) == track_id:
+					t["auto_expand_snp_text"] = enabled
 					_bam_tracks[i] = t
 					break
 			_schedule_fetch()
