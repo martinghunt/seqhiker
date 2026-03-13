@@ -5,6 +5,8 @@ const ZemClientScript = preload("res://scripts/zem_client.gd")
 const LocalZemManagerScript = preload("res://scripts/local_zem_manager.gd")
 const TileControllerScript = preload("res://scripts/tile_controller.gd")
 const SearchControllerScript = preload("res://scripts/search_controller.gd")
+const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
+const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
 const GoPanelScene = preload("res://scenes/GoPanel.tscn")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const ZEM_BIN_SUBDIR := "bin"
@@ -142,13 +144,15 @@ var _feature_tween: Tween
 var _fetch_timer: Timer
 var _fetch_in_progress := false
 var _fetch_pending := false
-var _tile_fetch_serial := 0
+var tile_fetch_serial := 0
 var _tile_cache_generation := 0
-var _pending_tile_apply: Dictionary = {}
+var pending_tile_apply: Dictionary = {}
 
 var _zem: RefCounted
 var _tile_controller: RefCounted
 var _search_controller: RefCounted
+var _annotation_cache_controller: RefCounted
+var _feature_panel_controller: RefCounted
 var _go_panel: VBoxContainer
 var _go_chr_option: OptionButton
 var _go_start_edit: LineEdit
@@ -191,8 +195,8 @@ var _read_thickness_spin: SpinBox
 var _show_full_region_checkbox: CheckBox
 var _track_order_list: ItemList
 var _read_mate_jump_button: Button
-var _read_mate_jump_start := -1
-var _read_mate_jump_end := -1
+var read_mate_jump_start := -1
+var read_mate_jump_end := -1
 var _ui_font_size := DEFAULT_UI_FONT_SIZE
 var _track_dragging := false
 var _track_drag_index := -1
@@ -253,6 +257,10 @@ func _ready() -> void:
 	_local_zem_manager.configure(_zem, ZEM_BIN_SUBDIR)
 	_tile_controller = TileControllerScript.new()
 	_search_controller = SearchControllerScript.new()
+	_annotation_cache_controller = AnnotationCacheControllerScript.new()
+	_annotation_cache_controller.configure(self)
+	_feature_panel_controller = FeaturePanelControllerScript.new()
+	_feature_panel_controller.configure(self)
 	_tile_controller.configure(Callable(self, "_compute_tile_zoom"))
 	_themes_lib = ThemesLibScript.new()
 	_disable_button_focus()
@@ -2135,180 +2143,22 @@ func _finish_sync_fetch_attempt() -> void:
 		_fetch_timer.start()
 
 func _refresh_visible_data() -> void:
-	if _current_chr_len <= 0:
-		_finish_sync_fetch_attempt()
-		return
-	if _debug_enabled:
-		_reset_debug_annotation_counters()
-	var show_reads: bool = _any_visible_read_track()
-	var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
-	var show_gc_plot: bool = bool(genome_view.is_track_visible(TRACK_GC_PLOT))
-	var show_depth_plot: bool = bool(genome_view.is_track_visible(TRACK_DEPTH_PLOT))
-	var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
-	var need_annotations: bool = show_aa or show_genome
-	var need_reference: bool = genome_view.needs_reference_data(show_aa, show_genome)
-	var span: int = maxi(1, _last_end - _last_start)
-	var left_span_mult := 1.0
-	var right_span_mult := 2.0 if _auto_play_enabled else 1.0
-	var query_start: int = maxi(0, int(floor(float(_last_start) - float(span) * left_span_mult)))
-	var query_end: int = mini(_current_chr_len, int(ceil(float(_last_end) + float(span) * right_span_mult)))
-	var ref_start := query_start
-	var ref_sequence := ""
-	var overlaps: Array[Dictionary] = []
-	var visible_track_ids := {}
-	for t_any in _bam_tracks:
-		var track_vis: Dictionary = t_any
-		var track_vis_id := str(track_vis.get("track_id", ""))
-		visible_track_ids[track_vis_id] = genome_view.is_track_visible(track_vis_id)
-
-	if _seq_view_mode != SEQ_VIEW_SINGLE:
-		overlaps = _segments_overlapping(query_start, query_end)
-	else:
-		if not need_reference:
-			genome_view.set_reference_slice(ref_start, "")
-	_tile_fetch_serial += 1
-	_pending_tile_apply = {
-		"serial": _tile_fetch_serial,
-		"query_start": query_start,
-		"query_end": query_end,
-		"need_reference": need_reference,
-		"ref_start": ref_start,
-		"ref_sequence": ref_sequence
-	}
-	_tile_controller.request_tiles({
-		"serial": _tile_fetch_serial,
-		"host": "127.0.0.1",
-		"port": ZEM_DEFAULT_PORT,
-		"generation": _tile_cache_generation,
-		"scope_key": _scope_cache_key(),
-			"visible_start": _last_start,
-			"visible_end": _last_end,
-			"query_start": query_start,
-			"query_end": query_end,
-			"last_bp_per_px": _last_bp_per_px,
-			"show_reads": show_reads,
-			"show_annotations": need_annotations,
-			"show_gc_plot": show_gc_plot,
-			"show_depth_plot": show_depth_plot,
-			"has_bam_loaded": _has_bam_loaded,
-			"seq_view_mode": _seq_view_mode,
-			"current_chr_id": _current_chr_id,
-			"bam_tracks": _bam_tracks,
-			"overlaps": overlaps,
-			"visible_track_ids": visible_track_ids,
-			"gc_window_bp": _gc_window_bp,
-			"annotation_cap_total": _annotation_pixel_budget(),
-			"annotation_min_len_bp": _annotation_min_feature_len_bp()
-			})
-	return
+	_annotation_cache_controller.refresh_visible_data()
 
 func _annotation_pixel_budget() -> int:
-	return ANNOT_MAX_ON_SCREEN_MAX
+	return _annotation_cache_controller.annotation_pixel_budget()
 
 func _annotation_min_feature_len_bp() -> int:
-	var min_px := 3.0
-	var raw := int(ceil(min_px * _last_bp_per_px))
-	return maxi(raw, 1)
+	return _annotation_cache_controller.annotation_min_feature_len_bp()
 
 func _schedule_fetch() -> void:
-	if _fetch_timer == null:
-		return
-	if _fetch_in_progress:
-		_fetch_pending = true
-		return
-	if _fetch_timer.is_stopped():
-		_fetch_timer.start()
+	_annotation_cache_controller.schedule_fetch()
 
 func _on_fetch_timer_timeout() -> void:
-	_fetch_in_progress = true
-	_fetch_pending = false
-	_refresh_visible_data()
+	_annotation_cache_controller.on_fetch_timer_timeout()
 
 func _drain_tile_fetch_result() -> void:
-	if _tile_controller == null:
-		return
-	var tile_resp: Dictionary = _tile_controller.poll_result()
-	if tile_resp.is_empty():
-		return
-	if not tile_resp.get("ok", false):
-		_set_status(str(tile_resp.get("error", "Tile fetch failed")), true)
-		_fetch_in_progress = false
-		if _fetch_pending:
-			_fetch_timer.start()
-		return
-	var serial := int(tile_resp.get("serial", -1))
-	if serial != int(_pending_tile_apply.get("serial", -2)):
-		_fetch_in_progress = false
-		if _fetch_pending:
-			_fetch_timer.start()
-		return
-	var read_payload_by_track = tile_resp.get("read_payload_by_track", {})
-	var annotation_features_raw: Array = tile_resp.get("annotation_features", [])
-	var annotation_stats: Dictionary = tile_resp.get("annotation_stats", {})
-	var all_gc_plot_tiles: Array = tile_resp.get("gc_plot_tiles", [])
-	var all_depth_plot_tiles: Array = tile_resp.get("depth_plot_tiles", [])
-	var all_depth_plot_series: Array = tile_resp.get("depth_plot_series", [])
-	var result_ref_start := int(tile_resp.get("ref_start", int(_pending_tile_apply.get("ref_start", -1))))
-	var result_ref_sequence := str(tile_resp.get("ref_sequence", _pending_tile_apply.get("ref_sequence", "")))
-	genome_view.set_reference_slice(result_ref_start, result_ref_sequence)
-	var annotation_features: Array[Dictionary] = []
-	for feat_any in annotation_features_raw:
-		if typeof(feat_any) == TYPE_DICTIONARY:
-			annotation_features.append(feat_any)
-	annotation_features = _collapse_gene_cds_features(annotation_features)
-	genome_view.set_features(annotation_features)
-	_apply_pending_annotation_highlight(annotation_features)
-	var gc_plot_tiles_typed: Array[Dictionary] = []
-	for tile_any in all_gc_plot_tiles:
-		if typeof(tile_any) == TYPE_DICTIONARY:
-			gc_plot_tiles_typed.append(tile_any)
-	var depth_plot_tiles_typed: Array[Dictionary] = []
-	for tile_any in all_depth_plot_tiles:
-		if typeof(tile_any) == TYPE_DICTIONARY:
-			depth_plot_tiles_typed.append(tile_any)
-	var depth_plot_series_typed: Array[Dictionary] = []
-	for series_any in all_depth_plot_series:
-		if typeof(series_any) == TYPE_DICTIONARY:
-			depth_plot_series_typed.append(series_any)
-	for t_any in _bam_tracks:
-		var track: Dictionary = t_any
-		var track_id := str(track.get("track_id", ""))
-		var payload: Dictionary = read_payload_by_track.get(track_id, {"reads": [], "coverage": []})
-		genome_view.set_read_track_payload(
-			track_id,
-			payload,
-			int(track.get("view_mode", 0)),
-			bool(track.get("fragment_log", true)),
-			float(track.get("thickness", DEFAULT_READ_THICKNESS)),
-			int(track.get("max_rows", DEFAULT_READ_MAX_ROWS))
-		)
-		if _center_strand_scroll_pending and int(track.get("view_mode", 0)) == 1 and (payload.get("reads", []) as Array).size() > 0:
-			genome_view.center_strand_scroll_for_track(track_id)
-			_center_strand_scroll_pending = false
-	genome_view.set_gc_plot_tiles(gc_plot_tiles_typed)
-	genome_view.set_depth_plot_tiles(depth_plot_tiles_typed)
-	for i in range(depth_plot_series_typed.size()):
-		var series: Dictionary = depth_plot_series_typed[i]
-		series["color"] = _depth_plot_color_for_track(str(series.get("track_id", "")))
-		depth_plot_series_typed[i] = series
-	genome_view.set_depth_plot_series(depth_plot_series_typed)
-	_cache_start = int(_pending_tile_apply.get("query_start", -1))
-	_cache_end = int(_pending_tile_apply.get("query_end", -1))
-	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)
-	_cache_mode = 0 if (_has_bam_loaded and _any_visible_read_track() and _last_bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
-	_cache_need_reference = bool(_pending_tile_apply.get("need_reference", false))
-	_cache_scope_key = _scope_cache_key()
-	_dbg_ann_tile_requests = int(annotation_stats.get("tile_requests", 0))
-	_dbg_ann_tile_cache_hits = int(annotation_stats.get("tile_cache_hits", 0))
-	_dbg_ann_tile_queries = int(annotation_stats.get("tile_queries", 0))
-	_dbg_ann_features_examined = int(annotation_stats.get("features_examined", 0))
-	_dbg_ann_features_out = int(annotation_stats.get("features_out", 0))
-	_dbg_ann_fetch_time_ms = float(annotation_stats.get("fetch_time_ms", 0.0))
-	if _debug_enabled:
-		_update_debug_stats_label()
-	_fetch_in_progress = false
-	if _fetch_pending:
-		_fetch_timer.start()
+	_annotation_cache_controller.drain_tile_fetch_result()
 
 func _segments_overlapping(start_bp: int, end_bp: int) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
@@ -2577,156 +2427,25 @@ func _save_config() -> void:
 	cfg.save(CONFIG_PATH)
 
 func _on_feature_clicked(feature: Dictionary) -> void:
-	_track_settings_open = false
-	_active_track_settings_id = ""
-	feature_title_label.text = "Feature Details"
-	_set_feature_labels_visible(true)
-	feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_strand_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_source_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_seq_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_name_label.visible = true
-	if _track_settings_box != null:
-		_track_settings_box.visible = false
-	if _search_controller != null:
-		_search_controller.hide_panel()
-	if _read_mate_jump_button != null:
-		_read_mate_jump_button.visible = false
-	feature_name_label.text = "Name: %s" % str(feature.get("name", "-"))
-	feature_type_label.text = "Type: %s" % str(feature.get("type", "-"))
-	feature_range_label.text = "Range: %d - %d" % [int(feature.get("start", 0)), int(feature.get("end", 0))]
-	feature_strand_label.text = "Strand: %s" % str(feature.get("strand", "."))
-	var feature_id := str(feature.get("id", "")).strip_edges()
-	if feature_id.is_empty():
-		feature_source_label.text = "Source: %s" % str(feature.get("source", "-"))
-	else:
-		feature_source_label.text = "Source: %s | ID=%s" % [str(feature.get("source", "-")), feature_id]
-	var seq_text := "Sequence: %s" % str(feature.get("seq_name", _current_chr_name))
-	var paired_cds: Dictionary = feature.get("paired_cds", {})
-	if not paired_cds.is_empty():
-		var cds_id := str(paired_cds.get("id", "")).strip_edges()
-		var cds_source := str(paired_cds.get("source", "-"))
-		var cds_name := str(paired_cds.get("name", "-"))
-		seq_text += "\n\nCDS\nName: %s\nRange: %d - %d\nStrand: %s\nSource: %s" % [
-			cds_name,
-			int(paired_cds.get("start", 0)),
-			int(paired_cds.get("end", 0)),
-			str(paired_cds.get("strand", ".")),
-			cds_source
-		]
-		if not cds_id.is_empty():
-			seq_text += "\nID: %s" % cds_id
-	feature_seq_label.text = seq_text
-	_feature_panel_open = true
-	_slide_feature_panel(true, true)
+	_feature_panel_controller.on_feature_clicked(feature)
 
 func _on_feature_selected(feature: Dictionary) -> void:
-	if not _feature_panel_open:
-		return
-	_on_feature_clicked(feature)
+	_feature_panel_controller.on_feature_selected(feature)
 
 func _on_read_clicked(read: Dictionary) -> void:
-	_track_settings_open = false
-	_active_track_settings_id = ""
-	feature_title_label.text = "Feature Details"
-	_set_feature_labels_visible(true)
-	feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_strand_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_source_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	feature_seq_label.autowrap_mode = TextServer.AUTOWRAP_OFF
-	feature_name_label.visible = true
-	if _track_settings_box != null:
-		_track_settings_box.visible = false
-	if _search_controller != null:
-		_search_controller.hide_panel()
-	var read_name := str(read.get("name", ""))
-	if read_name.is_empty():
-		read_name = "(unnamed)"
-	var start_bp := int(read.get("start", 0))
-	var end_bp := int(read.get("end", start_bp))
-	var read_len := maxi(0, end_bp - start_bp)
-	var cigar := str(read.get("cigar", ""))
-	if cigar.is_empty() and bool(read.get("is_mate_hit", false)):
-		cigar = "(mate CIGAR unavailable)"
-	elif cigar.is_empty():
-		cigar = "-"
-	var mapq := int(read.get("mapq", 0))
-	var flags := int(read.get("flags", 0))
-	var strand := "-" if bool(read.get("reverse", false)) else "+"
-	var mate_start := int(read.get("mate_start", -1))
-	var mate_end := int(read.get("mate_end", -1))
-	var mate_text := "Mate: unavailable"
-	if mate_start >= 0 and mate_end > mate_start:
-		mate_text = "Mate: %d - %d" % [mate_start, mate_end]
-	var frag_len := int(read.get("fragment_len", 0))
-	feature_name_label.text = "Read: %s" % read_name
-	feature_type_label.text = "Range: %d - %d (%d bp)" % [start_bp, end_bp, read_len]
-	feature_range_label.text = "CIGAR: %s" % cigar
-	feature_strand_label.text = "Strand: %s | MAPQ: %d | Flags: %d" % [strand, mapq, flags]
-	feature_source_label.text = "%s | Fragment: %d bp" % [mate_text, frag_len]
-	feature_seq_label.text = "Flags:\n%s" % _format_read_flags(flags)
-	if mate_start >= 0 and mate_end > mate_start:
-		if _read_mate_jump_button == null:
-			_read_mate_jump_button = Button.new()
-			_read_mate_jump_button.text = "Jump to mate"
-			_read_mate_jump_button.size_flags_horizontal = Control.SIZE_FILL
-			feature_content.add_child(_read_mate_jump_button)
-			_read_mate_jump_button.pressed.connect(func() -> void:
-				_jump_to_mate(_read_mate_jump_start, _read_mate_jump_end)
-			)
-		_read_mate_jump_button.visible = true
-		_read_mate_jump_start = mate_start
-		_read_mate_jump_end = mate_end
-	elif _read_mate_jump_button != null:
-		_read_mate_jump_button.visible = false
-	_feature_panel_open = true
-	_slide_feature_panel(true, true)
+	_feature_panel_controller.on_read_clicked(read)
 
 func _on_read_selected(read: Dictionary) -> void:
-	if not _feature_panel_open:
-		return
-	_on_read_clicked(read)
+	_feature_panel_controller.on_read_selected(read)
 
 func _jump_to_mate(start_bp: int, end_bp: int) -> void:
-	if _current_chr_len <= 0:
-		return
-	if start_bp < 0 or end_bp <= start_bp:
-		return
-	var width_px := maxf(1.0, genome_view.size.x)
-	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
-	var view_span_bp := int(ceil(current_bp_per_px * width_px))
-	var center_bp := 0.5 * float(start_bp + end_bp)
-	var target_start := maxi(0, int(floor(center_bp - 0.5 * float(view_span_bp))))
-	genome_view.set_view_state(float(target_start), current_bp_per_px)
-	genome_view.clear_region_selection()
-	_invalidate_viewport_cache()
-	_schedule_fetch()
+	_feature_panel_controller.jump_to_mate(start_bp, end_bp)
 
 func _format_read_flags(flags: int) -> String:
-	var lines: Array[String] = []
-	for entry_any in SAM_FLAG_LABELS:
-		var entry: Dictionary = entry_any
-		var bit := int(entry.get("bit", 0))
-		var marker := "✓" if (flags & bit) != 0 else "✗"
-		lines.append("%s %s (%d)" % [marker, str(entry.get("label", "")), bit])
-	return "\n".join(lines)
+	return _feature_panel_controller.format_read_flags(flags)
 
 func _close_feature_panel() -> void:
-	_maybe_save_genome_track_settings()
-	_feature_panel_open = false
-	_track_settings_open = false
-	_active_track_settings_id = ""
-	if _track_settings_box != null:
-		_track_settings_box.visible = false
-	if _search_controller != null:
-		_search_controller.hide_panel()
-	if _go_panel != null:
-		_go_panel.visible = false
-	_slide_feature_panel(false, true)
+	_feature_panel_controller.close_feature_panel()
 
 func _process(delta: float) -> void:
 	_drain_tile_fetch_result()
