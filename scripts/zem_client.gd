@@ -16,6 +16,7 @@ const MSG_GET_ANNOTATION_COUNTS := 12
 const MSG_GET_LOAD_STATE := 13
 const MSG_INSPECT_INPUT := 14
 const MSG_GET_ANNOTATION_TILE := 15
+const MSG_SEARCH_DNA_EXACT := 16
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -229,6 +230,22 @@ func get_reference_slice(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
 	if not resp.get("ok", false):
 		return resp
 	resp.merge(_parse_reference_slice(resp["payload"]), true)
+	return resp
+
+func search_dna_exact(chr_id: int, pattern: String, include_revcomp: bool, max_hits: int = 5000) -> Dictionary:
+	var pattern_bytes := pattern.to_upper().to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(7 + pattern_bytes.size())
+	payload.encode_u16(0, chr_id)
+	payload.encode_u16(2, max(1, min(max_hits, 65535)))
+	payload[4] = 1 if include_revcomp else 0
+	payload.encode_u16(5, pattern_bytes.size())
+	for i in range(pattern_bytes.size()):
+		payload[7 + i] = pattern_bytes[i]
+	var resp := _send_request(MSG_SEARCH_DNA_EXACT, payload)
+	if not resp.get("ok", false):
+		return resp
+	resp.merge(_parse_dna_exact_hits(resp["payload"]), true)
 	return resp
 
 func shutdown_server(timeout_ms: int = 600) -> Dictionary:
@@ -528,6 +545,27 @@ func _parse_reference_slice(payload: PackedByteArray) -> Dictionary:
 		"slice_start": start_bp,
 		"slice_end": end_bp,
 		"sequence": seq
+	}
+
+func _parse_dna_exact_hits(payload: PackedByteArray) -> Dictionary:
+	var hits: Array[Dictionary] = []
+	if payload.size() < 3:
+		return {"hits": hits, "truncated": false}
+	var truncated := payload[0] != 0
+	var count := int(payload.decode_u16(1))
+	var off := 3
+	for _i in range(count):
+		if off + 9 > payload.size():
+			break
+		hits.append({
+			"start": int(payload.decode_u32(off)),
+			"end": int(payload.decode_u32(off + 4)),
+			"strand": String.chr(payload[off + 8])
+		})
+		off += 9
+	return {
+		"hits": hits,
+		"truncated": truncated
 	}
 
 func _decode_wire_text(bytes: PackedByteArray) -> String:

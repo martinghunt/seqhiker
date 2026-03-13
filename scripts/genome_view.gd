@@ -50,6 +50,7 @@ const READ_VIEW_FRAGMENT := 3
 const STRAND_SPLIT_LINE_WIDTH := 2.5
 const READ_SCROLLBAR_MIN_GRABBER_SIZE := 36
 const READ_RENDER_MAX_BP_PER_PX := 128.0
+const MAX_VISIBLE_BP := 10000000.0
 const MAP_TRACK_H := 72.0
 const MAP_VIEW_MIN_PX := 5.0
 const MAP_SEQUENCE_H := AA_ROW_H - 6.0
@@ -687,7 +688,7 @@ func set_view_state(start_bp: float, bp_per_px_value: float) -> void:
 		_pan_tween.kill()
 	if _zoom_tween and _zoom_tween.is_running():
 		_zoom_tween.kill()
-	bp_per_px = clampf(bp_per_px_value, min_bp_per_px, max_bp_per_px)
+	bp_per_px = clampf(bp_per_px_value, min_bp_per_px, _max_allowed_bp_per_px())
 	view_start_bp = _clamp_start(start_bp)
 	_layout_all_read_scrollbars()
 	queue_redraw()
@@ -729,7 +730,7 @@ func zoom_by_at_x(factor: float, anchor_x: float, duration: float = 0.22) -> voi
 	if factor <= 0.0 || plot_w <= 0:
 		return
 	var old: float = bp_per_px
-	var next: float = clampf(old * factor, min_bp_per_px, max_bp_per_px)
+	var next: float = clampf(old * factor, min_bp_per_px, _max_allowed_bp_per_px())
 	if is_equal_approx(next, old):
 		return
 	var anchor_px := clampf(anchor_x - TRACK_LEFT_PAD, 0.0, plot_w)
@@ -770,13 +771,19 @@ func _animate_zoom(from_start: float, to_start: float, from_bp_per_px: float, to
 	_zoom_tween.finished.connect(_on_zoom_finished, CONNECT_ONE_SHOT)
 
 func _set_zoom_progress(t: float) -> void:
-	bp_per_px = lerpf(_zoom_from_bp_per_px, _zoom_to_bp_per_px, t)
+	bp_per_px = clampf(lerpf(_zoom_from_bp_per_px, _zoom_to_bp_per_px, t), min_bp_per_px, _max_allowed_bp_per_px())
 	view_start_bp = _clamp_start(lerpf(_zoom_from_start_bp, _zoom_to_start_bp, t))
 	queue_redraw()
 	_emit_viewport_changed()
 
 func _on_zoom_finished() -> void:
 	_emit_viewport_changed()
+
+func _max_allowed_bp_per_px() -> float:
+	var plot_w := _plot_width()
+	if plot_w <= 0.0:
+		return max_bp_per_px
+	return minf(max_bp_per_px, MAX_VISIBLE_BP / plot_w)
 
 func _clamp_start(next_start: float) -> float:
 	var plot_w := _plot_width()
@@ -791,6 +798,7 @@ func _emit_viewport_changed() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
+		bp_per_px = clampf(bp_per_px, min_bp_per_px, _max_allowed_bp_per_px())
 		view_start_bp = _clamp_start(view_start_bp)
 		_layout_track_rows()
 		_layout_all_read_scrollbars()

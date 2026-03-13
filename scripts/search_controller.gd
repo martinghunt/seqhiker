@@ -247,50 +247,32 @@ func _search_dna_exact(pattern: String, chr_filter: PackedInt32Array, include_re
 	var zem = _call0("get_zem")
 	var chromosomes: Array[Dictionary] = _call0("get_chromosomes")
 	var truncated := false
-	var rc_pattern := _revcomp_dna(pattern)
-	var use_rc := include_revcomp and not rc_pattern.is_empty() and rc_pattern != pattern
 	for c in chromosomes:
 		var chr_id := int(c.get("id", -1))
 		if chr_filter.find(chr_id) < 0:
 			continue
 		var chr_name := str(c.get("name", "chr"))
-		var chr_len := int(c.get("length", 0))
-		var resp: Dictionary = zem.get_reference_slice(chr_id, 0, chr_len)
+		var remaining_hits := maxi(1, SEARCH_MAX_HITS - _search_hits.size())
+		var resp: Dictionary = zem.search_dna_exact(chr_id, pattern, include_revcomp, remaining_hits)
 		if not resp.get("ok", false):
 			_search_status_label.text = "DNA search failed: %s" % resp.get("error", "error")
 			return {"ok": false, "truncated": false}
-		var seq := str(resp.get("sequence", "")).to_upper()
-		var at := seq.find(pattern, 0)
-		while at >= 0:
+		for hit_any in resp.get("hits", []):
+			var hit: Dictionary = hit_any
 			_search_hits.append({
 				"kind": "dna",
 				"chr_id": chr_id,
 				"chr_name": chr_name,
-				"start": at,
-				"end": at + pattern.length(),
+				"start": int(hit.get("start", 0)),
+				"end": int(hit.get("end", 0)),
 				"label": pattern,
-				"strand": "+"
+				"strand": str(hit.get("strand", "+"))
 			})
 			if _search_hits.size() >= SEARCH_MAX_HITS:
-				truncated = true
-				return {"ok": true, "truncated": truncated}
-			at = seq.find(pattern, at + 1)
-		if use_rc:
-			var at_rc := seq.find(rc_pattern, 0)
-			while at_rc >= 0:
-				_search_hits.append({
-					"kind": "dna",
-					"chr_id": chr_id,
-					"chr_name": chr_name,
-					"start": at_rc,
-					"end": at_rc + rc_pattern.length(),
-					"label": rc_pattern,
-					"strand": "-"
-				})
-				if _search_hits.size() >= SEARCH_MAX_HITS:
-					truncated = true
-					return {"ok": true, "truncated": truncated}
-				at_rc = seq.find(rc_pattern, at_rc + 1)
+				return {"ok": true, "truncated": true}
+		if bool(resp.get("truncated", false)):
+			truncated = true
+			return {"ok": true, "truncated": truncated}
 		await (Engine.get_main_loop() as SceneTree).process_frame
 	return {"ok": true, "truncated": truncated}
 

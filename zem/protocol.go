@@ -22,6 +22,7 @@ const (
 	MsgGetLoadState        uint16 = 13
 	MsgInspectInput        uint16 = 14
 	MsgGetAnnotationTile   uint16 = 15
+	MsgSearchDNAExact      uint16 = 16
 )
 
 type FrameHeader struct {
@@ -137,4 +138,20 @@ func encodeInputInfo(hasSequence bool, hasAnnotation bool) []byte {
 		flags |= 2
 	}
 	return []byte{flags}
+}
+
+func encodeDNAExactHits(truncated bool, hits []DNAExactHit) []byte {
+	buf := make([]byte, 3+9*len(hits))
+	if truncated {
+		buf[0] = 1
+	}
+	binary.LittleEndian.PutUint16(buf[1:3], uint16(len(hits)))
+	off := 3
+	for _, hit := range hits {
+		binary.LittleEndian.PutUint32(buf[off:off+4], uint32(hit.Start))
+		binary.LittleEndian.PutUint32(buf[off+4:off+8], uint32(hit.End))
+		buf[off+8] = hit.Strand
+		off += 9
+	}
+	return buf
 }

@@ -174,13 +174,13 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 						var cov_tile = cov_resp.get("coverage", {})
 						if last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
 							track_cov.append(cov_tile)
-							if show_depth_plot:
-								if not depth_series_by_track.has(track_id):
-									depth_series_by_track[track_id] = []
-								var depth_tiles_for_track: Array = depth_series_by_track[track_id]
-								depth_tiles_for_track.append(_coverage_to_plot_tile(cov_tile))
-								depth_series_by_track[track_id] = depth_tiles_for_track
-					read_payload_by_track[track_id] = _prepare_track_payload(track, track_reads, track_cov, query_start, query_end)
+						if show_depth_plot:
+							if not depth_series_by_track.has(track_id):
+								depth_series_by_track[track_id] = []
+							var depth_tiles_for_track: Array = depth_series_by_track[track_id]
+							depth_tiles_for_track.append(_coverage_to_plot_tile(cov_tile))
+							depth_series_by_track[track_id] = depth_tiles_for_track
+				read_payload_by_track[track_id] = _prepare_track_payload(track, track_reads, track_cov, query_start, query_end)
 		if show_gc_plot:
 			var tile_width_plot := 1024 << zoom
 			var tile_start_plot := int(floor(float(query_start) / float(tile_width_plot)))

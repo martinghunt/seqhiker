@@ -1430,6 +1430,7 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	else:
 		_pending_annotation_highlight = hit.duplicate(true)
 		genome_view.clear_region_selection()
+	_invalidate_viewport_cache()
 	_schedule_fetch()
 
 func _refresh_go_chromosomes() -> void:
@@ -1528,6 +1529,7 @@ func _apply_go_request() -> void:
 		genome_view.set_view_state(float(target_start), current_bp_per_px)
 		genome_view.clear_region_selection()
 		_set_go_status("%s:%d" % [chr_name, start_bp])
+	_invalidate_viewport_cache()
 	_schedule_fetch()
 	_close_feature_panel()
 
@@ -2056,6 +2058,14 @@ func _invalidate_cache() -> void:
 	if _tile_controller != null:
 		_tile_controller.reset()
 
+func _invalidate_viewport_cache() -> void:
+	_cache_start = -1
+	_cache_end = -1
+	_cache_zoom = -1
+	_cache_mode = -1
+	_cache_need_reference = false
+	_cache_scope_key = ""
+
 func _finish_sync_fetch_attempt() -> void:
 	if not _fetch_in_progress:
 		return
@@ -2402,6 +2412,7 @@ func _load_view_slot(slot_idx: int) -> void:
 				_on_seq_selected(i)
 				break
 	genome_view.set_view_state(float(slot.get("start_bp", _last_start)), float(slot.get("bp_per_px", _last_bp_per_px)))
+	_invalidate_viewport_cache()
 	_schedule_fetch()
 	_set_status("Loaded view slot %d." % slot_idx)
 
@@ -2659,6 +2670,7 @@ func _jump_to_mate(start_bp: int, end_bp: int) -> void:
 	var target_start := maxi(0, int(floor(center_bp - 0.5 * float(view_span_bp))))
 	genome_view.set_view_state(float(target_start), current_bp_per_px)
 	genome_view.clear_region_selection()
+	_invalidate_viewport_cache()
 	_schedule_fetch()
 
 func _format_read_flags(flags: int) -> String:
