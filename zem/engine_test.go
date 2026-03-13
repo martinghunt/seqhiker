@@ -60,6 +60,47 @@ func TestSearchDNAExact(t *testing.T) {
 	}
 }
 
+func TestLoadGenomeEMBL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "record.embl")
+	content := "" +
+		"ID   SC10H5 standard; DNA; PRO; 12 BP.\n" +
+		"FH   Key             Location/Qualifiers\n" +
+		"FH\n" +
+		"FT   source          1..12\n" +
+		"FT                   /organism=\"Testus exampleii\"\n" +
+		"FT   gene            2..8\n" +
+		"FT                   /gene=\"foo\"\n" +
+		"SQ   Sequence 12 BP; 3 A; 3 C; 3 G; 3 T; 0 other;\n" +
+		"     acgtacgtacgt 12\n" +
+		"//\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(path); err != nil {
+		t.Fatalf("LoadGenome returned error: %v", err)
+	}
+
+	if got := e.sequences["SC10H5"]; got != "ACGTACGTACGT" {
+		t.Fatalf("loaded sequence = %q, want %q", got, "ACGTACGTACGT")
+	}
+	if got := e.chrLength["SC10H5"]; got != 12 {
+		t.Fatalf("chrLength = %d, want 12", got)
+	}
+	feats := e.features["SC10H5"]
+	if len(feats) != 2 {
+		t.Fatalf("expected 2 features, got %d", len(feats))
+	}
+	if feats[0].Type != "source" || feats[0].Start != 0 || feats[0].End != 12 {
+		t.Fatalf("unexpected source feature: %+v", feats[0])
+	}
+	if feats[1].Type != "gene" || feats[1].Attributes != "gene=foo" {
+		t.Fatalf("unexpected gene feature: %+v", feats[1])
+	}
+}
+
 func decodeDNAHitsForTest(payload []byte) (bool, []DNAExactHit) {
 	if len(payload) < 3 {
 		return false, nil
