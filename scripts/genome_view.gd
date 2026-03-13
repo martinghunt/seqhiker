@@ -1293,7 +1293,7 @@ func _draw_coverage_tiles(area: Rect2, show_y_ticks: bool = false) -> void:
 		var font := get_theme_default_font()
 		var font_size := _font_size_small
 		var tick_x := TRACK_LEFT_PAD - 8.0
-		var label_x := 8.0
+		var label_x := 26.0
 		draw_line(Vector2(tick_x, chart_top), Vector2(tick_x, chart_bottom), axis_col, 1.0)
 		var tick_vals: Array[int] = [0, int(round(float(max_depth) * 0.5)), max_depth]
 		var tick_ys: Array[float] = [chart_bottom, (chart_top + chart_bottom) * 0.5, chart_top]
@@ -1702,7 +1702,7 @@ func _draw_plot_track_multi(area: Rect2, series: Array[Dictionary], y_mode: int,
 
 func _draw_plot_scale(area: Rect2, top: float, bottom: float, y_min: float, y_max: float) -> void:
 	var tick_x := TRACK_LEFT_PAD - 6.0
-	var label_x := 8.0
+	var label_x := 26.0
 	var text_col: Color = _axis_text_color()
 	var font := get_theme_default_font()
 	var font_size := _font_size_small
