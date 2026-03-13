@@ -1815,7 +1815,7 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 	_record_loaded_files(files, dropped_sequence)
 	genome_view.load_files(files)
 	_refresh_sequence_loaded_state()
-	_refresh_chromosomes()
+	_refresh_chromosomes(dropped_sequence)
 	_refresh_visible_data()
 
 func _ensure_server_connected() -> bool:
@@ -1935,7 +1935,7 @@ func _load_dropped_files(files: PackedStringArray) -> bool:
 	genome_view.set_read_loading_message("")
 	return true
 
-func _refresh_chromosomes() -> void:
+func _refresh_chromosomes(reset_viewport: bool = true) -> void:
 	var resp: Dictionary = _zem.get_chromosomes()
 	if not resp.get("ok", false):
 		_set_status("Chrom query failed: %s" % resp.get("error", "error"), true)
@@ -1958,7 +1958,7 @@ func _refresh_chromosomes() -> void:
 	_rebuild_concat_segments()
 	_refresh_sequence_options()
 	_refresh_go_chromosomes()
-	_apply_sequence_view(true)
+	_apply_sequence_view(reset_viewport)
 
 func _rebuild_concat_segments() -> void:
 	_concat_segments.clear()
