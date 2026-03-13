@@ -952,6 +952,8 @@ func _refresh_track_visibility_controls(order: PackedStringArray) -> void:
 		child.queue_free()
 	for id_any in order:
 		var track_id := str(id_any)
+		if track_id == TRACK_READS or track_id.begins_with("reads:"):
+			continue
 		var cb := CheckBox.new()
 		cb.text = "Show %s" % _track_label_for_id(track_id)
 		var is_depth := track_id == TRACK_DEPTH_PLOT
