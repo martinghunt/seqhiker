@@ -135,6 +135,8 @@ const READ_FILTER_FLAG_LABELS := [
 
 var _settings_open := false
 var _settings_tween: Tween
+var _settings_toggle_icon: Control
+var _settings_toggle_icon_label: Label
 var _feature_panel_open := false
 var _feature_tween: Tween
 var _fetch_timer: Timer
@@ -254,6 +256,7 @@ func _ready() -> void:
 	_tile_controller.configure(Callable(self, "_compute_tile_zoom"))
 	_themes_lib = ThemesLibScript.new()
 	_disable_button_focus()
+	_setup_settings_toggle_icon()
 	_setup_theme_selector()
 	_setup_font_size_control()
 	_setup_read_view_controls()
@@ -407,6 +410,41 @@ func _disable_button_focus() -> void:
 		if c != null:
 			c.focus_mode = Control.FOCUS_NONE
 
+func _setup_settings_toggle_icon() -> void:
+	if settings_toggle_button == null:
+		return
+	settings_toggle_button.text = ""
+	settings_toggle_button.clip_contents = true
+	if top_bar != null:
+		top_bar.clip_contents = true
+	var icon_container := settings_toggle_button.get_node_or_null("IconContainer") as CenterContainer
+	if icon_container == null:
+		icon_container = CenterContainer.new()
+		icon_container.name = "IconContainer"
+		icon_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		settings_toggle_button.add_child(icon_container)
+	var icon_label := icon_container.get_node_or_null("IconLabel") as Label
+	if icon_label == null:
+		icon_label = Label.new()
+		icon_label.name = "IconLabel"
+		icon_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_container.add_child(icon_label)
+	icon_label.text = "C"
+	if settings_toggle_button.has_theme_font_override("font"):
+		icon_label.add_theme_font_override("font", settings_toggle_button.get_theme_font("font"))
+	if settings_toggle_button.has_theme_font_size_override("font_size"):
+		icon_label.add_theme_font_size_override("font_size", settings_toggle_button.get_theme_font_size("font_size"))
+	_settings_toggle_icon = icon_container
+	_settings_toggle_icon_label = icon_label
+	call_deferred("_update_settings_toggle_icon_pivot")
+
+func _update_settings_toggle_icon_pivot() -> void:
+	if _settings_toggle_icon_label == null:
+		return
+	var icon_size := _settings_toggle_icon_label.get_combined_minimum_size()
+	_settings_toggle_icon_label.pivot_offset = icon_size * 0.5
+
 func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_start = start_bp
 	_last_end = end_bp
@@ -511,6 +549,9 @@ func _slide_settings(open: bool, animated: bool) -> void:
 		_settings_tween.set_ease(Tween.EASE_OUT)
 		_settings_tween.parallel().tween_property(settings_panel, "offset_left", open_left if open else closed_left, 0.24)
 		_settings_tween.parallel().tween_property(settings_panel, "offset_right", open_right if open else closed_right, 0.24)
+		if _settings_toggle_icon_label != null:
+			var spin_delta := -180.0 if open else 180.0
+			_settings_tween.parallel().tween_property(_settings_toggle_icon_label, "rotation_degrees", _settings_toggle_icon_label.rotation_degrees + spin_delta, 0.36)
 		if not open:
 			_settings_tween.finished.connect(func() -> void:
 				if not _settings_open:
@@ -1616,6 +1657,7 @@ func _apply_theme(theme_name: String) -> void:
 	if _debug_loaded_files_label != null:
 		_debug_loaded_files_label.add_theme_color_override("font_color", palette["text"])
 	_apply_topbar_button_font_size()
+	call_deferred("_update_settings_toggle_icon_pivot")
 	_apply_settings_scrollbar_style()
 	call_deferred("_update_settings_panel_width")
 	call_deferred("_update_feature_panel_width")
@@ -1748,6 +1790,10 @@ func _apply_topbar_button_font_size() -> void:
 	for b_any in topbar_buttons:
 		var b: Button = b_any
 		b.add_theme_font_size_override("font_size", topbar_font_size)
+	settings_toggle_button.custom_minimum_size = Vector2(topbar_font_size + 14, topbar_font_size + 14)
+	if _settings_toggle_icon_label != null:
+		_settings_toggle_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
+		_update_settings_toggle_icon_pivot()
 
 func _on_files_dropped(files: PackedStringArray) -> void:
 	if not _ensure_server_connected():
