@@ -7,6 +7,7 @@ const TileControllerScript = preload("res://scripts/tile_controller.gd")
 const SearchControllerScript = preload("res://scripts/search_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
+const SessionLoaderScript = preload("res://scripts/session_loader.gd")
 const GoPanelScene = preload("res://scenes/GoPanel.tscn")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const ZEM_BIN_SUBDIR := "bin"
@@ -153,6 +154,7 @@ var _tile_controller: RefCounted
 var _search_controller: RefCounted
 var _annotation_cache_controller: RefCounted
 var _feature_panel_controller: RefCounted
+var _session_loader: RefCounted
 var _go_panel: VBoxContainer
 var _go_chr_option: OptionButton
 var _go_start_edit: LineEdit
@@ -261,6 +263,8 @@ func _ready() -> void:
 	_annotation_cache_controller.configure(self)
 	_feature_panel_controller = FeaturePanelControllerScript.new()
 	_feature_panel_controller.configure(self)
+	_session_loader = SessionLoaderScript.new()
+	_session_loader.configure(self)
 	_tile_controller.configure(Callable(self, "_compute_tile_zoom"))
 	_themes_lib = ThemesLibScript.new()
 	_disable_button_focus()
@@ -1806,66 +1810,16 @@ func _apply_topbar_button_font_size() -> void:
 		_update_settings_toggle_icon_pivot()
 
 func _on_files_dropped(files: PackedStringArray) -> void:
-	if not _ensure_server_connected():
-		return
-	var drop_info := _inspect_dropped_files(files)
-	if not drop_info.get("ok", false):
-		_set_status(str(drop_info.get("error", "Unable to inspect dropped files.")), true)
-		return
-	var dropped_sequence := bool(drop_info.get("has_sequence", false))
-	if int(drop_info.get("sequence_root_count", 0)) > 1:
-		_set_status("Drop only one sequence-bearing genome source at a time.", true)
-		return
-	if dropped_sequence:
-		_reset_loaded_state()
-	else:
-		_view_slots.clear()
-	if not _load_dropped_files(files):
-		return
-	_record_loaded_files(files, dropped_sequence)
-	genome_view.load_files(files)
-	_refresh_sequence_loaded_state()
-	_refresh_chromosomes(dropped_sequence)
-	_refresh_visible_data()
+	_session_loader.on_files_dropped(files)
 
 func _ensure_server_connected() -> bool:
-	if _zem.ensure_connected():
-		_refresh_sequence_loaded_state()
-		_set_status("Connected")
-		return true
-	var host := "127.0.0.1"
-	var port := ZEM_DEFAULT_PORT
-	if _local_zem_manager.connect_with_local_fallback(host, port):
-		_refresh_sequence_loaded_state()
-		_set_status("Connected %s:%d" % [host, port])
-		return true
-	var msg := "Disconnected"
-	var last_error: String = _local_zem_manager.last_error()
-	if not last_error.is_empty():
-		msg = last_error
-	_set_status(msg, true)
-	return false
+	return _session_loader.ensure_server_connected()
 
 func _refresh_sequence_loaded_state() -> void:
-	var resp: Dictionary = _zem.get_load_state()
-	if resp.get("ok", false):
-		_has_sequence_loaded = bool(resp.get("has_sequence", false))
+	_session_loader.refresh_sequence_loaded_state()
 
 func _inspect_dropped_files(files: PackedStringArray) -> Dictionary:
-	var sequence_root_count := 0
-	for path in files:
-		if path.get_extension().to_lower() == "bam":
-			continue
-		var resp: Dictionary = _zem.inspect_input(path)
-		if not resp.get("ok", false):
-			return {"ok": false, "error": "Inspect input failed: %s" % resp.get("error", "error")}
-		if bool(resp.get("has_sequence", false)):
-			sequence_root_count += 1
-	return {
-		"ok": true,
-		"has_sequence": sequence_root_count > 0,
-		"sequence_root_count": sequence_root_count
-	}
+	return _session_loader.inspect_dropped_files(files)
 
 func _exit_tree() -> void:
 	if _tile_controller != null:
@@ -1874,173 +1828,19 @@ func _exit_tree() -> void:
 		_local_zem_manager.shutdown_on_exit()
 
 func _load_dropped_files(files: PackedStringArray) -> bool:
-	var genome_targets: Array[String] = []
-	var bam_targets: Array[String] = []
-	for path in files:
-		var ext := path.get_extension().to_lower()
-		if ext == "bam":
-			bam_targets.append(path)
-		else:
-			if genome_targets.find(path) < 0:
-				genome_targets.append(path)
-	var pending := genome_targets.duplicate()
-	while not pending.is_empty():
-		var deferred: Array[String] = []
-		var progress := false
-		for target in pending:
-			var resp: Dictionary = _zem.load_genome(target)
-			if resp.get("ok", false):
-				progress = true
-				continue
-			var err_msg := str(resp.get("error", "error"))
-			if err_msg.contains("no reference sequence loaded"):
-				deferred.append(target)
-				continue
-			_set_status("Load genome failed: %s" % err_msg, true)
-			return false
-		if deferred.is_empty():
-			break
-		if not progress:
-			_set_status("Load genome failed: no reference sequence loaded; load a sequence file first.", true)
-			return false
-		pending = deferred
-
-	genome_view.set_read_loading_message("Loading BAMs...")
-	for bam_path in bam_targets:
-		var source_id := _existing_bam_source_id(bam_path)
-		if source_id <= 0:
-			var cutoff_bp := _bam_cov_precompute_cutoff_bp
-			if cutoff_bp > 0:
-				genome_view.set_read_loading_message("Loading %s and precomputing depth..." % bam_path.get_file())
-			else:
-				genome_view.set_read_loading_message("Loading %s..." % bam_path.get_file())
-			var bam_resp: Dictionary = _zem.load_bam(bam_path, cutoff_bp)
-			if not bam_resp.get("ok", false):
-				genome_view.set_read_loading_message("")
-				_set_status("Load BAM failed: %s" % bam_resp.get("error", "error"), true)
-				return false
-			source_id = int(bam_resp.get("source_id", 0))
-		_bam_track_serial += 1
-		var label := bam_path.get_file()
-		var track_id := "reads:%d" % _bam_track_serial
-		_bam_tracks.append({
-			"source_id": source_id,
-			"path": bam_path,
-			"label": label,
-			"track_id": track_id,
-			"view_mode": 0,
-			"fragment_log": true,
-			"thickness": DEFAULT_READ_THICKNESS,
-			"max_rows": DEFAULT_READ_MAX_ROWS,
-			"min_mapq": DEFAULT_READ_MIN_MAPQ,
-			"hidden_flags": DEFAULT_READ_HIDDEN_FLAGS,
-			"hide_improper_pair": false,
-			"hide_forward_strand": false,
-			"hide_mate_forward_strand": false
-		})
-		_has_bam_loaded = true
-		_center_strand_scroll_pending = true
-		_sync_bam_read_tracks()
-		genome_view.set_track_visible(track_id, true)
-	genome_view.set_read_loading_message("")
-	return true
+	return _session_loader.load_dropped_files(files)
 
 func _refresh_chromosomes(reset_viewport: bool = true) -> void:
-	var resp: Dictionary = _zem.get_chromosomes()
-	if not resp.get("ok", false):
-		_set_status("Chrom query failed: %s" % resp.get("error", "error"), true)
-		return
-	var chroms_any = resp.get("chromosomes", [])
-	var chroms: Array[Dictionary] = []
-	for c in chroms_any:
-		if typeof(c) == TYPE_DICTIONARY:
-			chroms.append(c)
-	if chroms.is_empty():
-		_set_status("No chromosomes loaded", true)
-		return
-	_chromosomes = chroms
-	var counts_resp: Dictionary = _zem.get_annotation_counts()
-	if counts_resp.get("ok", false):
-		_annotation_counts_by_chr = counts_resp.get("counts", {})
-	else:
-		_annotation_counts_by_chr = {}
-		_set_status("Annotation preload disabled: counts unavailable (restart zem)", true)
-	_rebuild_concat_segments()
-	_refresh_sequence_options()
-	_refresh_go_chromosomes()
-	_apply_sequence_view(reset_viewport)
+	_session_loader.refresh_chromosomes(reset_viewport)
 
 func _rebuild_concat_segments() -> void:
-	_concat_segments.clear()
-	var pos := 0
-	for i in range(_chromosomes.size()):
-		var c: Dictionary = _chromosomes[i]
-		var seg_len := int(c.get("length", 0))
-		var seg := {
-			"id": int(c.get("id", -1)),
-			"name": str(c.get("name", "chr")),
-			"length": seg_len,
-			"start": pos,
-			"end": pos + seg_len
-		}
-		_concat_segments.append(seg)
-		pos += seg_len
-		if i < _chromosomes.size() - 1:
-			pos += _concat_gap_bp
+	_session_loader.rebuild_concat_segments()
 
 func _refresh_sequence_options() -> void:
-	_seq_option.clear()
-	for c in _chromosomes:
-		_seq_option.add_item(str(c.get("name", "chr")), int(c.get("id", -1)))
-	if _selected_seq_id < 0 and not _selected_seq_name.is_empty():
-		for c in _chromosomes:
-			if str(c.get("name", "")) == _selected_seq_name:
-				_selected_seq_id = int(c.get("id", -1))
-				break
-	if _selected_seq_id < 0 and _chromosomes.size() > 0:
-		_selected_seq_id = int(_chromosomes[0].get("id", -1))
-	var found := false
-	for i in range(_seq_option.item_count):
-		if _seq_option.get_item_id(i) == _selected_seq_id:
-			_seq_option.select(i)
-			_selected_seq_name = _seq_option.get_item_text(i)
-			found = true
-			break
-	if not found and _seq_option.item_count > 0:
-		_seq_option.select(0)
-		_selected_seq_id = int(_seq_option.get_item_id(0))
-		_selected_seq_name = _seq_option.get_item_text(0)
+	_session_loader.refresh_sequence_options()
 
 func _apply_sequence_view(reset_viewport: bool) -> void:
-	if _seq_view_mode == SEQ_VIEW_SINGLE:
-		var selected: Dictionary = {}
-		for c in _chromosomes:
-			if int(c.get("id", -1)) == _selected_seq_id:
-				selected = c
-				break
-		if selected.is_empty() and _chromosomes.size() > 0:
-			selected = _chromosomes[0]
-			_selected_seq_id = int(selected.get("id", -1))
-		_current_chr_id = int(selected.get("id", -1))
-		_current_chr_name = str(selected.get("name", "chr"))
-		_selected_seq_name = _current_chr_name
-		_current_chr_len = int(selected.get("length", 0))
-		_set_status("Loaded %s (%d bp)" % [_current_chr_name, _current_chr_len])
-	else:
-		_current_chr_id = -2
-		var total := 0
-		if _concat_segments.size() > 0:
-			total = int(_concat_segments[_concat_segments.size() - 1].get("end", 0))
-		_current_chr_name = "concat"
-		_current_chr_len = total
-		_set_status("Loaded concat (%d seqs, %d bp)" % [_concat_segments.size(), _current_chr_len])
-	if reset_viewport:
-		genome_view.set_chromosome(_current_chr_name, _current_chr_len)
-	if _seq_view_mode == SEQ_VIEW_CONCAT:
-		genome_view.set_concat_segments(_concat_segments)
-	else:
-		genome_view.set_concat_segments([])
-	_invalidate_cache()
+	_session_loader.apply_sequence_view(reset_viewport)
 
 func _apply_pending_annotation_highlight(features: Array[Dictionary]) -> void:
 	if _pending_annotation_highlight.is_empty():
@@ -2191,23 +1991,10 @@ func _compute_tile_zoom(bp_per_px: float) -> int:
 	return clampi(z, 0, 16)
 
 func _record_loaded_files(files: PackedStringArray, replace_existing: bool) -> void:
-	if replace_existing:
-		_loaded_file_paths = PackedStringArray()
-	for path in files:
-		if not _loaded_file_paths.has(path):
-			_loaded_file_paths.append(path)
-	_update_loaded_files_debug_label()
+	_session_loader.record_loaded_files(files, replace_existing)
 
 func _reset_loaded_state() -> void:
-	_loaded_file_paths = PackedStringArray()
-	_update_loaded_files_debug_label()
-	_view_slots.clear()
-	_current_chr_id = -1
-	_current_chr_name = ""
-	_current_chr_len = 0
-	_cache_start = -1
-	_cache_end = -1
-	_invalidate_cache()
+	_session_loader.reset_loaded_state()
 	_has_bam_loaded = false
 	_bam_tracks.clear()
 	_bam_track_serial = 0

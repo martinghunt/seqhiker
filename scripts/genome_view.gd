@@ -4,6 +4,7 @@ const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
 const TRACK_ROW_SCENE := preload("res://scenes/Track.tscn")
 const ReadLayoutHelperScript = preload("res://scripts/read_layout_helper.gd")
 const ReadTrackRendererScript = preload("res://scripts/read_track_renderer.gd")
+const AnnotationRendererScript = preload("res://scripts/annotation_renderer.gd")
 const DETAILED_READ_MAX_BP_PER_PX := 48.0
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
@@ -155,6 +156,7 @@ var _reads_scrollbar: VScrollBar
 var _laid_out_reads: Array[Dictionary] = []
 var _read_layout_helper := ReadLayoutHelperScript.new()
 var _read_renderer: RefCounted
+var _annotation_renderer: RefCounted
 var _read_row_count := 0
 var _strand_forward_rows := 0
 var _strand_reverse_rows := 0
@@ -223,6 +225,8 @@ func _ready() -> void:
 	add_child(_reads_scrollbar)
 	_read_renderer = ReadTrackRendererScript.new()
 	_read_renderer.configure(self)
+	_annotation_renderer = AnnotationRendererScript.new()
+	_annotation_renderer.configure(self)
 	_sync_track_rows()
 	_read_track_states[TRACK_ID_READS] = {
 		"reads": reads,
@@ -1179,209 +1183,25 @@ func _format_plot_value(v: float) -> String:
 	return "%.3f" % v
 
 func _draw_aa_tracks(area: Rect2) -> void:
-	var t0 := Time.get_ticks_usec()
-	var seen := 0
-	var drawn := 0
-	var labels := 0
-	var culled_density := 0
-	var area_start := area.position.y
-	var show_aa_letters := _can_draw_aa_letters()
-	var show_feature_detail := bp_per_px <= FEATURE_DETAIL_MAX_BP_PER_PX
-	var aa_feature_height := AA_ROW_H - 6.0
-	var frame_label_boxes: Array = []
-	var pending_labels: Array[Dictionary] = []
-	frame_label_boxes.resize(6)
-	for i in range(6):
-		frame_label_boxes[i] = []
-	_feature_hitboxes.clear()
-	for i in range(6):
-		var y := area_start + i * (AA_ROW_H + AA_ROW_GAP)
-		var track_rect := Rect2(0.0, y, area.size.x, AA_ROW_H)
-		var bg_col: Color = palette["bg"]
-		if i == 1 or i == 4:
-			bg_col = palette.get("aa_alt_bg", bg_col)
-		draw_rect(track_rect, bg_col, true)
-		_draw_grid(track_rect)
-	var split_y := area_start + 3.0 * (AA_ROW_H + AA_ROW_GAP) - AA_ROW_GAP * 0.5
-	draw_line(Vector2(0.0, split_y), Vector2(size.x, split_y), Color(0.15, 0.15, 0.15, 0.45), 1.0)
-
-	for feature in features:
-		seen += 1
-		if _is_hidden_full_length_region(feature):
-			continue
-		var frame := _feature_to_frame(feature)
-		if frame < 0 || frame > 5:
-			continue
-		var f_start: int = feature["start"]
-		var f_end: int = feature["end"]
-		if f_end < int(view_start_bp) || f_start > int(_viewport_end_bp()):
-			continue
-		var row_center_y := _aa_frame_row_center_y(area_start, frame)
-		var fy := row_center_y - aa_feature_height * 0.5
-		var fx0 := TRACK_LEFT_PAD + _bp_to_x(f_start)
-		var fx1 := TRACK_LEFT_PAD + _bp_to_x(f_end)
-		var feature_w := fx1 - fx0
-		if feature_w < FEATURE_MIN_DRAW_PX:
-			continue
-		var rect := Rect2(Vector2(fx0, fy), Vector2(feature_w, aa_feature_height))
-		var feature_col: Color = palette["feature"]
-		feature_col.a = 1.0
-		draw_rect(rect, feature_col, true)
-		var key := _feature_key(feature)
-		if not _selected_feature_key.is_empty() and key == _selected_feature_key:
-			var border_col: Color = palette.get("feature_text", _axis_text_color())
-			draw_rect(rect.grow(1.5), border_col, false, 2.0)
-		drawn += 1
-		var click_rect := rect.grow(3.0) if show_feature_detail else rect
-		_feature_hitboxes.append({
-			"rect": click_rect,
-			"feature": feature
-		})
-		if not show_aa_letters:
-			var label_x_min := maxf(rect.position.x + 4.0, TRACK_LEFT_PAD + 2.0)
-			var label_x_max := minf(rect.position.x + rect.size.x - 4.0, size.x - TRACK_RIGHT_PAD - 2.0)
-			var label_w := maxf(0.0, label_x_max - label_x_min)
-			var label := _feature_annotation_label(feature, label_w)
-			if not label.is_empty():
-				var font := get_theme_default_font()
-				var font_size := _font_size_small
-				var text_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-				var draw_w := minf(label_w, text_w)
-				var label_rect := Rect2(Vector2(label_x_min, rect.position.y + 2.0), Vector2(draw_w, AA_ROW_H - 8.0))
-				if not _intersects_any(label_rect, frame_label_boxes[frame]):
-					var ann_text_col: Color = palette.get("feature_text", _axis_text_color())
-					var label_center_y := rect.position.y + rect.size.y * 0.5
-					pending_labels.append({
-						"pos": Vector2(label_x_min, _text_baseline_for_center(label_center_y, font, font_size)),
-						"text": label,
-						"max_w": label_w,
-						"font_size": font_size,
-						"color": ann_text_col
-					})
-					frame_label_boxes[frame].append(label_rect)
-					labels += 1
-
-	if show_aa_letters:
-		_draw_aa_translation_letters(area_start)
-	var label_font := get_theme_default_font()
-	for entry in pending_labels:
-		draw_string(
-			label_font,
-			entry.get("pos", Vector2.ZERO),
-			str(entry.get("text", "")),
-			HORIZONTAL_ALIGNMENT_LEFT,
-			float(entry.get("max_w", -1.0)),
-			int(entry.get("font_size", _font_size_small)),
-			entry.get("color", _axis_text_color())
-		)
-	_annotation_debug_stats = {
-		"seen": seen,
-		"drawn": drawn,
-		"labels": labels,
-		"hitboxes": _feature_hitboxes.size(),
-		"culled_density": culled_density,
-		"draw_ms": float(Time.get_ticks_usec() - t0) / 1000.0
-	}
+	_annotation_renderer.draw_aa_tracks(area)
 
 func _draw_genome_feature_tracks(area: Rect2, line_y: float) -> void:
-	var show_feature_labels := not _can_draw_nucleotide_letters()
-	var row_height := AA_ROW_H - 6.0
-	var row_label_boxes: Array = [[], [], []]
-	var pending_labels: Array[Dictionary] = []
-	var text_col: Color = palette.get("feature_text", _axis_text_color())
-	for feature in features:
-		if _is_hidden_full_length_region(feature):
-			continue
-		if _feature_shows_in_aa_track(feature):
-			continue
-		var row := _feature_to_genome_row(feature)
-		if row < 0 or row > 2:
-			continue
-		var f_start := int(feature.get("start", 0))
-		var f_end := int(feature.get("end", f_start))
-		if f_end < int(view_start_bp) || f_start > int(_viewport_end_bp()):
-			continue
-		var fx0 := TRACK_LEFT_PAD + _bp_to_x(f_start)
-		var fx1 := TRACK_LEFT_PAD + _bp_to_x(f_end)
-		var feature_w := fx1 - fx0
-		if feature_w < FEATURE_MIN_DRAW_PX:
-			continue
-		var row_center_y := _genome_feature_row_center_y(area, line_y, row)
-		var rect := Rect2(Vector2(fx0, row_center_y - row_height * 0.5), Vector2(feature_w, row_height))
-		var feature_col: Color = palette["feature"]
-		feature_col.a = 0.9
-		draw_rect(rect, feature_col, true)
-		var key := _feature_key(feature)
-		if not _selected_feature_key.is_empty() and key == _selected_feature_key:
-			draw_rect(rect.grow(1.5), text_col, false, 2.0)
-		_feature_hitboxes.append({
-			"rect": rect.grow(3.0),
-			"feature": feature
-		})
-		if not show_feature_labels:
-			continue
-		var label_x_min := maxf(rect.position.x + 4.0, TRACK_LEFT_PAD + 2.0)
-		var label_x_max := minf(rect.position.x + rect.size.x - 4.0, size.x - TRACK_RIGHT_PAD - 2.0)
-		var label_w := maxf(0.0, label_x_max - label_x_min)
-		var label := _feature_annotation_label(feature, label_w)
-		if label.is_empty():
-			continue
-		var font := get_theme_default_font()
-		var font_size := _font_size_small
-		var text_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		var draw_w := minf(label_w, text_w)
-		var label_rect := Rect2(Vector2(label_x_min, rect.position.y + 2.0), Vector2(draw_w, row_height - 4.0))
-		if _intersects_any(label_rect, row_label_boxes[row]):
-			continue
-		var label_center_y := rect.position.y + rect.size.y * 0.5
-		pending_labels.append({
-			"pos": Vector2(label_x_min, _text_baseline_for_center(label_center_y, font, font_size)),
-			"text": label,
-			"max_w": label_w,
-			"font_size": font_size,
-			"color": text_col
-		})
-		row_label_boxes[row].append(label_rect)
-	var label_font := get_theme_default_font()
-	for entry in pending_labels:
-		draw_string(
-			label_font,
-			entry.get("pos", Vector2.ZERO),
-			str(entry.get("text", "")),
-			HORIZONTAL_ALIGNMENT_LEFT,
-			float(entry.get("max_w", -1.0)),
-			int(entry.get("font_size", _font_size_small)),
-			entry.get("color", text_col)
-		)
+	_annotation_renderer.draw_genome_feature_tracks(area, line_y)
 
 func _text_center_y(font: Font, font_size: int, baseline_y: float) -> float:
-	var ascent := font.get_ascent(font_size)
-	var descent := font.get_descent(font_size)
-	return baseline_y + (descent - ascent) * 0.5
+	return _annotation_renderer.text_center_y(font, font_size, baseline_y)
 
 func _text_baseline_for_center(center_y: float, font: Font, font_size: int) -> float:
-	var ascent := font.get_ascent(font_size)
-	var descent := font.get_descent(font_size)
-	return center_y + (ascent - descent) * 0.5
+	return _annotation_renderer.text_baseline_for_center(center_y, font, font_size)
 
 func _aa_frame_row_center_y(area_start: float, frame: int) -> float:
-	var font := get_theme_default_font()
-	return _text_center_y(font, _font_size_medium, area_start + frame * (AA_ROW_H + AA_ROW_GAP) + 17.0)
+	return _annotation_renderer.aa_frame_row_center_y(area_start, frame)
 
 func _genome_feature_row_center_y(area: Rect2, line_y: float, row: int) -> float:
-	var font := get_theme_default_font()
-	match row:
-		0:
-			return _text_center_y(font, _font_size_large, line_y - 12.0)
-		1:
-			return area.position.y + area.size.y * 0.5
-		2:
-			return _text_center_y(font, _font_size_large, line_y + 38.0)
-		_:
-			return area.position.y + area.size.y * 0.5
+	return _annotation_renderer.genome_feature_row_center_y(area, line_y, row)
 
 func annotation_debug_stats() -> Dictionary:
-	return _annotation_debug_stats.duplicate()
+	return _annotation_renderer.annotation_debug_stats()
 
 func set_selected_feature(feature: Dictionary, toggle: bool = false) -> void:
 	var next_key := _feature_key(feature)
@@ -1494,68 +1314,10 @@ func _can_draw_nucleotide_letters() -> bool:
 	return pixels_per_bp >= maxf(4.0, char_px * 0.45)
 
 func _draw_aa_translation_letters(area_start: float) -> void:
-	if not _can_draw_aa_letters():
-		return
-	var font := get_theme_default_font()
-	var aa_font_size := _font_size_medium
-	var aa_char_px := font.get_string_size("M", HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size).x
-
-	var seq_len := reference_sequence.length()
-	if seq_len < 3:
-		return
-	var ref_start := reference_start_bp
-	var ref_end := reference_start_bp + seq_len
-	var vis_start := maxi(ref_start, int(floor(view_start_bp)))
-	var vis_end := mini(ref_end, int(ceil(_viewport_end_bp())))
-	if vis_end - vis_start < 3:
-		return
-	for frame in range(3):
-		var first_bp := vis_start + posmod(frame - posmod(vis_start, 3), 3)
-		var last_bp := vis_end - 3
-		if last_bp < first_bp:
-			continue
-		var codon_count := int(floor(float(last_bp - first_bp) / 3.0)) + 1
-		var max_by_pixels := maxi(1, int(floor(_plot_width() / maxf(1.0, aa_char_px + 1.0))) + 1)
-		var sample_count := mini(codon_count, max_by_pixels)
-		for n in range(sample_count):
-			var codon_index := n
-			if sample_count > 1 and codon_count > 1:
-				codon_index = int(round(float(n) * float(codon_count - 1) / float(sample_count - 1)))
-			var bp := first_bp + codon_index * 3
-			var i0 := bp - ref_start
-			var i1 := i0 + 1
-			var i2 := i0 + 2
-			if i0 < 0 or i2 >= seq_len:
-				continue
-			var b0 := reference_sequence.substr(i0, 1).to_upper()
-			var b1 := reference_sequence.substr(i1, 1).to_upper()
-			var b2 := reference_sequence.substr(i2, 1).to_upper()
-			if b0 == " " or b1 == " " or b2 == " ":
-				continue
-
-			var codon := b0 + b1 + b2
-			var aa_fwd := _translate_codon(codon)
-			if not aa_fwd.is_empty():
-				var x := TRACK_LEFT_PAD + _bp_to_x(float(bp) + 1.5) - aa_char_px * 0.5
-				var y := area_start + frame * (AA_ROW_H + AA_ROW_GAP) + 17.0
-				draw_string(font, Vector2(x, y), aa_fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, palette["text"])
-
-			var rev_codon := _complement_base(b2) + _complement_base(b1) + _complement_base(b0)
-			var aa_rev := _translate_codon(rev_codon)
-			if not aa_rev.is_empty():
-				var rx := TRACK_LEFT_PAD + _bp_to_x(float(bp) + 1.5) - aa_char_px * 0.5
-				var ry := area_start + (3 + frame) * (AA_ROW_H + AA_ROW_GAP) + 17.0
-				draw_string(font, Vector2(rx, ry), aa_rev, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, palette["text"])
+	_annotation_renderer.draw_aa_translation_letters(area_start)
 
 func _is_hidden_full_length_region(feature: Dictionary) -> bool:
-	if _show_full_length_regions:
-		return false
-	var feature_type := str(feature.get("type", "")).to_lower()
-	if feature_type != "region" and feature_type != "source":
-		return false
-	var start_bp := int(feature.get("start", 0))
-	var end_bp := int(feature.get("end", 0))
-	return start_bp <= 0 and end_bp >= chromosome_length
+	return _annotation_renderer.is_hidden_full_length_region(feature)
 
 func _draw_genome_track(area: Rect2) -> void:
 	var y := area.position.y
@@ -1855,57 +1617,13 @@ func _translate_codon(codon: String) -> String:
 	return str(CODON_TO_AA.get(codon, "X"))
 
 func _feature_annotation_label(feature: Dictionary, max_width: float) -> String:
-	if max_width <= 0.0:
-		return ""
-	var font := get_theme_default_font()
-	var font_size := _font_size_small
-	var label_name := str(feature.get("name", "")).strip_edges()
-	var id := str(feature.get("id", "")).strip_edges()
-	if label_name.is_empty():
-		label_name = str(feature.get("type", "")).strip_edges()
-	if label_name.is_empty() and id.is_empty():
-		return ""
-	if id.is_empty() or id == label_name:
-		return _truncate_label_to_width(label_name, max_width, FEATURE_LABEL_MIN_CHARS, font, font_size)
-	var combined := "%s / %s" % [label_name, id]
-	var combined_w := font.get_string_size(combined, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	if combined_w <= max_width:
-		return combined
-	return _truncate_label_to_width(label_name, max_width, FEATURE_LABEL_MIN_CHARS, font, font_size)
+	return _annotation_renderer.feature_annotation_label(feature, max_width)
 
 func _truncate_label_to_width(text: String, max_width: float, min_chars: int, font: Font, font_size: int) -> String:
-	if text.is_empty() or max_width <= 0.0:
-		return ""
-	var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	if full_w <= max_width:
-		return text
-	var ellipsis := "..."
-	var n := text.length()
-	var min_n := mini(maxi(1, min_chars), n)
-	var min_candidate := text.substr(0, min_n) + ellipsis
-	var min_w := font.get_string_size(min_candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	if min_w > max_width:
-		return ""
-	var lo := min_n
-	var hi := n
-	var best := min_n
-	while lo <= hi:
-		var mid := lo + ((hi - lo) >> 1)
-		var candidate := text.substr(0, mid) + ellipsis
-		var w := font.get_string_size(candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		if w <= max_width:
-			best = mid
-			lo = mid + 1
-		else:
-			hi = mid - 1
-	return text.substr(0, best) + ellipsis
+	return _annotation_renderer.truncate_label_to_width(text, max_width, min_chars, font, font_size)
 
 func _intersects_any(rect: Rect2, existing: Array) -> bool:
-	for r_any in existing:
-		var r: Rect2 = r_any
-		if r.intersects(rect):
-			return true
-	return false
+	return _annotation_renderer.intersects_any(rect, existing)
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and _map_drag_active:
@@ -2199,30 +1917,16 @@ func _axis_tick_step(span: float) -> int:
 	return step6
 
 func _feature_to_frame(feature: Dictionary) -> int:
-	if not _feature_shows_in_aa_track(feature):
-		return -1
-	var strand: String = str(feature.get("strand", "+"))
-	var start: int = int(feature.get("start", 0))
-	var end: int = int(feature.get("end", 0))
-	if strand == "-":
-		var reverse_phase := ((2 - ((end - 1) % 3)) + 3) % 3
-		return 3 + reverse_phase
-	return ((start % 3) + 3) % 3
+	return _annotation_renderer.feature_to_frame(feature)
 
 func _feature_uses_frame(feature: Dictionary) -> bool:
-	var feature_type := str(feature.get("type", "")).to_lower()
-	return feature_type == "cds" or feature_type == "gene"
+	return _annotation_renderer.feature_uses_frame(feature)
 
 func _feature_shows_in_aa_track(feature: Dictionary) -> bool:
-	return _feature_uses_frame(feature) and is_track_visible(TRACK_ID_AA)
+	return _annotation_renderer.feature_shows_in_aa_track(feature)
 
 func _feature_to_genome_row(feature: Dictionary) -> int:
-	var strand := str(feature.get("strand", "")).strip_edges()
-	if strand == "+":
-		return 0
-	if strand == "-":
-		return 2
-	return 1
+	return _annotation_renderer.feature_to_genome_row(feature)
 
 func _map_bp_to_x(bp: float, area: Rect2, total_len: int) -> float:
 	var axis_left := TRACK_LEFT_PAD
