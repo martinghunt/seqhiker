@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +62,49 @@ func TestSearchDNAExact(t *testing.T) {
 	}
 }
 
+func TestGetReferenceSlice(t *testing.T) {
+	e := NewEngine()
+	e.sequences["chr1"] = "ACGTACGT"
+	e.chrToID["chr1"] = 1
+	e.idToChr[1] = "chr1"
+
+	payload, err := e.GetReferenceSlice(1, 2, 6)
+	if err != nil {
+		t.Fatalf("GetReferenceSlice returned error: %v", err)
+	}
+	start, end, seq := decodeReferenceSliceForTest(t, payload)
+	if start != 2 || end != 6 || seq != "GTAC" {
+		t.Fatalf("unexpected slice: start=%d end=%d seq=%q", start, end, seq)
+	}
+}
+
+func TestGetReferenceSliceClampsEnd(t *testing.T) {
+	e := NewEngine()
+	e.sequences["chr1"] = "ACGTACGT"
+	e.chrToID["chr1"] = 1
+	e.idToChr[1] = "chr1"
+
+	payload, err := e.GetReferenceSlice(1, 6, 99)
+	if err != nil {
+		t.Fatalf("GetReferenceSlice returned error: %v", err)
+	}
+	start, end, seq := decodeReferenceSliceForTest(t, payload)
+	if start != 6 || end != 8 || seq != "GT" {
+		t.Fatalf("unexpected clamped slice: start=%d end=%d seq=%q", start, end, seq)
+	}
+}
+
+func TestGetReferenceSliceRejectsInvertedRange(t *testing.T) {
+	e := NewEngine()
+	e.sequences["chr1"] = "ACGTACGT"
+	e.chrToID["chr1"] = 1
+	e.idToChr[1] = "chr1"
+
+	if _, err := e.GetReferenceSlice(1, 7, 6); err == nil {
+		t.Fatal("expected inverted range to return an error")
+	}
+}
+
 func TestLoadGenomeEMBL(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "record.embl")
@@ -99,6 +143,117 @@ func TestLoadGenomeEMBL(t *testing.T) {
 	}
 	if feats[1].Type != "gene" || feats[1].Attributes != "gene=foo" {
 		t.Fatalf("unexpected gene feature: %+v", feats[1])
+	}
+}
+
+func TestGetAnnotationsFiltersByOverlapLengthAndLimit(t *testing.T) {
+	e := NewEngine()
+	e.sequences["chr1"] = "ACGTACGTACGTACGT"
+	e.chrLength["chr1"] = 16
+	e.chrToID["chr1"] = 1
+	e.idToChr[1] = "chr1"
+	e.features["chr1"] = []Feature{
+		{SeqName: "chr1", Source: "src", Type: "gene", Start: 0, End: 3, Strand: '+', Attributes: "ID=short"},
+		{SeqName: "chr1", Source: "src", Type: "gene", Start: 2, End: 8, Strand: '+', Attributes: "ID=mid"},
+		{SeqName: "chr1", Source: "src", Type: "CDS", Start: 7, End: 12, Strand: '-', Attributes: "ID=late"},
+		{SeqName: "chr1", Source: "src", Type: "misc_feature", Start: 12, End: 16, Strand: '.', Attributes: "ID=tail"},
+	}
+
+	payload, err := e.GetAnnotations(1, 3, 13, 2, 5)
+	if err != nil {
+		t.Fatalf("GetAnnotations returned error: %v", err)
+	}
+	start, end, feats := decodeAnnotationsForTest(t, payload)
+	if start != 3 || end != 13 {
+		t.Fatalf("unexpected annotation window: %d..%d", start, end)
+	}
+	if len(feats) != 2 {
+		t.Fatalf("expected 2 features after limit/filtering, got %d", len(feats))
+	}
+	if feats[0].Attributes != "ID=mid" || feats[1].Attributes != "ID=late" {
+		t.Fatalf("unexpected filtered features: %+v", feats)
+	}
+}
+
+func TestGetAnnotationTileUsesTileWindow(t *testing.T) {
+	e := NewEngine()
+	e.sequences["chr1"] = strings.Repeat("A", 5000)
+	e.chrLength["chr1"] = 5000
+	e.chrToID["chr1"] = 1
+	e.idToChr[1] = "chr1"
+	e.features["chr1"] = []Feature{
+		{SeqName: "chr1", Source: "src", Type: "gene", Start: 10, End: 20, Strand: '+', Attributes: "ID=early"},
+		{SeqName: "chr1", Source: "src", Type: "gene", Start: 1100, End: 1200, Strand: '+', Attributes: "ID=tile1"},
+		{SeqName: "chr1", Source: "src", Type: "gene", Start: 2500, End: 2600, Strand: '-', Attributes: "ID=tile2"},
+	}
+
+	payload, err := e.GetAnnotationTile(1, 0, 1, 10, 1)
+	if err != nil {
+		t.Fatalf("GetAnnotationTile returned error: %v", err)
+	}
+	start, end, feats := decodeAnnotationsForTest(t, payload)
+	if start != 1024 || end != 2048 {
+		t.Fatalf("unexpected tile window: %d..%d", start, end)
+	}
+	if len(feats) != 1 || feats[0].Attributes != "ID=tile1" {
+		t.Fatalf("unexpected tile features: %+v", feats)
+	}
+}
+
+func TestAnnotationOnlyLoadInvalidatesAnnotationTileCache(t *testing.T) {
+	dir := t.TempDir()
+	fastaPath := filepath.Join(dir, "ref.fa")
+	if err := os.WriteFile(fastaPath, []byte(">chr1\n"+strings.Repeat("A", 3000)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gff1Path := filepath.Join(dir, "ann1.gff3")
+	gff1 := "" +
+		"##gff-version 3\n" +
+		"chr1\tsrc\tgene\t1101\t1200\t.\t+\t.\tID=gene1\n"
+	if err := os.WriteFile(gff1Path, []byte(gff1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gff2Path := filepath.Join(dir, "ann2.gff3")
+	gff2 := "" +
+		"##gff-version 3\n" +
+		"chr1\tsrc\tgene\t1101\t1200\t.\t+\t.\tID=gene2\n"
+	if err := os.WriteFile(gff2Path, []byte(gff2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(fastaPath); err != nil {
+		t.Fatalf("LoadGenome fasta returned error: %v", err)
+	}
+	if err := e.LoadGenome(gff1Path); err != nil {
+		t.Fatalf("LoadGenome gff1 returned error: %v", err)
+	}
+
+	chrID := e.chrToID["chr1"]
+	payload, err := e.GetAnnotationTile(chrID, 0, 1, 10, 1)
+	if err != nil {
+		t.Fatalf("GetAnnotationTile before merge returned error: %v", err)
+	}
+	_, _, feats := decodeAnnotationsForTest(t, payload)
+	if len(feats) != 1 || feats[0].Attributes != "ID=gene1" {
+		t.Fatalf("unexpected features before merge: %+v", feats)
+	}
+
+	if err := e.LoadGenome(gff2Path); err != nil {
+		t.Fatalf("LoadGenome gff2 returned error: %v", err)
+	}
+	payload, err = e.GetAnnotationTile(chrID, 0, 1, 10, 1)
+	if err != nil {
+		t.Fatalf("GetAnnotationTile after merge returned error: %v", err)
+	}
+	_, _, feats = decodeAnnotationsForTest(t, payload)
+	if len(feats) != 2 {
+		t.Fatalf("expected 2 features after merge, got %d", len(feats))
+	}
+	attrs := []string{feats[0].Attributes, feats[1].Attributes}
+	slices.Sort(attrs)
+	if !slices.Equal(attrs, []string{"ID=gene1", "ID=gene2"}) {
+		t.Fatalf("unexpected merged attributes: %v", attrs)
 	}
 }
 
@@ -373,6 +528,81 @@ func decodeDNAHitsForTest(payload []byte) (bool, []DNAExactHit) {
 		off += 9
 	}
 	return truncated, hits
+}
+
+func decodeReferenceSliceForTest(t *testing.T, payload []byte) (int, int, string) {
+	t.Helper()
+	if len(payload) < 12 {
+		t.Fatalf("reference slice payload too short")
+	}
+	start := int(binary.LittleEndian.Uint32(payload[0:4]))
+	end := int(binary.LittleEndian.Uint32(payload[4:8]))
+	n := int(binary.LittleEndian.Uint32(payload[8:12]))
+	if len(payload) < 12+n {
+		t.Fatalf("reference slice payload truncated")
+	}
+	return start, end, string(payload[12 : 12+n])
+}
+
+func decodeAnnotationsForTest(t *testing.T, payload []byte) (int, int, []Feature) {
+	t.Helper()
+	if len(payload) < 12 {
+		t.Fatalf("annotation payload too short")
+	}
+	start := int(binary.LittleEndian.Uint32(payload[0:4]))
+	end := int(binary.LittleEndian.Uint32(payload[4:8]))
+	count := int(binary.LittleEndian.Uint32(payload[8:12]))
+	off := 12
+	feats := make([]Feature, 0, count)
+	for i := 0; i < count; i++ {
+		if off+12 > len(payload) {
+			t.Fatalf("annotation payload truncated")
+		}
+		feat := Feature{
+			Start:  int(binary.LittleEndian.Uint32(payload[off : off+4])),
+			End:    int(binary.LittleEndian.Uint32(payload[off+4 : off+8])),
+			Strand: payload[off+8],
+		}
+		seqNameLen := int(binary.LittleEndian.Uint16(payload[off+10 : off+12]))
+		off += 12
+		if off+seqNameLen > len(payload) {
+			t.Fatalf("annotation seqname overflow")
+		}
+		feat.SeqName = string(payload[off : off+seqNameLen])
+		off += seqNameLen
+		if off+2 > len(payload) {
+			t.Fatalf("annotation source length missing")
+		}
+		sourceLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2
+		if off+sourceLen > len(payload) {
+			t.Fatalf("annotation source overflow")
+		}
+		feat.Source = string(payload[off : off+sourceLen])
+		off += sourceLen
+		if off+2 > len(payload) {
+			t.Fatalf("annotation type length missing")
+		}
+		typeLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2
+		if off+typeLen > len(payload) {
+			t.Fatalf("annotation type overflow")
+		}
+		feat.Type = string(payload[off : off+typeLen])
+		off += typeLen
+		if off+2 > len(payload) {
+			t.Fatalf("annotation attr length missing")
+		}
+		attrLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2
+		if off+attrLen > len(payload) {
+			t.Fatalf("annotation attr overflow")
+		}
+		feat.Attributes = string(payload[off : off+attrLen])
+		off += attrLen
+		feats = append(feats, feat)
+	}
+	return start, end, feats
 }
 
 func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
