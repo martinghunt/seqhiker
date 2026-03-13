@@ -8,11 +8,13 @@ const DEFAULT_GC_WINDOW_BP := 200
 const SEQ_VIEW_CONCAT := 0
 const SEQ_VIEW_SINGLE := 1
 const TILE_PRUNE_MARGIN := 2
+const ANNOT_TILE_BASE_BP := 1024
 
 var _compute_tile_zoom_cb: Callable
 var _read_tile_cache: Dictionary = {}
 var _coverage_tile_cache: Dictionary = {}
 var _gc_tile_cache: Dictionary = {}
+var _annotation_tile_cache: Dictionary = {}
 var _active_scope_key := ""
 var _active_generation := -1
 var _read_layout_helper := ReadLayoutHelperScript.new()
@@ -99,6 +101,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 		_read_tile_cache.clear()
 		_coverage_tile_cache.clear()
 		_gc_tile_cache.clear()
+		_annotation_tile_cache.clear()
 		_active_scope_key = scope_key
 		_active_generation = generation
 	var query_start := int(request.get("query_start", 0))
@@ -106,6 +109,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	var last_bp_per_px := float(request.get("last_bp_per_px", 1.0))
 	var zoom := _compute_tile_zoom(last_bp_per_px)
 	var show_reads := bool(request.get("show_reads", false))
+	var show_annotations := bool(request.get("show_annotations", false))
 	var show_gc_plot := bool(request.get("show_gc_plot", false))
 	var show_depth_plot := bool(request.get("show_depth_plot", false))
 	var has_bam_loaded := bool(request.get("has_bam_loaded", false))
@@ -115,15 +119,28 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	var overlaps: Array = request.get("overlaps", [])
 	var visible_track_ids = request.get("visible_track_ids", {})
 	var gc_window_bp := int(request.get("gc_window_bp", DEFAULT_GC_WINDOW_BP))
+	var annotation_cap_total := int(request.get("annotation_cap_total", 0))
+	var annotation_min_len_bp := int(request.get("annotation_min_len_bp", 1))
 	var keep_read_keys := {}
 	var keep_coverage_keys := {}
 	var keep_gc_keys := {}
+	var keep_annotation_keys := {}
 
 	var read_payload_by_track := {}
+	var annotation_features: Array = []
 	var gc_plot_tiles: Array = []
 	var depth_plot_tiles: Array = []
 	var depth_plot_series: Array = []
 	var depth_series_by_track := {}
+	var annotation_stats := {
+		"tile_requests": 0,
+		"tile_cache_hits": 0,
+		"tile_queries": 0,
+		"features_examined": 0,
+		"features_out": 0,
+		"fetch_time_ms": 0.0
+	}
+	var annotation_t0 := Time.get_ticks_usec()
 
 	if seq_view_mode == SEQ_VIEW_SINGLE:
 		if has_bam_loaded and show_reads:
@@ -157,13 +174,13 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 						var cov_tile = cov_resp.get("coverage", {})
 						if last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
 							track_cov.append(cov_tile)
-						if show_depth_plot:
-							if not depth_series_by_track.has(track_id):
-								depth_series_by_track[track_id] = []
-							var depth_tiles_for_track: Array = depth_series_by_track[track_id]
-							depth_tiles_for_track.append(_coverage_to_plot_tile(cov_tile))
-							depth_series_by_track[track_id] = depth_tiles_for_track
-				read_payload_by_track[track_id] = _prepare_track_payload(track, track_reads, track_cov, query_start, query_end)
+							if show_depth_plot:
+								if not depth_series_by_track.has(track_id):
+									depth_series_by_track[track_id] = []
+								var depth_tiles_for_track: Array = depth_series_by_track[track_id]
+								depth_tiles_for_track.append(_coverage_to_plot_tile(cov_tile))
+								depth_series_by_track[track_id] = depth_tiles_for_track
+					read_payload_by_track[track_id] = _prepare_track_payload(track, track_reads, track_cov, query_start, query_end)
 		if show_gc_plot:
 			var tile_width_plot := 1024 << zoom
 			var tile_start_plot := int(floor(float(query_start) / float(tile_width_plot)))
@@ -174,6 +191,21 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 				if not plot_resp.get("ok", false):
 					return {"ok": false, "error": "GC plot query failed: %s" % plot_resp.get("error", "error")}
 				gc_plot_tiles.append(plot_resp.get("plot", {}))
+		if show_annotations:
+			var ann_resp := _fetch_annotation_features_single(
+				zem,
+				current_chr_id,
+				query_start,
+				query_end,
+				zoom,
+				annotation_cap_total,
+				annotation_min_len_bp,
+				keep_annotation_keys,
+				annotation_stats
+			)
+			if not ann_resp.get("ok", false):
+				return ann_resp
+			annotation_features = ann_resp.get("features", [])
 	else:
 		if has_bam_loaded and show_reads:
 			for t_any in bam_tracks:
@@ -238,6 +270,30 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 					if not plot_resp.get("ok", false):
 						return {"ok": false, "error": "GC plot query failed: %s" % plot_resp.get("error", "error")}
 					gc_plot_tiles.append(_shift_plot_coords(plot_resp.get("plot", {}), offset, gc_window_bp))
+		if show_annotations:
+			var shifted_features: Array = []
+			for ov_any in overlaps:
+				var ov: Dictionary = ov_any as Dictionary
+				var chr_id := int(ov["id"])
+				var offset := int(ov["offset"])
+				var local_start := int(ov["local_start"])
+				var local_end := int(ov["local_end"])
+				var ann_resp := _fetch_annotation_features_single(
+					zem,
+					chr_id,
+					local_start,
+					local_end,
+					zoom,
+					annotation_cap_total,
+					annotation_min_len_bp,
+					keep_annotation_keys,
+					annotation_stats
+				)
+				if not ann_resp.get("ok", false):
+					return ann_resp
+				for feat_any in ann_resp.get("features", []):
+					shifted_features.append(_shift_feature_coords(feat_any as Dictionary, offset))
+			annotation_features = _collapse_annotation_features(shifted_features, query_start, query_end, annotation_cap_total)
 
 	for track_any in bam_tracks:
 		var track: Dictionary = track_any as Dictionary
@@ -257,11 +313,16 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	_prune_cache(_read_tile_cache, keep_read_keys)
 	_prune_cache(_coverage_tile_cache, keep_coverage_keys)
 	_prune_cache(_gc_tile_cache, keep_gc_keys)
+	_prune_cache(_annotation_tile_cache, keep_annotation_keys)
+	annotation_stats["features_out"] = annotation_features.size()
+	annotation_stats["fetch_time_ms"] = float(Time.get_ticks_usec() - annotation_t0) / 1000.0
 
 	return {
 		"ok": true,
 		"serial": int(request.get("serial", -1)),
 		"read_payload_by_track": read_payload_by_track,
+		"annotation_features": annotation_features,
+		"annotation_stats": annotation_stats,
 		"gc_plot_tiles": gc_plot_tiles,
 		"depth_plot_tiles": depth_plot_tiles,
 		"depth_plot_series": depth_plot_series
@@ -389,6 +450,111 @@ func _frame_get_gc_plot_tile(zem, chr_id: int, zoom: int, tile_index: int, windo
 	_gc_tile_cache[key] = resp
 	return resp
 
+func _frame_get_annotation_tile(zem, chr_id: int, zoom: int, tile_index: int, cap_per_tile: int, min_len_bp: int, annotation_stats: Dictionary) -> Dictionary:
+	var param := _annotation_cache_param(cap_per_tile, min_len_bp)
+	var key := _frame_tile_key(0, chr_id, zoom, tile_index, param)
+	annotation_stats["tile_requests"] = int(annotation_stats.get("tile_requests", 0)) + 1
+	if _annotation_tile_cache.has(key):
+		annotation_stats["tile_cache_hits"] = int(annotation_stats.get("tile_cache_hits", 0)) + 1
+		return _annotation_tile_cache[key]
+	var resp: Dictionary = zem.get_annotation_tile(chr_id, zoom, tile_index, cap_per_tile, min_len_bp)
+	_annotation_tile_cache[key] = resp
+	if resp.get("ok", false):
+		annotation_stats["tile_queries"] = int(annotation_stats.get("tile_queries", 0)) + 1
+	return resp
+
+func _fetch_annotation_features_single(zem, chr_id: int, start_bp: int, end_bp: int, zoom: int, cap_total: int, min_len_bp: int, keep_annotation_keys: Dictionary, annotation_stats: Dictionary) -> Dictionary:
+	if end_bp <= start_bp:
+		return {"ok": true, "features": []}
+	var tile_w := ANNOT_TILE_BASE_BP << zoom
+	var tile_start := int(floor(float(start_bp) / float(tile_w)))
+	var tile_end := int(floor(float(maxi(end_bp - 1, start_bp)) / float(tile_w)))
+	if tile_end < tile_start:
+		tile_end = tile_start
+	var tile_count := tile_end - tile_start + 1
+	var cap_per_tile := clampi(int(ceil(float(maxi(cap_total, 1)) / float(maxi(tile_count, 1)) * 1.5)), 128, maxi(cap_total, 128))
+	var out: Array = []
+	for t in range(tile_start, tile_end + 1):
+		var param := _annotation_cache_param(cap_per_tile, min_len_bp)
+		_mark_tile_range(keep_annotation_keys, 0, chr_id, zoom, t, param)
+		var resp := _frame_get_annotation_tile(zem, chr_id, zoom, t, cap_per_tile, min_len_bp, annotation_stats)
+		if not resp.get("ok", false):
+			return {"ok": false, "error": "Annotation tile query failed: %s" % resp.get("error", "error")}
+		var cached: Array = resp.get("features", [])
+		annotation_stats["features_examined"] = int(annotation_stats.get("features_examined", 0)) + cached.size()
+		for feat_any in cached:
+			if typeof(feat_any) == TYPE_DICTIONARY:
+				out.append(feat_any)
+	return {"ok": true, "features": _collapse_annotation_features(out, start_bp, end_bp, cap_total)}
+
+func _annotation_cache_param(cap_per_tile: int, min_len_bp: int) -> int:
+	return ((cap_per_tile & 0xFFFF) << 16) | (min_len_bp & 0xFFFF)
+
+func _collapse_annotation_features(features_in: Array, start_bp: int, end_bp: int, cap_total: int) -> Array:
+	var out: Array = []
+	var seen: Dictionary = {}
+	for feat_any in features_in:
+		if typeof(feat_any) != TYPE_DICTIONARY:
+			continue
+		var feat: Dictionary = feat_any
+		var feat_start := int(feat.get("start", 0))
+		var feat_end := int(feat.get("end", feat_start))
+		if feat_end <= start_bp or feat_start >= end_bp:
+			continue
+		var key_f := _feature_dedupe_key(feat)
+		if seen.get(key_f, false):
+			continue
+		seen[key_f] = true
+		out.append(feat)
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var sa := int(a.get("start", 0))
+		var sb := int(b.get("start", 0))
+		if sa == sb:
+			return int(a.get("end", sa)) < int(b.get("end", sb))
+		return sa < sb
+	)
+	if out.size() > cap_total:
+		out = _annotation_select_spread(out, start_bp, end_bp, cap_total)
+	return out
+
+func _annotation_select_spread(features_in: Array, start_bp: int, end_bp: int, cap_total: int) -> Array:
+	if cap_total <= 0 or features_in.is_empty() or end_bp <= start_bp:
+		return []
+	var span := maxi(1, end_bp - start_bp)
+	var bin_w := maxi(1, int(ceil(float(span) / float(cap_total))))
+	var seen_bins := {}
+	var primary: Array = []
+	var overflow: Array = []
+	for feat_any in features_in:
+		var feat: Dictionary = feat_any
+		var s := int(feat.get("start", 0))
+		var anchor := clampi(s, start_bp, end_bp - 1)
+		var bin_idx := int(floor(float(anchor - start_bp) / float(bin_w)))
+		var bkey := str(bin_idx)
+		if not seen_bins.get(bkey, false):
+			seen_bins[bkey] = true
+			primary.append(feat)
+		else:
+			overflow.append(feat)
+	if primary.size() >= cap_total:
+		primary.resize(cap_total)
+		return primary
+	for feat_any in overflow:
+		primary.append(feat_any)
+		if primary.size() >= cap_total:
+			break
+	return primary
+
+func _feature_dedupe_key(feature: Dictionary) -> String:
+	return "%d|%d|%s|%s|%s|%s" % [
+		int(feature.get("start", 0)),
+		int(feature.get("end", 0)),
+		str(feature.get("strand", ".")),
+		str(feature.get("type", "")),
+		str(feature.get("name", "")),
+		str(feature.get("source", ""))
+	]
+
 func _shift_read_coords(read: Dictionary, offset: int) -> Dictionary:
 	var shifted := read.duplicate(true)
 	shifted["start"] = int(shifted.get("start", 0)) + offset
@@ -422,6 +588,12 @@ func _shift_plot_coords(plot: Dictionary, offset: int, gc_window_bp: int) -> Dic
 		"window": int(plot.get("window", gc_window_bp)),
 		"values": plot.get("values", PackedFloat32Array())
 	}
+
+func _shift_feature_coords(feature: Dictionary, offset: int) -> Dictionary:
+	var shifted := feature.duplicate(true)
+	shifted["start"] = int(shifted.get("start", 0)) + offset
+	shifted["end"] = int(shifted.get("end", 0)) + offset
+	return shifted
 
 func _coverage_to_plot_tile(cov: Dictionary) -> Dictionary:
 	if cov.is_empty():

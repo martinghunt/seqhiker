@@ -642,7 +642,7 @@ func set_track_visible(track_id: String, show_track: bool) -> void:
 		_track_drag_track_id = ""
 		_track_drag_target_index = -1
 	_layout_track_rows()
-	_layout_read_scrollbar()
+	_layout_all_read_scrollbars()
 	queue_redraw()
 	emit_signal("track_visibility_changed", track_id, next_visible)
 
@@ -667,7 +667,7 @@ func set_track_order(order: PackedStringArray) -> void:
 	_track_order = next
 	_sync_track_rows()
 	_layout_track_rows()
-	_layout_read_scrollbar()
+	_layout_all_read_scrollbars()
 	queue_redraw()
 	if prev != _track_order:
 		emit_signal("track_order_changed", _track_order.duplicate())
@@ -689,7 +689,7 @@ func set_view_state(start_bp: float, bp_per_px_value: float) -> void:
 		_zoom_tween.kill()
 	bp_per_px = clampf(bp_per_px_value, min_bp_per_px, max_bp_per_px)
 	view_start_bp = _clamp_start(start_bp)
-	_layout_read_scrollbar()
+	_layout_all_read_scrollbars()
 	queue_redraw()
 	_emit_viewport_changed()
 
@@ -699,7 +699,7 @@ func jump_to_start() -> void:
 	if _zoom_tween and _zoom_tween.is_running():
 		_zoom_tween.kill()
 	view_start_bp = 0.0
-	_layout_read_scrollbar()
+	_layout_all_read_scrollbars()
 	queue_redraw()
 	_emit_viewport_changed()
 
@@ -709,7 +709,7 @@ func jump_to_end() -> void:
 	if _zoom_tween and _zoom_tween.is_running():
 		_zoom_tween.kill()
 	view_start_bp = _clamp_start(float(chromosome_length))
-	_layout_read_scrollbar()
+	_layout_all_read_scrollbars()
 	queue_redraw()
 	_emit_viewport_changed()
 
@@ -793,10 +793,7 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		view_start_bp = _clamp_start(view_start_bp)
 		_layout_track_rows()
-		for track_id in _read_track_states.keys():
-			_activate_read_track(str(track_id))
-			_layout_read_scrollbar()
-			_persist_active_read_track()
+		_layout_all_read_scrollbars()
 		queue_redraw()
 		_emit_viewport_changed()
 
@@ -806,30 +803,31 @@ func _draw() -> void:
 	_read_hitboxes.clear()
 	_feature_hitboxes.clear()
 	var track_rects := _track_layout_rects()
+	var previous_track_id := _active_read_track_id
 	for track_id in _track_order:
 		if not track_rects.has(track_id):
 			continue
 		var area: Rect2 = track_rects[track_id]
 		if _is_read_track(track_id):
 			_activate_read_track(track_id)
-			_layout_read_scrollbar()
 			_draw_read_tracks(area)
-			_persist_active_read_track()
 		else:
-			match track_id:
-				TRACK_ID_AA:
-					_draw_aa_tracks(area)
-				TRACK_ID_GC_PLOT:
-					_draw_plot_track(area, gc_plot_tiles, _gc_plot_y_mode, _gc_plot_y_min, _gc_plot_y_max, palette.get("gc_plot", palette["read"]))
-				TRACK_ID_DEPTH_PLOT:
-					if not depth_plot_series.is_empty():
-						_draw_plot_track_multi(area, depth_plot_series, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max)
-					else:
-						_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]))
-				TRACK_ID_GENOME:
-					_draw_genome_track(area)
-				TRACK_ID_MAP:
-					_draw_map_track(area)
+				match track_id:
+					TRACK_ID_AA:
+						_draw_aa_tracks(area)
+					TRACK_ID_GC_PLOT:
+						_draw_plot_track(area, gc_plot_tiles, _gc_plot_y_mode, _gc_plot_y_min, _gc_plot_y_max, palette.get("gc_plot", palette["read"]))
+					TRACK_ID_DEPTH_PLOT:
+						if not depth_plot_series.is_empty():
+							_draw_plot_track_multi(area, depth_plot_series, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max)
+						else:
+							_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]))
+					TRACK_ID_GENOME:
+						_draw_genome_track(area)
+					TRACK_ID_MAP:
+						_draw_map_track(area)
+	if not previous_track_id.is_empty() and _read_track_states.has(previous_track_id):
+		_activate_read_track(previous_track_id)
 	_draw_region_selection(track_rects)
 	if _track_drag_active and _track_drag_target_index >= 0 and _track_drag_target_index < _track_order.size():
 		var target_id := _track_order[_track_drag_target_index]
@@ -954,6 +952,9 @@ func _draw_read_tracks(area: Rect2) -> void:
 		if strand_split_y >= content_top and strand_split_y <= content_bottom:
 			draw_line(Vector2(0.0, strand_split_y), Vector2(size.x, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
 	var drawn_pairs: Dictionary = {}
+	var mate_lookup := {}
+	if _read_view_mode == READ_VIEW_PAIRED or _read_view_mode == READ_VIEW_FRAGMENT:
+		mate_lookup = _build_mate_lookup()
 	var draw_snp_text := _can_draw_read_snp_letters()
 	var snp_font := get_theme_default_font()
 	var snp_font_size := _read_text_font_size()
@@ -1001,13 +1002,13 @@ func _draw_read_tracks(area: Rect2) -> void:
 		if _read_view_mode == READ_VIEW_PAIRED or _read_view_mode == READ_VIEW_FRAGMENT:
 			var mate_rect := _mate_rect_for_read(read, y)
 			if mate_rect.size.x > 0.0 and mate_rect.size.y > 0.0:
-				if draw_selected:
-					var mate_border: Color = palette.get("text", _axis_text_color())
-					draw_rect(mate_rect.grow(1.5), mate_border, false, 2.0)
-				var mate_hit := _mate_hitbox_payload(read, i)
-				_read_hitboxes.append({
-					"rect": mate_rect,
-					"read": mate_hit.get("read", read),
+					if draw_selected:
+						var mate_border: Color = palette.get("text", _axis_text_color())
+						draw_rect(mate_rect.grow(1.5), mate_border, false, 2.0)
+					var mate_hit := _mate_hitbox_payload(read, i, mate_lookup)
+					_read_hitboxes.append({
+						"rect": mate_rect,
+						"read": mate_hit.get("read", read),
 					"read_index": int(mate_hit.get("read_index", i)),
 					"track_id": track_id
 				})
@@ -1131,23 +1132,37 @@ func _mate_rect_for_read(read: Dictionary, y: float) -> Rect2:
 	var mx1 := TRACK_LEFT_PAD + _bp_to_x(mate_end)
 	return Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), _read_row_h))
 
-func _mate_hitbox_payload(read: Dictionary, current_index: int) -> Dictionary:
+func _build_mate_lookup() -> Dictionary:
+	var out := {}
+	for i in range(_laid_out_reads.size()):
+		var candidate: Dictionary = _laid_out_reads[i]
+		var pair_key := _pair_render_key(candidate)
+		if pair_key.is_empty():
+			continue
+		var key := _mate_lookup_key(
+			pair_key,
+			int(candidate.get("start", 0)),
+			int(candidate.get("end", 0))
+		)
+		out[key] = {
+			"read": candidate,
+			"read_index": i
+		}
+	return out
+
+func _mate_lookup_key(pair_key: String, start_bp: int, end_bp: int) -> String:
+	return "%s|%d|%d" % [pair_key, start_bp, end_bp]
+
+func _mate_hitbox_payload(read: Dictionary, current_index: int, mate_lookup: Dictionary = {}) -> Dictionary:
 	var mate_start := int(read.get("mate_start", -1))
 	var mate_end := int(read.get("mate_end", -1))
 	var pair_key := _pair_render_key(read)
 	if not pair_key.is_empty():
-		for i in range(_laid_out_reads.size()):
-			if i == current_index:
-				continue
-			var candidate: Dictionary = _laid_out_reads[i]
-			if _pair_render_key(candidate) != pair_key:
-				continue
-			if int(candidate.get("start", 0)) != mate_start or int(candidate.get("end", 0)) != mate_end:
-				continue
-			return {
-				"read": candidate,
-				"read_index": i
-			}
+		var lookup_key := _mate_lookup_key(pair_key, mate_start, mate_end)
+		if mate_lookup.has(lookup_key):
+			var hit: Dictionary = mate_lookup[lookup_key]
+			if int(hit.get("read_index", -1)) != current_index:
+				return hit
 	var mate_read := read.duplicate(true)
 	var read_start := int(read.get("start", 0))
 	var read_end := int(read.get("end", read_start))
@@ -2837,6 +2852,19 @@ func _persist_active_read_track() -> void:
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
 	}
+
+func _layout_all_read_scrollbars() -> void:
+	var previous_track_id := _active_read_track_id
+	for track_id_any in _read_track_states.keys():
+		var track_id := str(track_id_any)
+		_activate_read_track(track_id)
+		_layout_read_scrollbar()
+		_persist_active_read_track()
+	if not previous_track_id.is_empty() and _read_track_states.has(previous_track_id):
+		_activate_read_track(previous_track_id)
+		return
+	if not _read_track_states.is_empty():
+		_activate_read_track(str(_read_track_states.keys()[0]))
 
 func _layout_read_scrollbar() -> void:
 	if _reads_scrollbar == null:
