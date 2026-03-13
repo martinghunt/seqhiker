@@ -523,19 +523,27 @@ func _slide_settings(open: bool, animated: bool) -> void:
 func _slide_feature_panel(open: bool, animated: bool) -> void:
 	if _feature_tween and _feature_tween.is_running():
 		_feature_tween.kill()
-	_update_feature_panel_width()
+	_update_feature_panel_width(not animated)
 	var panel_w := _feature_panel_target_width()
 	var closed_w: float = float(ceili(panel_w)) + 2.0
 	var target_left: float = -panel_w if open else 0.0
 	var target_right: float = 0.0 if open else closed_w
+	if open:
+		feature_panel.visible = true
 	if animated:
 		_feature_tween = create_tween()
 		_feature_tween.set_trans(Tween.TRANS_CUBIC)
 		_feature_tween.set_ease(Tween.EASE_OUT)
 		_feature_tween.parallel().tween_property(feature_panel, "offset_left", target_left, 0.24)
 		_feature_tween.parallel().tween_property(feature_panel, "offset_right", target_right, 0.24)
+		if not open:
+			_feature_tween.finished.connect(func() -> void:
+				if not _feature_panel_open:
+					feature_panel.visible = false
+			, CONNECT_ONE_SHOT)
 	else:
 		_apply_feature_panel_offsets(open)
+		feature_panel.visible = open
 
 func _on_ui_scale_value_changed(value: float) -> void:
 	ui_scale_value.text = "%.2fx" % value
@@ -1676,7 +1684,7 @@ func _measure_settings_content_width(node: Node) -> float:
 		widest = maxf(widest, _measure_settings_content_width(child))
 	return widest
 
-func _update_feature_panel_width() -> void:
+func _update_feature_panel_width(apply_offsets: bool = true) -> void:
 	if feature_panel == null or _feature_layout == null or _feature_margin == null or _viewport_layer == null or _feature_header == null:
 		return
 	var layout_min_w := maxf(
@@ -1692,7 +1700,8 @@ func _update_feature_panel_width() -> void:
 	var max_w := maxf(320.0, _viewport_layer.size.x - 24.0)
 	target_w = minf(target_w, max_w)
 	feature_panel.custom_minimum_size.x = target_w
-	_apply_feature_panel_offsets(_feature_panel_open)
+	if apply_offsets and (_feature_tween == null or not _feature_tween.is_running()):
+		_apply_feature_panel_offsets(_feature_panel_open)
 
 func _apply_settings_scrollbar_style() -> void:
 	_apply_scrollbar_width(settings_scroll)
