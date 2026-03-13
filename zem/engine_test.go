@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -101,6 +102,260 @@ func TestLoadGenomeEMBL(t *testing.T) {
 	}
 }
 
+func TestResolveBAMRefChromIDLockedMatchesVersionedAliasByLength(t *testing.T) {
+	e := NewEngine()
+	wantID := e.ensureChromosomeLocked("NC_000962", 4411532)
+
+	gotID := e.resolveBAMRefChromIDLocked("NC_000962.3", 4411532)
+	if gotID != wantID {
+		t.Fatalf("resolveBAMRefChromIDLocked returned id %d, want %d", gotID, wantID)
+	}
+	if len(e.chromOrder) != 1 {
+		t.Fatalf("expected alias match to reuse chromosome, got %d chromosomes", len(e.chromOrder))
+	}
+
+	newID := e.resolveBAMRefChromIDLocked("NC_000962.4", 4411533)
+	if newID == wantID {
+		t.Fatal("expected differing length to create a distinct chromosome id")
+	}
+	if len(e.chromOrder) != 2 {
+		t.Fatalf("expected second chromosome after length mismatch, got %d", len(e.chromOrder))
+	}
+}
+
+func TestEncodeCoverageTilesFromStrandPrefixes(t *testing.T) {
+	forward := make([]uint64, 257)
+	reverse := make([]uint64, 257)
+	depthsFwd := []uint64{3, 1, 0}
+	depthsRev := []uint64{2, 0, 4}
+	for i := 0; i < len(depthsFwd); i++ {
+		forward[i+1] = forward[i] + depthsFwd[i]
+		reverse[i+1] = reverse[i] + depthsRev[i]
+	}
+	for i := len(depthsFwd); i < 256; i++ {
+		forward[i+1] = forward[i]
+		reverse[i+1] = reverse[i]
+	}
+
+	totalPayload, err := encodeCoverageTileFromStrandPrefixes(0, 256, forward, reverse)
+	if err != nil {
+		t.Fatalf("encodeCoverageTileFromStrandPrefixes returned error: %v", err)
+	}
+	totalBins := decodeCoverageBinsForTest(t, totalPayload)
+	if totalBins[0] != 5 || totalBins[1] != 1 || totalBins[2] != 4 {
+		t.Fatalf("unexpected total bins: got [%d %d %d], want [5 1 4]", totalBins[0], totalBins[1], totalBins[2])
+	}
+
+	strandPayload, err := encodeStrandCoverageTileFromStrandPrefixes(0, 256, forward, reverse)
+	if err != nil {
+		t.Fatalf("encodeStrandCoverageTileFromStrandPrefixes returned error: %v", err)
+	}
+	fwdBins, revBins := decodeStrandCoverageBinsForTest(t, strandPayload)
+	if fwdBins[0] != 3 || fwdBins[1] != 1 || fwdBins[2] != 0 {
+		t.Fatalf("unexpected forward bins: got [%d %d %d], want [3 1 0]", fwdBins[0], fwdBins[1], fwdBins[2])
+	}
+	if revBins[0] != 2 || revBins[1] != 0 || revBins[2] != 4 {
+		t.Fatalf("unexpected reverse bins: got [%d %d %d], want [2 0 4]", revBins[0], revBins[1], revBins[2])
+	}
+}
+
+func TestLoadBAMFixtureReadTileIncludesProperPair(t *testing.T) {
+	e := NewEngine()
+	refPath := filepath.Join("testdata", "test_reads.ref.fa")
+	bamPath := filepath.Join("testdata", "test_reads.bam")
+	if err := e.LoadGenome(refPath); err != nil {
+		t.Fatalf("LoadGenome returned error: %v", err)
+	}
+	sourceID, err := e.LoadBAM(bamPath, 0)
+	if err != nil {
+		t.Fatalf("LoadBAM returned error: %v", err)
+	}
+
+	chrID := e.chrToID["chrTest"]
+	payload, err := e.GetTile(sourceID, chrID, 1, 0)
+	if err != nil {
+		t.Fatalf("GetTile returned error: %v", err)
+	}
+	alns := decodeAlignmentTileForTest(t, payload)
+	if len(alns) != 4 {
+		t.Fatalf("expected 4 alignments in first tile, got %d", len(alns))
+	}
+
+	var pairAlns []Alignment
+	for _, aln := range alns {
+		if aln.Name == "pair1" {
+			pairAlns = append(pairAlns, aln)
+		}
+	}
+	if len(pairAlns) != 2 {
+		t.Fatalf("expected 2 pair1 alignments, got %d", len(pairAlns))
+	}
+
+	flags := []uint16{pairAlns[0].Flags, pairAlns[1].Flags}
+	slices.Sort(flags)
+	if !slices.Equal(flags, []uint16{99, 147}) {
+		t.Fatalf("unexpected pair flags: %v", flags)
+	}
+
+	for _, aln := range pairAlns {
+		if aln.MapQ != 60 {
+			t.Fatalf("unexpected pair MapQ: %+v", aln)
+		}
+		if aln.MateStart != 200 && aln.MateStart != 420 {
+			t.Fatalf("unexpected mate start: %+v", aln)
+		}
+		if aln.MateEnd != 325 && aln.MateEnd != 545 {
+			t.Fatalf("unexpected mate end: %+v", aln)
+		}
+		if aln.FragLen != 345 {
+			t.Fatalf("unexpected fragment length: %+v", aln)
+		}
+	}
+}
+
+func TestLoadBAMFixtureCoverageTiles(t *testing.T) {
+	e := NewEngine()
+	refPath := filepath.Join("testdata", "test_reads.ref.fa")
+	bamPath := filepath.Join("testdata", "test_reads.bam")
+	if err := e.LoadGenome(refPath); err != nil {
+		t.Fatalf("LoadGenome returned error: %v", err)
+	}
+	sourceID, err := e.LoadBAM(bamPath, 100000)
+	if err != nil {
+		t.Fatalf("LoadBAM returned error: %v", err)
+	}
+
+	chrID := e.chrToID["chrTest"]
+	covPayload, err := e.GetCoverageTile(sourceID, chrID, 1, 0)
+	if err != nil {
+		t.Fatalf("GetCoverageTile returned error: %v", err)
+	}
+	covBins := decodeCoverageBinsForTest(t, covPayload)
+	if covBins[25] == 0 {
+		t.Fatalf("expected coverage near pair1 first mate, bin 25 was zero")
+	}
+	if covBins[112] == 0 {
+		t.Fatalf("expected coverage near single_fwd, bin 112 was zero")
+	}
+
+	strandPayload, err := e.GetStrandCoverageTile(sourceID, chrID, 1, 0)
+	if err != nil {
+		t.Fatalf("GetStrandCoverageTile returned error: %v", err)
+	}
+	forwardBins, reverseBins := decodeStrandCoverageBinsForTest(t, strandPayload)
+	if forwardBins[25] == 0 || reverseBins[25] != 0 {
+		t.Fatalf("unexpected strand coverage around first mate: fwd=%d rev=%d", forwardBins[25], reverseBins[25])
+	}
+	if reverseBins[52] == 0 || forwardBins[52] != 0 {
+		t.Fatalf("unexpected strand coverage around second mate: fwd=%d rev=%d", forwardBins[52], reverseBins[52])
+	}
+}
+
+func TestLoadBAMFixtureReadBoundariesAreExact(t *testing.T) {
+	e := NewEngine()
+	refPath := filepath.Join("testdata", "test_reads.ref.fa")
+	bamPath := filepath.Join("testdata", "test_reads.bam")
+	if err := e.LoadGenome(refPath); err != nil {
+		t.Fatalf("LoadGenome returned error: %v", err)
+	}
+	sourceID, err := e.LoadBAM(bamPath, 0)
+	if err != nil {
+		t.Fatalf("LoadBAM returned error: %v", err)
+	}
+
+	chrID := e.chrToID["chrTest"]
+	src := e.bamSources[sourceID]
+	ref := src.RefByChrID[chrID]
+	payload, err := loadIndexedTilePayload(src.Path, src.Index, ref, 0, 3000, readTileCacheKind, 100, true, e.sequences["chrTest"])
+	if err != nil {
+		t.Fatalf("loadIndexedTilePayload returned error: %v", err)
+	}
+	alns := decodeAlignmentTileForTest(t, payload)
+	if len(alns) != 5 {
+		t.Fatalf("expected 5 alignments, got %d", len(alns))
+	}
+
+	got := make(map[string][]Alignment)
+	for _, aln := range alns {
+		got[aln.Name] = append(got[aln.Name], aln)
+	}
+
+	pair := got["pair1"]
+	if len(pair) != 2 {
+		t.Fatalf("expected 2 pair1 alignments, got %d", len(pair))
+	}
+	slices.SortFunc(pair, func(a, b Alignment) int { return a.Start - b.Start })
+	if pair[0].Start != 200 || pair[0].End != 325 || pair[0].Cigar != "125M" || pair[0].Reverse {
+		t.Fatalf("unexpected first pair alignment: %+v", pair[0])
+	}
+	if pair[1].Start != 420 || pair[1].End != 545 || pair[1].Cigar != "125M" || !pair[1].Reverse {
+		t.Fatalf("unexpected second pair alignment: %+v", pair[1])
+	}
+
+	singleFwd := got["single_fwd"]
+	if len(singleFwd) != 1 || singleFwd[0].Start != 900 || singleFwd[0].End != 1040 || singleFwd[0].Cigar != "140M" {
+		t.Fatalf("unexpected single_fwd alignment: %+v", singleFwd)
+	}
+
+	singleRev := got["single_rev"]
+	if len(singleRev) != 1 || singleRev[0].Start != 1500 || singleRev[0].End != 1635 || singleRev[0].Cigar != "135M" || !singleRev[0].Reverse {
+		t.Fatalf("unexpected single_rev alignment: %+v", singleRev)
+	}
+
+	indel := got["indel_like"]
+	if len(indel) != 1 || indel[0].Start != 2200 || indel[0].End != 2350 || indel[0].Cigar != "70M1I38M1D41M" {
+		t.Fatalf("unexpected indel_like alignment: %+v", indel)
+	}
+}
+
+func TestLoadBAMFixtureCoverageBoundariesAreExact(t *testing.T) {
+	e := NewEngine()
+	refPath := filepath.Join("testdata", "test_reads.ref.fa")
+	bamPath := filepath.Join("testdata", "test_reads.bam")
+	if err := e.LoadGenome(refPath); err != nil {
+		t.Fatalf("LoadGenome returned error: %v", err)
+	}
+	sourceID, err := e.LoadBAM(bamPath, 0)
+	if err != nil {
+		t.Fatalf("LoadBAM returned error: %v", err)
+	}
+
+	chrID := e.chrToID["chrTest"]
+	src := e.bamSources[sourceID]
+	ref := src.RefByChrID[chrID]
+
+	forwardWindowStart := 100
+	forwardWindowEnd := 356 // 256 bp window; one bin per base.
+	covPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, forwardWindowStart, forwardWindowEnd, covTileCacheKind, 0, false, "")
+	if err != nil {
+		t.Fatalf("forward-window coverage payload error: %v", err)
+	}
+	covBins := decodeCoverageBinsForTest(t, covPayload)
+	if covBins[99] != 0 || covBins[100] != 1 || covBins[224] != 1 || covBins[225] != 0 {
+		t.Fatalf("unexpected forward coverage edges around pair1 start/end: bins[99..100]=[%d %d] bins[224..225]=[%d %d]", covBins[99], covBins[100], covBins[224], covBins[225])
+	}
+
+	strandPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, forwardWindowStart, forwardWindowEnd, strandCovTileCacheKind, 0, false, "")
+	if err != nil {
+		t.Fatalf("forward-window strand coverage payload error: %v", err)
+	}
+	fwdBins, revBins := decodeStrandCoverageBinsForTest(t, strandPayload)
+	if fwdBins[100] != 1 || revBins[100] != 0 || fwdBins[225] != 0 || revBins[225] != 0 {
+		t.Fatalf("unexpected strand coverage around first mate edge: fwd[100]=%d rev[100]=%d fwd[225]=%d rev[225]=%d", fwdBins[100], revBins[100], fwdBins[225], revBins[225])
+	}
+
+	reverseWindowStart := 400
+	reverseWindowEnd := 656 // 256 bp window; one bin per base.
+	reverseStrandPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, reverseWindowStart, reverseWindowEnd, strandCovTileCacheKind, 0, false, "")
+	if err != nil {
+		t.Fatalf("reverse-window strand coverage payload error: %v", err)
+	}
+	fwdBins, revBins = decodeStrandCoverageBinsForTest(t, reverseStrandPayload)
+	if fwdBins[20] != 0 || revBins[20] != 1 || fwdBins[144] != 0 || revBins[144] != 1 || revBins[145] != 0 {
+		t.Fatalf("unexpected strand coverage around second mate edges: fwd[20]=%d rev[20]=%d fwd[144]=%d rev[144]=%d rev[145]=%d", fwdBins[20], revBins[20], fwdBins[144], revBins[144], revBins[145])
+	}
+}
+
 func decodeDNAHitsForTest(payload []byte) (bool, []DNAExactHit) {
 	if len(payload) < 3 {
 		return false, nil
@@ -118,4 +373,112 @@ func decodeDNAHitsForTest(payload []byte) (bool, []DNAExactHit) {
 		off += 9
 	}
 	return truncated, hits
+}
+
+func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
+	t.Helper()
+	if len(payload) < 13 || payload[0] != 2 {
+		t.Fatalf("invalid alignment payload header")
+	}
+	count := int(binary.LittleEndian.Uint32(payload[9:13]))
+	alns := make([]Alignment, 0, count)
+	off := 13
+	for i := 0; i < count; i++ {
+		if off+26 > len(payload) {
+			t.Fatalf("alignment payload too short")
+		}
+		start := int(binary.LittleEndian.Uint32(payload[off : off+4]))
+		end := int(binary.LittleEndian.Uint32(payload[off+4 : off+8]))
+		mapQ := payload[off+8]
+		reverse := payload[off+9] != 0
+		flags := binary.LittleEndian.Uint16(payload[off+10 : off+12])
+		mateStartRaw := binary.LittleEndian.Uint32(payload[off+12 : off+16])
+		mateEndRaw := binary.LittleEndian.Uint32(payload[off+16 : off+20])
+		fragLen := int(binary.LittleEndian.Uint32(payload[off+20 : off+24]))
+		nameLen := int(binary.LittleEndian.Uint16(payload[off+24 : off+26]))
+		off += 26
+		if off+nameLen > len(payload) {
+			t.Fatalf("alignment name overflow")
+		}
+		name := string(payload[off : off+nameLen])
+		off += nameLen
+		if off+2 > len(payload) {
+			t.Fatalf("missing cigar length")
+		}
+		cigarLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2
+		if off+cigarLen > len(payload) {
+			t.Fatalf("alignment cigar overflow")
+		}
+		cigar := string(payload[off : off+cigarLen])
+		off += cigarLen
+		if off+2 > len(payload) {
+			t.Fatalf("missing snp count")
+		}
+		snpCount := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2 + 5*snpCount
+		if off > len(payload) {
+			t.Fatalf("alignment snp overflow")
+		}
+		mateStart := -1
+		mateEnd := -1
+		if mateStartRaw != 0xFFFFFFFF && mateEndRaw != 0xFFFFFFFF {
+			mateStart = int(mateStartRaw)
+			mateEnd = int(mateEndRaw)
+		}
+		alns = append(alns, Alignment{
+			Start:     start,
+			End:       end,
+			Name:      name,
+			MapQ:      mapQ,
+			Flags:     flags,
+			Cigar:     cigar,
+			Reverse:   reverse,
+			MateStart: mateStart,
+			MateEnd:   mateEnd,
+			FragLen:   fragLen,
+		})
+	}
+	return alns
+}
+
+func decodeCoverageBinsForTest(t *testing.T, payload []byte) []uint16 {
+	t.Helper()
+	if len(payload) < 13 || payload[0] != 1 {
+		t.Fatalf("invalid coverage payload header")
+	}
+	count := int(binary.LittleEndian.Uint32(payload[9:13]))
+	if len(payload) < 13+2*count {
+		t.Fatalf("coverage payload too short")
+	}
+	bins := make([]uint16, count)
+	off := 13
+	for i := 0; i < count; i++ {
+		bins[i] = binary.LittleEndian.Uint16(payload[off : off+2])
+		off += 2
+	}
+	return bins
+}
+
+func decodeStrandCoverageBinsForTest(t *testing.T, payload []byte) ([]uint16, []uint16) {
+	t.Helper()
+	if len(payload) < 13 || payload[0] != 4 {
+		t.Fatalf("invalid strand coverage payload header")
+	}
+	count := int(binary.LittleEndian.Uint32(payload[9:13]))
+	if len(payload) < 13+4*count {
+		t.Fatalf("strand coverage payload too short")
+	}
+	forward := make([]uint16, count)
+	reverse := make([]uint16, count)
+	off := 13
+	for i := 0; i < count; i++ {
+		forward[i] = binary.LittleEndian.Uint16(payload[off : off+2])
+		off += 2
+	}
+	for i := 0; i < count; i++ {
+		reverse[i] = binary.LittleEndian.Uint16(payload[off : off+2])
+		off += 2
+	}
+	return forward, reverse
 }
