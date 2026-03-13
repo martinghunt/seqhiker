@@ -7,22 +7,23 @@ import (
 )
 
 const (
-	MsgLoadGenome          uint16 = 1
-	MsgLoadBAM             uint16 = 2
-	MsgGetTile             uint16 = 3
-	MsgGetCoverageTile     uint16 = 4
-	MsgGetAnnotations      uint16 = 5
-	MsgGetReferenceSlice   uint16 = 6
-	MsgAck                 uint16 = 7
-	MsgError               uint16 = 8
-	MsgShutdown            uint16 = 9
-	MsgGetChromosomes      uint16 = 10
-	MsgGetGCPlotTile       uint16 = 11
-	MsgGetAnnotationCounts uint16 = 12
-	MsgGetLoadState        uint16 = 13
-	MsgInspectInput        uint16 = 14
-	MsgGetAnnotationTile   uint16 = 15
-	MsgSearchDNAExact      uint16 = 16
+	MsgLoadGenome            uint16 = 1
+	MsgLoadBAM               uint16 = 2
+	MsgGetTile               uint16 = 3
+	MsgGetCoverageTile       uint16 = 4
+	MsgGetAnnotations        uint16 = 5
+	MsgGetReferenceSlice     uint16 = 6
+	MsgAck                   uint16 = 7
+	MsgError                 uint16 = 8
+	MsgShutdown              uint16 = 9
+	MsgGetChromosomes        uint16 = 10
+	MsgGetGCPlotTile         uint16 = 11
+	MsgGetAnnotationCounts   uint16 = 12
+	MsgGetLoadState          uint16 = 13
+	MsgInspectInput          uint16 = 14
+	MsgGetAnnotationTile     uint16 = 15
+	MsgSearchDNAExact        uint16 = 16
+	MsgGetStrandCoverageTile uint16 = 17
 )
 
 type FrameHeader struct {

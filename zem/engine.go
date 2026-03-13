@@ -26,13 +26,14 @@ import (
 
 const baseTileSize = 1024
 const (
-	readTileCacheKind   uint8 = 1
-	covTileCacheKind    uint8 = 2
-	plotTileCacheKind   uint8 = 3
-	annotTileCacheKind  uint8 = 4
-	maxScannedTileReads       = 2000000
-	snpDetailMaxZoom    uint8 = 5
-	plotTileBins              = 256
+	readTileCacheKind      uint8 = 1
+	covTileCacheKind       uint8 = 2
+	plotTileCacheKind      uint8 = 3
+	annotTileCacheKind     uint8 = 4
+	strandCovTileCacheKind uint8 = 5
+	maxScannedTileReads          = 2000000
+	snpDetailMaxZoom       uint8 = 5
+	plotTileBins                 = 256
 )
 
 var digitsRegexp = regexp.MustCompile(`\d+`)
@@ -95,16 +96,17 @@ type tileCacheKey struct {
 }
 
 type bamSource struct {
-	ID          uint16
-	Path        string
-	IndexPath   string
-	Generation  uint64
-	Index       *bam.Index
-	Refs        map[string]*sam.Reference
-	RefByChrID  map[uint16]*sam.Reference
-	RefNameToID map[string]uint16
-	CovPrefix   map[uint16][]uint64
-	CovReady    bool
+	ID           uint16
+	Path         string
+	IndexPath    string
+	Generation   uint64
+	Index        *bam.Index
+	Refs         map[string]*sam.Reference
+	RefByChrID   map[uint16]*sam.Reference
+	RefNameToID  map[string]uint16
+	CovPrefixFwd map[uint16][]uint64
+	CovPrefixRev map[uint16][]uint64
+	CovReady     bool
 }
 
 type tileCacheEntry struct {
@@ -374,16 +376,17 @@ func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 	}
 	shouldPrecomputeCov := precomputeCutoffBP > 0 && totalRefLen > 0 && totalRefLen <= precomputeCutoffBP
 	e.bamSources[sourceID] = &bamSource{
-		ID:          sourceID,
-		Path:        path,
-		IndexPath:   idxPath,
-		Generation:  e.globalGeneration + 1,
-		Index:       idx,
-		Refs:        refs,
-		RefByChrID:  refByChrID,
-		RefNameToID: refNameToID,
-		CovPrefix:   map[uint16][]uint64{},
-		CovReady:    !shouldPrecomputeCov,
+		ID:           sourceID,
+		Path:         path,
+		IndexPath:    idxPath,
+		Generation:   e.globalGeneration + 1,
+		Index:        idx,
+		Refs:         refs,
+		RefByChrID:   refByChrID,
+		RefNameToID:  refNameToID,
+		CovPrefixFwd: map[uint16][]uint64{},
+		CovPrefixRev: map[uint16][]uint64{},
+		CovReady:     !shouldPrecomputeCov,
 	}
 	e.bamOrder = append(e.bamOrder, sourceID)
 	e.globalGeneration++
@@ -406,6 +409,10 @@ func (e *Engine) GetTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex ui
 
 func (e *Engine) GetCoverageTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
 	return e.getIndexedTile(sourceID, chrID, zoom, tileIndex, covTileCacheKind, false)
+}
+
+func (e *Engine) GetStrandCoverageTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
+	return e.getIndexedTile(sourceID, chrID, zoom, tileIndex, strandCovTileCacheKind, false)
 }
 
 func (e *Engine) GetGCPlotTile(chrID uint16, zoom uint8, tileIndex uint32, windowLen uint32) ([]byte, error) {
@@ -781,7 +788,8 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 
 	bamPath := src.Path
 	bamIdx := src.Index
-	covPrefix := src.CovPrefix[chrID]
+	covPrefixFwd := src.CovPrefixFwd[chrID]
+	covPrefixRev := src.CovPrefixRev[chrID]
 	maxTileRecs := e.maxTileRecs
 	if kind == readTileCacheKind && zoom >= 6 {
 		maxTileRecs *= 2
@@ -795,8 +803,12 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 
 	includeSNPs := kind == readTileCacheKind && zoom <= snpDetailMaxZoom
 	var payload []byte
-	if kind == covTileCacheKind && len(covPrefix) > 0 {
-		payload, err = encodeCoverageTileFromPrefix(window.start, window.end, covPrefix)
+	if (kind == covTileCacheKind || kind == strandCovTileCacheKind) && (len(covPrefixFwd) > 0 || len(covPrefixRev) > 0) {
+		if kind == strandCovTileCacheKind {
+			payload, err = encodeStrandCoverageTileFromStrandPrefixes(window.start, window.end, covPrefixFwd, covPrefixRev)
+		} else {
+			payload, err = encodeCoverageTileFromStrandPrefixes(window.start, window.end, covPrefixFwd, covPrefixRev)
+		}
 	} else {
 		payload, err = loadIndexedTilePayload(bamPath, bamIdx, ref, window.start, window.end, kind, maxTileRecs, includeSNPs, refSeq)
 	}
@@ -837,15 +849,21 @@ func (e *Engine) precomputeCoverageForSource(sourceID uint16, bamPath string, re
 	}
 	for chrName, prefix := range covPrefixByName {
 		if chrID, ok := src.RefNameToID[chrName]; ok {
-			src.CovPrefix[chrID] = prefix
+			src.CovPrefixFwd[chrID] = prefix.Forward
+			src.CovPrefixRev[chrID] = prefix.Reverse
 		}
 	}
 	src.CovReady = true
 }
 
-func buildCoveragePrefixSums(bamPath string, refs []*sam.Reference) (map[string][]uint64, error) {
+type strandCoveragePrefix struct {
+	Forward []uint64
+	Reverse []uint64
+}
+
+func buildCoveragePrefixSums(bamPath string, refs []*sam.Reference) (map[string]strandCoveragePrefix, error) {
 	if len(refs) == 0 {
-		return map[string][]uint64{}, nil
+		return map[string]strandCoveragePrefix{}, nil
 	}
 	file, err := os.Open(bamPath)
 	if err != nil {
@@ -859,7 +877,8 @@ func buildCoveragePrefixSums(bamPath string, refs []*sam.Reference) (map[string]
 	}
 	defer reader.Close()
 
-	diffByRefID := make(map[int][]int32, len(refs))
+	diffFwdByRefID := make(map[int][]int32, len(refs))
+	diffRevByRefID := make(map[int][]int32, len(refs))
 	refNameByID := make(map[int]string, len(refs))
 	for _, ref := range refs {
 		if ref == nil {
@@ -869,7 +888,8 @@ func buildCoveragePrefixSums(bamPath string, refs []*sam.Reference) (map[string]
 		if rid < 0 {
 			continue
 		}
-		diffByRefID[rid] = make([]int32, ref.Len()+1)
+		diffFwdByRefID[rid] = make([]int32, ref.Len()+1)
+		diffRevByRefID[rid] = make([]int32, ref.Len()+1)
 		refNameByID[rid] = ref.Name()
 	}
 
@@ -885,7 +905,11 @@ func buildCoveragePrefixSums(bamPath string, refs []*sam.Reference) (map[string]
 			continue
 		}
 		rid := rec.Ref.ID()
-		diff := diffByRefID[rid]
+		diffMap := diffFwdByRefID
+		if rec.Flags&sam.Reverse != 0 {
+			diffMap = diffRevByRefID
+		}
+		diff := diffMap[rid]
 		if len(diff) == 0 {
 			continue
 		}
@@ -907,34 +931,43 @@ func buildCoveragePrefixSums(bamPath string, refs []*sam.Reference) (map[string]
 		diff[e]--
 	}
 
-	out := make(map[string][]uint64, len(diffByRefID))
-	for rid, diff := range diffByRefID {
+	out := make(map[string]strandCoveragePrefix, len(diffFwdByRefID))
+	for rid := range diffFwdByRefID {
 		name := refNameByID[rid]
-		if name == "" || len(diff) == 0 {
+		diffFwd := diffFwdByRefID[rid]
+		diffRev := diffRevByRefID[rid]
+		if name == "" || len(diffFwd) == 0 || len(diffRev) == 0 {
 			continue
 		}
-		prefix := make([]uint64, len(diff))
-		var depth int64
-		for i := 0; i < len(diff)-1; i++ {
-			depth += int64(diff[i])
-			if depth < 0 {
-				depth = 0
+		prefixFwd := make([]uint64, len(diffFwd))
+		prefixRev := make([]uint64, len(diffRev))
+		var depthFwd int64
+		var depthRev int64
+		for i := 0; i < len(diffFwd)-1; i++ {
+			depthFwd += int64(diffFwd[i])
+			if depthFwd < 0 {
+				depthFwd = 0
 			}
-			prefix[i+1] = prefix[i] + uint64(depth)
+			prefixFwd[i+1] = prefixFwd[i] + uint64(depthFwd)
+			depthRev += int64(diffRev[i])
+			if depthRev < 0 {
+				depthRev = 0
+			}
+			prefixRev[i+1] = prefixRev[i] + uint64(depthRev)
 		}
-		out[name] = prefix
+		out[name] = strandCoveragePrefix{Forward: prefixFwd, Reverse: prefixRev}
 	}
 	return out, nil
 }
 
-func encodeCoverageTileFromPrefix(start, end int, depthPrefix []uint64) ([]byte, error) {
+func encodeCoverageTileFromStrandPrefixes(start, end int, forwardPrefix, reversePrefix []uint64) ([]byte, error) {
 	if start < 0 {
 		start = 0
 	}
 	if end < start {
 		end = start
 	}
-	maxPos := len(depthPrefix) - 1
+	maxPos := max(len(forwardPrefix), len(reversePrefix)) - 1
 	if start > maxPos {
 		start = maxPos
 	}
@@ -959,7 +992,7 @@ func encodeCoverageTileFromPrefix(start, end int, depthPrefix []uint64) ([]byte,
 		if binW <= 0 {
 			binW = 1
 		}
-		sum := depthPrefix[bEnd] - depthPrefix[bStart]
+		sum := prefixDelta(forwardPrefix, bStart, bEnd) + prefixDelta(reversePrefix, bStart, bEnd)
 		avgDepth := int(math.Round(float64(sum) / float64(binW)))
 		if avgDepth == 0 && sum > 0 {
 			avgDepth = 1
@@ -973,6 +1006,67 @@ func encodeCoverageTileFromPrefix(start, end int, depthPrefix []uint64) ([]byte,
 		bins[b] = uint16(avgDepth)
 	}
 	return encodeCoverageTile(start, end, bins), nil
+}
+
+func encodeStrandCoverageTileFromStrandPrefixes(start, end int, forwardPrefix, reversePrefix []uint64) ([]byte, error) {
+	if start < 0 {
+		start = 0
+	}
+	if end < start {
+		end = start
+	}
+	maxPos := max(len(forwardPrefix), len(reversePrefix)) - 1
+	if start > maxPos {
+		start = maxPos
+	}
+	if end > maxPos {
+		end = maxPos
+	}
+	forwardBins := make([]uint16, 256)
+	reverseBins := make([]uint16, 256)
+	span := max(1, end-start)
+	for b := range forwardBins {
+		bStart := start + (b*span)/len(forwardBins)
+		bEnd := start + ((b+1)*span)/len(forwardBins)
+		if bEnd <= bStart {
+			bEnd = bStart + 1
+		}
+		if bStart < 0 {
+			bStart = 0
+		}
+		if bEnd > maxPos {
+			bEnd = maxPos
+		}
+		binW := bEnd - bStart
+		if binW <= 0 {
+			binW = 1
+		}
+		fwdSum := prefixDelta(forwardPrefix, bStart, bEnd)
+		revSum := prefixDelta(reversePrefix, bStart, bEnd)
+		forwardBins[b] = avgDepthBinValue(fwdSum, binW)
+		reverseBins[b] = avgDepthBinValue(revSum, binW)
+	}
+	return encodeStrandCoverageTile(start, end, forwardBins, reverseBins), nil
+}
+
+func prefixDelta(prefix []uint64, start, end int) uint64 {
+	if len(prefix) == 0 {
+		return 0
+	}
+	maxPos := len(prefix) - 1
+	if start < 0 {
+		start = 0
+	}
+	if end < start {
+		end = start
+	}
+	if start > maxPos {
+		start = maxPos
+	}
+	if end > maxPos {
+		end = maxPos
+	}
+	return prefix[end] - prefix[start]
 }
 
 func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Reference, start, end int, kind uint8, maxTileRecs uint32, includeSNPs bool, refSeq string) ([]byte, error) {
@@ -1010,6 +1104,9 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 		if kind == covTileCacheKind {
 			return encodeCoverageTile(start, end, make([]uint16, 256)), nil
 		}
+		if kind == strandCovTileCacheKind {
+			return encodeStrandCoverageTile(start, end, make([]uint16, 256), make([]uint16, 256)), nil
+		}
 		return encodeAlignmentTile(start, end, nil), nil
 	}
 
@@ -1024,11 +1121,17 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 		bins := make([]uint16, 256)
 		sumDepthBp := make([]uint64, len(bins))
 		span := max(1, end-start)
+		seen := make(map[string]struct{})
 		for it.Next() {
 			rec := it.Record()
 			if rec == nil || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
 				continue
 			}
+			key := recordDedupKey(rec)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
 			s := max(rec.Start(), start)
 			e := min(rec.End(), end)
 			if e <= s {
@@ -1065,23 +1168,71 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 				bEnd = bStart + 1
 			}
 			binW := bEnd - bStart
-			if binW <= 0 {
-				binW = 1
-			}
-			avgDepth := int(math.Round(float64(sumDepthBp[b]) / float64(binW)))
-			if avgDepth == 0 && sumDepthBp[b] > 0 {
-				// Preserve sparse coverage visibility at coarse zooms.
-				avgDepth = 1
-			}
-			if avgDepth < 0 {
-				avgDepth = 0
-			}
-			if avgDepth > int(^uint16(0)) {
-				avgDepth = int(^uint16(0))
-			}
-			bins[b] = uint16(avgDepth)
+			bins[b] = avgDepthBinValue(sumDepthBp[b], binW)
 		}
 		return encodeCoverageTile(start, end, bins), nil
+
+	case strandCovTileCacheKind:
+		forwardBins := make([]uint16, 256)
+		reverseBins := make([]uint16, 256)
+		sumDepthBpFwd := make([]uint64, len(forwardBins))
+		sumDepthBpRev := make([]uint64, len(reverseBins))
+		span := max(1, end-start)
+		seen := make(map[string]struct{})
+		for it.Next() {
+			rec := it.Record()
+			if rec == nil || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
+				continue
+			}
+			key := recordDedupKey(rec)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			s := max(rec.Start(), start)
+			e := min(rec.End(), end)
+			if e <= s {
+				continue
+			}
+			binStart := ((s - start) * len(forwardBins)) / span
+			binEnd := ((e - 1 - start) * len(forwardBins)) / span
+			if binStart < 0 {
+				binStart = 0
+			}
+			if binEnd >= len(forwardBins) {
+				binEnd = len(forwardBins) - 1
+			}
+			targetSums := sumDepthBpFwd
+			if rec.Flags&sam.Reverse != 0 {
+				targetSums = sumDepthBpRev
+			}
+			for b := binStart; b <= binEnd; b++ {
+				bStart := start + (b*span)/len(forwardBins)
+				bEnd := start + ((b+1)*span)/len(forwardBins)
+				if bEnd <= bStart {
+					bEnd = bStart + 1
+				}
+				ovStart := max(s, bStart)
+				ovEnd := min(e, bEnd)
+				if ovEnd > ovStart {
+					targetSums[b] += uint64(ovEnd - ovStart)
+				}
+			}
+		}
+		if err := it.Error(); err != nil {
+			return nil, err
+		}
+		for b := range forwardBins {
+			bStart := start + (b*span)/len(forwardBins)
+			bEnd := start + ((b+1)*span)/len(forwardBins)
+			if bEnd <= bStart {
+				bEnd = bStart + 1
+			}
+			binW := bEnd - bStart
+			forwardBins[b] = avgDepthBinValue(sumDepthBpFwd[b], binW)
+			reverseBins[b] = avgDepthBinValue(sumDepthBpRev[b], binW)
+		}
+		return encodeStrandCoverageTile(start, end, forwardBins, reverseBins), nil
 
 	case readTileCacheKind:
 		alignments, err := collectWindowAlignments(it, ref, start, end, maxTileRecs, includeSNPs, refSeq)
@@ -1122,6 +1273,7 @@ func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end in
 	filledBins := 0
 	span := max(1, end-start)
 	scanned := 0
+	seen := make(map[string]struct{})
 	for it.Next() {
 		scanned++
 		if scanned > maxScannedTileReads {
@@ -1131,6 +1283,11 @@ func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end in
 		if rec == nil || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
 			continue
 		}
+		key := recordDedupKey(rec)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 		if rec.End() <= start || rec.Start() >= end {
 			continue
 		}
@@ -1449,6 +1606,27 @@ func absInt(v int) int {
 	return v
 }
 
+func recordDedupKey(rec *sam.Record) string {
+	if rec == nil {
+		return ""
+	}
+	refID := -1
+	if rec.Ref != nil {
+		refID = rec.Ref.ID()
+	}
+	return fmt.Sprintf(
+		"%s|%d|%d|%d|%d|%d|%s|%d",
+		rec.Name,
+		refID,
+		rec.Start(),
+		rec.End(),
+		rec.Flags,
+		rec.MapQ,
+		rec.Cigar.String(),
+		rec.MatePos,
+	)
+}
+
 func isLikelySameRefMate(rec *sam.Record) bool {
 	if rec == nil || rec.Ref == nil {
 		return false
@@ -1741,6 +1919,42 @@ func encodeCoverageTile(start, end int, bins []uint16) []byte {
 		off += 2
 	}
 	return buf
+}
+
+func encodeStrandCoverageTile(start, end int, forwardBins, reverseBins []uint16) []byte {
+	n := min(len(forwardBins), len(reverseBins))
+	buf := make([]byte, 13+4*n)
+	buf[0] = 4
+	binary.LittleEndian.PutUint32(buf[1:5], uint32(start))
+	binary.LittleEndian.PutUint32(buf[5:9], uint32(end))
+	binary.LittleEndian.PutUint32(buf[9:13], uint32(n))
+	off := 13
+	for i := 0; i < n; i++ {
+		binary.LittleEndian.PutUint16(buf[off:off+2], forwardBins[i])
+		off += 2
+	}
+	for i := 0; i < n; i++ {
+		binary.LittleEndian.PutUint16(buf[off:off+2], reverseBins[i])
+		off += 2
+	}
+	return buf
+}
+
+func avgDepthBinValue(sum uint64, binW int) uint16 {
+	if binW <= 0 {
+		binW = 1
+	}
+	avgDepth := int(math.Round(float64(sum) / float64(binW)))
+	if avgDepth == 0 && sum > 0 {
+		avgDepth = 1
+	}
+	if avgDepth < 0 {
+		avgDepth = 0
+	}
+	if avgDepth > int(^uint16(0)) {
+		avgDepth = int(^uint16(0))
+	}
+	return uint16(avgDepth)
 }
 
 func encodeGCPlotTile(start, end, windowLen int, values []float32) []byte {

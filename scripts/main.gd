@@ -158,6 +158,8 @@ var _current_chr_name := ""
 var _current_chr_len := 0
 var _last_start := 0
 var _last_end := 0
+var _prev_view_start := 0
+var _prev_view_end := 0
 var _last_bp_per_px := 8.0
 var _selection_active := false
 var _selection_start := 0
@@ -429,6 +431,8 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 			needs_fetch = true
 		if needs_fetch:
 			_schedule_fetch()
+	_prev_view_start = start_bp
+	_prev_view_end = end_bp
 
 func _format_viewport_label(start_bp: int, end_bp: int, _bp_per_px: float) -> String:
 	var coord_start := start_bp
@@ -2087,9 +2091,10 @@ func _refresh_visible_data() -> void:
 	var need_annotations: bool = show_aa or show_genome
 	var need_reference: bool = genome_view.needs_reference_data(show_aa, show_genome)
 	var span: int = maxi(1, _last_end - _last_start)
-	var right_span_mult := 3 if _auto_play_enabled else 2
-	var query_start: int = maxi(0, _last_start - span)
-	var query_end: int = mini(_current_chr_len, _last_end + span * right_span_mult)
+	var left_span_mult := 1.0
+	var right_span_mult := 2.0 if _auto_play_enabled else 1.0
+	var query_start: int = maxi(0, int(floor(float(_last_start) - float(span) * left_span_mult)))
+	var query_end: int = mini(_current_chr_len, int(ceil(float(_last_end) + float(span) * right_span_mult)))
 	var ref_start := query_start
 	var ref_sequence := ""
 	var overlaps: Array[Dictionary] = []
@@ -2099,20 +2104,11 @@ func _refresh_visible_data() -> void:
 		var track_vis_id := str(track_vis.get("track_id", ""))
 		visible_track_ids[track_vis_id] = genome_view.is_track_visible(track_vis_id)
 
-	if _seq_view_mode == SEQ_VIEW_SINGLE:
-		if need_reference:
-			var ref_resp: Dictionary = _zem.get_reference_slice(_current_chr_id, query_start, query_end)
-			if not ref_resp.get("ok", false):
-				_set_status("Reference query failed: %s" % ref_resp.get("error", "error"), true)
-				_finish_sync_fetch_attempt()
-				return
-			ref_start = int(ref_resp.get("slice_start", query_start))
-			ref_sequence = str(ref_resp.get("sequence", ""))
-	else:
+	if _seq_view_mode != SEQ_VIEW_SINGLE:
 		overlaps = _segments_overlapping(query_start, query_end)
-		if need_reference:
-			ref_sequence = _build_concat_reference(query_start, query_end, overlaps)
-	genome_view.set_reference_slice(ref_start, ref_sequence)
+	else:
+		if not need_reference:
+			genome_view.set_reference_slice(ref_start, "")
 	_tile_fetch_serial += 1
 	_pending_tile_apply = {
 		"serial": _tile_fetch_serial,
@@ -2128,6 +2124,8 @@ func _refresh_visible_data() -> void:
 		"port": ZEM_DEFAULT_PORT,
 		"generation": _tile_cache_generation,
 		"scope_key": _scope_cache_key(),
+			"visible_start": _last_start,
+			"visible_end": _last_end,
 			"query_start": query_start,
 			"query_end": query_end,
 			"last_bp_per_px": _last_bp_per_px,
@@ -2193,6 +2191,9 @@ func _drain_tile_fetch_result() -> void:
 	var all_gc_plot_tiles: Array = tile_resp.get("gc_plot_tiles", [])
 	var all_depth_plot_tiles: Array = tile_resp.get("depth_plot_tiles", [])
 	var all_depth_plot_series: Array = tile_resp.get("depth_plot_series", [])
+	var result_ref_start := int(tile_resp.get("ref_start", int(_pending_tile_apply.get("ref_start", -1))))
+	var result_ref_sequence := str(tile_resp.get("ref_sequence", _pending_tile_apply.get("ref_sequence", "")))
+	genome_view.set_reference_slice(result_ref_start, result_ref_sequence)
 	var annotation_features: Array[Dictionary] = []
 	for feat_any in annotation_features_raw:
 		if typeof(feat_any) == TYPE_DICTIONARY:
@@ -2277,32 +2278,6 @@ func _shift_feature_coords(feature: Dictionary, offset: int) -> Dictionary:
 	shifted["start"] = int(shifted.get("start", 0)) + offset
 	shifted["end"] = int(shifted.get("end", 0)) + offset
 	return shifted
-
-func _build_concat_reference(query_start: int, query_end: int, overlaps: Array[Dictionary]) -> String:
-	var ln := maxi(0, query_end - query_start)
-	if ln == 0:
-		return ""
-	var chars: Array[String] = []
-	chars.resize(ln)
-	for i in range(ln):
-		chars[i] = " "
-	for ov in overlaps:
-		var chr_id := int(ov["id"])
-		var local_start := int(ov["local_start"])
-		var local_end := int(ov["local_end"])
-		var global_start := int(ov["global_start"])
-		var ref_resp: Dictionary = _zem.get_reference_slice(chr_id, local_start, local_end)
-		if not ref_resp.get("ok", false):
-			continue
-		var seq := str(ref_resp.get("sequence", ""))
-		var dst := global_start - query_start
-		var copy_len := mini(seq.length(), ln - dst)
-		for i in range(copy_len):
-			chars[dst + i] = seq.substr(i, 1)
-	var built := ""
-	for c in chars:
-		built += c
-	return built
 
 func _compute_tile_zoom(bp_per_px: float) -> int:
 	var z := int(round(log(max(bp_per_px, 0.001)) / log(2.0)))
@@ -2431,10 +2406,11 @@ func _is_near_cache_edge(start_bp: int, end_bp: int) -> bool:
 	if _cache_end < 0:
 		return true
 	var span: int = maxi(1, end_bp - start_bp)
-	var threshold: int = maxi(1, int(round(float(span) * 0.5)))
+	var left_threshold: int = maxi(1, int(round(float(span) * 0.4)))
+	var right_threshold: int = maxi(1, int(round(float(span) * 0.4)))
 	var remaining_left: int = start_bp - _cache_start
 	var remaining_right: int = _cache_end - end_bp
-	return remaining_left <= threshold or remaining_right <= threshold
+	return remaining_left <= left_threshold or remaining_right <= right_threshold
 
 func _set_status(message: String, is_error: bool = false) -> void:
 	_last_status_message = message

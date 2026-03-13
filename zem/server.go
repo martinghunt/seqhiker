@@ -150,6 +150,22 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		resp, err := engine.GetCoverageTile(sourceID, chrID, zoom, tileIndex)
 		return MsgGetCoverageTile, resp, err
 
+	case MsgGetStrandCoverageTile:
+		if len(payload) < 7 {
+			return 0, nil, fmt.Errorf("invalid strand coverage tile payload")
+		}
+		sourceID := uint16(0)
+		off := 0
+		if len(payload) >= 9 {
+			sourceID = binary.LittleEndian.Uint16(payload[0:2])
+			off = 2
+		}
+		chrID := binary.LittleEndian.Uint16(payload[off : off+2])
+		zoom := payload[off+2]
+		tileIndex := binary.LittleEndian.Uint32(payload[off+3 : off+7])
+		resp, err := engine.GetStrandCoverageTile(sourceID, chrID, zoom, tileIndex)
+		return MsgGetStrandCoverageTile, resp, err
+
 	case MsgGetGCPlotTile:
 		if len(payload) < 11 {
 			return 0, nil, fmt.Errorf("invalid gc plot tile payload")

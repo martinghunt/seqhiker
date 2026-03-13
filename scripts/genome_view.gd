@@ -3,6 +3,7 @@ class_name GenomeView
 const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
 const TRACK_ROW_SCENE := preload("res://scenes/Track.tscn")
 const ReadLayoutHelperScript = preload("res://scripts/read_layout_helper.gd")
+const DETAILED_READ_MAX_BP_PER_PX := 48.0
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
 signal feature_clicked(feature: Dictionary)
@@ -101,6 +102,9 @@ var max_bp_per_px := 10000.0
 
 var reads: Array[Dictionary] = []
 var coverage_tiles: Array[Dictionary] = []
+var _strand_summary: Dictionary = {}
+var _fragment_summary: Dictionary = {}
+var _was_summary_only := false
 var gc_plot_tiles: Array[Dictionary] = []
 var depth_plot_tiles: Array[Dictionary] = []
 var depth_plot_series: Array[Dictionary] = []
@@ -219,11 +223,14 @@ func _ready() -> void:
 	_read_track_states[TRACK_ID_READS] = {
 		"reads": reads,
 		"coverage_tiles": coverage_tiles,
+		"strand_summary": _strand_summary,
+		"fragment_summary": _fragment_summary,
 		"laid_out_reads": _laid_out_reads,
 		"read_row_count": _read_row_count,
 		"strand_forward_rows": _strand_forward_rows,
 		"strand_reverse_rows": _strand_reverse_rows,
 		"strand_split_lock_y": _strand_split_lock_y,
+		"was_summary_only": _was_summary_only,
 		"read_view_mode": _read_view_mode,
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
@@ -287,11 +294,14 @@ func sync_read_tracks(track_ids: PackedStringArray) -> void:
 		_read_track_states[TRACK_ID_READS] = {
 			"reads": [],
 			"coverage_tiles": [],
+			"strand_summary": {},
+			"fragment_summary": {},
 			"laid_out_reads": [],
 			"read_row_count": 0,
 			"strand_forward_rows": 0,
 			"strand_reverse_rows": 0,
 			"strand_split_lock_y": -1.0,
+			"was_summary_only": false,
 				"read_view_mode": READ_VIEW_STACK,
 				"fragment_log_scale": false,
 				"read_row_h": READ_ROW_H,
@@ -392,6 +402,8 @@ func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_c
 		_read_layout_helper.attach_indel_markers(read)
 		reads.append(read)
 	coverage_tiles = next_cov_tiles
+	_strand_summary = {}
+	_fragment_summary = {}
 	_layout_reads()
 	_layout_read_scrollbar()
 	_persist_active_read_track()
@@ -400,12 +412,17 @@ func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_c
 func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
-	_read_view_mode = clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
+	var next_view_mode := clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
+	var current_summary_only := bp_per_px > DETAILED_READ_MAX_BP_PER_PX and bp_per_px <= READ_RENDER_MAX_BP_PER_PX
+	var should_center_paired_from_summary := _was_summary_only and not current_summary_only and next_view_mode == READ_VIEW_PAIRED
+	_read_view_mode = next_view_mode
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
 	_read_row_limit = maxi(0, row_limit)
 	reads = _as_dict_array(payload.get("reads", []))
 	coverage_tiles = _as_dict_array(payload.get("coverage", []))
+	_strand_summary = payload.get("strand_summary", {})
+	_fragment_summary = payload.get("fragment_summary", {})
 	_laid_out_reads = _as_dict_array(payload.get("laid_out_reads", []))
 	_read_row_count = int(payload.get("read_row_count", 0))
 	_strand_forward_rows = int(payload.get("strand_forward_rows", 0))
@@ -413,6 +430,10 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	if not reads.is_empty() and (_laid_out_reads.is_empty() or (_read_view_mode != READ_VIEW_FRAGMENT and _read_row_count <= 0)):
 		_layout_reads()
 	_layout_read_scrollbar()
+	if should_center_paired_from_summary and _reads_scrollbar != null and _reads_scrollbar.visible:
+		var max_offset := maxf(0.0, _reads_scrollbar.max_value - _reads_scrollbar.page)
+		_reads_scrollbar.value = max_offset * 0.5
+	_was_summary_only = current_summary_only
 	_persist_active_read_track()
 	queue_redraw()
 
@@ -500,6 +521,8 @@ func clear_all_data() -> void:
 	_read_track_states[TRACK_ID_READS] = {
 		"reads": reads,
 		"coverage_tiles": coverage_tiles,
+		"strand_summary": _strand_summary,
+		"fragment_summary": _fragment_summary,
 		"laid_out_reads": _laid_out_reads,
 		"read_row_count": _read_row_count,
 		"strand_forward_rows": _strand_forward_rows,
@@ -923,7 +946,20 @@ func _draw_read_tracks(area: Rect2) -> void:
 		draw_string(font, Vector2(tx, ty), _read_loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, text_col)
 		return
 	var depth_only := bp_per_px > READ_RENDER_MAX_BP_PER_PX
-	_draw_coverage_tiles(area, depth_only)
+	var summary_only := bp_per_px > DETAILED_READ_MAX_BP_PER_PX
+	if depth_only:
+		_draw_coverage_tiles(area, true)
+		return
+	if summary_only:
+		match _read_view_mode:
+			READ_VIEW_STRAND:
+				_draw_strand_summary(area)
+			READ_VIEW_FRAGMENT:
+				_draw_fragment_summary(area)
+			_:
+				_draw_stack_summary(area)
+		return
+	_draw_coverage_tiles(area, false)
 	if depth_only:
 		return
 
@@ -956,7 +992,6 @@ func _draw_read_tracks(area: Rect2) -> void:
 			var range_px := split_at_forward_top - split_at_reverse_bottom
 			var off_px := clampf(_reads_scrollbar.value, 0.0, range_px)
 			strand_split_y = split_at_forward_top - off_px
-		_strand_split_lock_y = strand_split_y
 		if strand_split_y >= content_top and strand_split_y <= content_bottom:
 			draw_line(Vector2(0.0, strand_split_y), Vector2(size.x, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
 	var drawn_pairs: Dictionary = {}
@@ -1317,6 +1352,181 @@ func _draw_coverage_tiles(area: Rect2, show_y_ticks: bool = false) -> void:
 				prev = p
 				have_prev = true
 				prev_end_bp = bin_end_bp
+
+func _draw_strand_summary(area: Rect2) -> void:
+	draw_rect(area, palette["bg"], true)
+	_draw_grid(area)
+	if _strand_summary.is_empty():
+		return
+	var forward: PackedFloat32Array = _strand_summary.get("forward", PackedFloat32Array())
+	var reverse: PackedFloat32Array = _strand_summary.get("reverse", PackedFloat32Array())
+	if forward.is_empty() or reverse.is_empty():
+		return
+	var start_bp := int(_strand_summary.get("start", int(view_start_bp)))
+	var end_bp := int(_strand_summary.get("end", int(_viewport_end_bp())))
+	var bins := mini(forward.size(), reverse.size())
+	if bins <= 0:
+		return
+	var top := area.position.y + 12.0
+	var bottom := area.position.y + area.size.y - 10.0
+	var mid := (top + bottom) * 0.5
+	var half_h := maxf(1.0, (bottom - top) * 0.5 - 4.0)
+	draw_line(Vector2(TRACK_LEFT_PAD, mid), Vector2(area.position.x + area.size.x - TRACK_RIGHT_PAD, mid), palette["grid"], 1.0)
+	var max_v := 1.0
+	for i in range(bins):
+		max_v = maxf(max_v, maxf(forward[i], reverse[i]))
+	var bin_span := maxf(1.0, float(end_bp - start_bp) / float(bins))
+	var fwd_col: Color = palette["read"]
+	fwd_col.a = 0.65
+	var rev_col: Color = palette["read"]
+	rev_col = rev_col.darkened(0.25)
+	rev_col.a = 0.65
+	for i in range(bins):
+		var bin_start_bp := start_bp + int(floor(float(i) * bin_span))
+		var bin_end_bp := start_bp + int(ceil(float(i + 1) * bin_span))
+		var x0 := TRACK_LEFT_PAD + _bp_to_x(float(bin_start_bp))
+		var x1 := TRACK_LEFT_PAD + _bp_to_x(float(bin_end_bp))
+		var w := maxf(1.0, x1 - x0)
+		var fh := half_h * (forward[i] / max_v)
+		var rh := half_h * (reverse[i] / max_v)
+		if fh > 0.0:
+			draw_rect(Rect2(x0, mid - fh, w, fh), fwd_col, true)
+		if rh > 0.0:
+			draw_rect(Rect2(x0, mid, w, rh), rev_col, true)
+
+func _draw_stack_summary(area: Rect2) -> void:
+	draw_rect(area, palette["bg"], true)
+	_draw_grid(area)
+	if coverage_tiles.is_empty():
+		return
+	var visible_start := int(view_start_bp)
+	var visible_end := int(_viewport_end_bp())
+	var vis_tiles_raw: Array[Dictionary] = []
+	for tile in coverage_tiles:
+		if typeof(tile) != TYPE_DICTIONARY:
+			continue
+		var tile_start := int(tile.get("start", 0))
+		var tile_end := int(tile.get("end", 0))
+		if tile_end <= visible_start or tile_start >= visible_end:
+			continue
+		var bins: PackedInt32Array = tile.get("bins", PackedInt32Array())
+		if bins.is_empty():
+			continue
+		vis_tiles_raw.append(tile)
+	if vis_tiles_raw.is_empty():
+		return
+	var seen_keys := {}
+	var unique_tiles: Array[Dictionary] = []
+	for tile in vis_tiles_raw:
+		var key := "%d|%d" % [int(tile.get("start", 0)), int(tile.get("end", 0))]
+		if seen_keys.get(key, false):
+			continue
+		seen_keys[key] = true
+		unique_tiles.append(tile)
+	unique_tiles.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("start", 0)) < int(b.get("start", 0))
+	)
+	var max_depth := 1
+	for tile in unique_tiles:
+		var bins: PackedInt32Array = tile.get("bins", PackedInt32Array())
+		for d in bins:
+			max_depth = maxi(max_depth, int(d))
+	var top := area.position.y + 12.0
+	var bottom := area.position.y + area.size.y - 10.0
+	var h := maxf(1.0, bottom - top)
+	var bar_col: Color = palette["read"]
+	bar_col.a = 0.65
+	for tile in unique_tiles:
+		var tile_start := int(tile.get("start", 0))
+		var tile_end := int(tile.get("end", 0))
+		var bins: PackedInt32Array = tile.get("bins", PackedInt32Array())
+		var bin_span := maxf(1.0, float(tile_end - tile_start) / float(bins.size()))
+		for i in range(bins.size()):
+			var bin_start_bp := tile_start + int(floor(float(i) * bin_span))
+			var bin_end_bp := tile_start + int(ceil(float(i + 1) * bin_span))
+			if bin_end_bp <= visible_start or bin_start_bp >= visible_end:
+				continue
+			var x0 := TRACK_LEFT_PAD + _bp_to_x(float(bin_start_bp))
+			var x1 := TRACK_LEFT_PAD + _bp_to_x(float(bin_end_bp))
+			var w := maxf(1.0, x1 - x0)
+			var bar_h := h * (float(bins[i]) / float(max_depth))
+			if bar_h <= 0.0:
+				continue
+			draw_rect(Rect2(x0, bottom - bar_h, w, bar_h), bar_col, true)
+
+func _draw_fragment_summary(area: Rect2) -> void:
+	draw_rect(area, palette["bg"], true)
+	_draw_grid(area)
+	if _fragment_summary.is_empty():
+		return
+	var p25: PackedFloat32Array = _fragment_summary.get("p25", PackedFloat32Array())
+	var median: PackedFloat32Array = _fragment_summary.get("median", PackedFloat32Array())
+	var p75: PackedFloat32Array = _fragment_summary.get("p75", PackedFloat32Array())
+	if p25.is_empty() or median.is_empty() or p75.is_empty():
+		return
+	var start_bp := int(_fragment_summary.get("start", int(view_start_bp)))
+	var end_bp := int(_fragment_summary.get("end", int(_viewport_end_bp())))
+	var visible_start := int(view_start_bp)
+	var visible_end := int(_viewport_end_bp())
+	var bins := mini(p25.size(), mini(median.size(), p75.size()))
+	if bins <= 0:
+		return
+	var top := area.position.y + 10.0
+	var bottom := area.position.y + area.size.y - 8.0
+	var h := maxf(1.0, bottom - top)
+	var min_v := INF
+	var max_v := -INF
+	var bin_span := maxf(1.0, float(end_bp - start_bp) / float(bins))
+	for i in range(bins):
+		var bin_start_bp := start_bp + int(floor(float(i) * bin_span))
+		var bin_end_bp := start_bp + int(ceil(float(i + 1) * bin_span))
+		if bin_end_bp <= visible_start or bin_start_bp >= visible_end:
+			continue
+		if p75[i] >= 0.0:
+			min_v = minf(min_v, p25[i] if p25[i] >= 0.0 else p75[i])
+			max_v = maxf(max_v, p75[i])
+	if min_v == INF or max_v <= min_v:
+		min_v = 0.0
+		max_v = maxf(1.0, max_v)
+	var scale_min := min_v
+	var scale_max := max_v
+	if _fragment_log_scale:
+		scale_min = log(scale_min + 1.0)
+		scale_max = log(scale_max + 1.0)
+	if scale_max <= scale_min:
+		scale_max = scale_min + 1.0
+	var band_col: Color = palette["read"]
+	band_col.a = 0.25
+	var line_col: Color = palette["read"]
+	line_col.a = 0.95
+	var prev_median := Vector2.ZERO
+	var have_prev_median := false
+	for i in range(bins):
+		var bin_start_bp := start_bp + int(floor(float(i) * bin_span))
+		var bin_end_bp := start_bp + int(ceil(float(i + 1) * bin_span))
+		if bin_end_bp <= visible_start or bin_start_bp >= visible_end or median[i] < 0.0:
+			have_prev_median = false
+			continue
+		var x0 := TRACK_LEFT_PAD + _bp_to_x(float(bin_start_bp))
+		var x1 := TRACK_LEFT_PAD + _bp_to_x(float(bin_end_bp))
+		var w := maxf(1.0, x1 - x0)
+		var v25 := p25[i]
+		var v50 := median[i]
+		var v75 := p75[i]
+		if _fragment_log_scale:
+			v25 = log(v25 + 1.0) if v25 >= 0.0 else -1.0
+			v50 = log(v50 + 1.0)
+			v75 = log(v75 + 1.0) if v75 >= 0.0 else -1.0
+		var y25 := bottom - clampf((v25 - scale_min) / (scale_max - scale_min), 0.0, 1.0) * h if v25 >= 0.0 else bottom
+		var y50 := bottom - clampf((v50 - scale_min) / (scale_max - scale_min), 0.0, 1.0) * h
+		var y75 := bottom - clampf((v75 - scale_min) / (scale_max - scale_min), 0.0, 1.0) * h if v75 >= 0.0 else y50
+		draw_rect(Rect2(x0, minf(y25, y75), w, absf(y75 - y25)), band_col, true)
+		var cx := x0 + w * 0.5
+		var p := Vector2(cx, y50)
+		if have_prev_median:
+			draw_line(prev_median, p, line_col, 1.5)
+		prev_median = p
+		have_prev_median = true
 
 func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_fixed: float, y_max_fixed: float, line_color: Color) -> void:
 	if area.size.y <= 24.0:
@@ -2797,12 +3007,15 @@ func _ensure_read_track_state(track_id: String) -> void:
 	add_child(sb)
 	_read_track_states[track_id] = {
 		"reads": [],
-		"coverage_tiles": [],
-		"laid_out_reads": [],
+			"coverage_tiles": [],
+			"strand_summary": {},
+			"fragment_summary": {},
+			"laid_out_reads": [],
 		"read_row_count": 0,
 		"strand_forward_rows": 0,
 		"strand_reverse_rows": 0,
 		"strand_split_lock_y": -1.0,
+		"was_summary_only": false,
 		"read_view_mode": READ_VIEW_STACK,
 		"fragment_log_scale": true,
 		"read_row_h": READ_ROW_H,
@@ -2821,11 +3034,14 @@ func _activate_read_track(track_id: String) -> void:
 	_active_read_track_id = track_id
 	reads = _as_dict_array(state.get("reads", []))
 	coverage_tiles = _as_dict_array(state.get("coverage_tiles", []))
+	_strand_summary = state.get("strand_summary", {})
+	_fragment_summary = state.get("fragment_summary", {})
 	_laid_out_reads = _as_dict_array(state.get("laid_out_reads", []))
 	_read_row_count = int(state.get("read_row_count", 0))
 	_strand_forward_rows = int(state.get("strand_forward_rows", 0))
 	_strand_reverse_rows = int(state.get("strand_reverse_rows", 0))
 	_strand_split_lock_y = float(state.get("strand_split_lock_y", -1.0))
+	_was_summary_only = bool(state.get("was_summary_only", false))
 	_read_view_mode = int(state.get("read_view_mode", READ_VIEW_STACK))
 	_fragment_log_scale = bool(state.get("fragment_log_scale", true))
 	_read_row_h = float(state.get("read_row_h", READ_ROW_H))
@@ -2849,6 +3065,8 @@ func _persist_active_read_track() -> void:
 	_read_track_states[_active_read_track_id] = {
 		"reads": reads,
 		"coverage_tiles": coverage_tiles,
+		"strand_summary": _strand_summary,
+		"fragment_summary": _fragment_summary,
 		"laid_out_reads": _laid_out_reads,
 		"read_row_count": _read_row_count,
 		"strand_forward_rows": _strand_forward_rows,
@@ -2928,9 +3146,9 @@ func _layout_read_scrollbar() -> void:
 			absf(_reads_scrollbar.page - prev_strand_page) > 0.001 or
 			absf(_reads_scrollbar.size.y - prev_size_y) > 0.001
 		)
-		# Preserve split-line lock on layout changes, but never while the user drags
-		# this scrollbar thumb.
-		if _dragging_scrollbar != _reads_scrollbar and layout_changed and _strand_split_lock_y >= content_top and _strand_split_lock_y <= content_bottom and split_at_forward_top > split_at_reverse_bottom:
+		# Preserve split-line lock whenever strand layout is refreshed, but never
+		# while the user drags this scrollbar thumb directly.
+		if _dragging_scrollbar != _reads_scrollbar and _strand_split_lock_y >= content_top and _strand_split_lock_y <= content_bottom and split_at_forward_top > split_at_reverse_bottom:
 			next_val = clampf(split_at_forward_top - _strand_split_lock_y, 0.0, range_px)
 		if absf(next_val - _reads_scrollbar.value) > 0.001:
 			_reads_scrollbar.value = next_val
