@@ -15,6 +15,7 @@ const MSG_GET_GC_PLOT_TILE := 11
 const MSG_GET_ANNOTATION_COUNTS := 12
 const MSG_GET_LOAD_STATE := 13
 const MSG_INSPECT_INPUT := 14
+const MSG_GET_ANNOTATION_TILE := 15
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -199,6 +200,20 @@ func get_annotations(chr_id: int, start_bp: int, end_bp: int, max_records: int =
 	payload.encode_u16(10, max_records)
 	payload.encode_u32(12, max(min_feature_len_bp, 1))
 	var resp := _send_request(MSG_GET_ANNOTATIONS, payload)
+	if not resp.get("ok", false):
+		return resp
+	resp["features"] = _parse_annotations(resp["payload"])
+	return resp
+
+func get_annotation_tile(chr_id: int, zoom: int, tile_index: int, max_records: int = 2000, min_feature_len_bp: int = 1) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(13)
+	payload.encode_u16(0, chr_id)
+	payload[2] = zoom
+	payload.encode_u32(3, tile_index)
+	payload.encode_u16(7, max(1, min(max_records, 65535)))
+	payload.encode_u32(9, max(min_feature_len_bp, 1))
+	var resp := _send_request(MSG_GET_ANNOTATION_TILE, payload)
 	if not resp.get("ok", false):
 		return resp
 	resp["features"] = _parse_annotations(resp["payload"])

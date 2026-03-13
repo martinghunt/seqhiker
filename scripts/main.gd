@@ -18,8 +18,6 @@ const DEFAULT_READ_MIN_MAPQ := 0
 const DEFAULT_READ_HIDDEN_FLAGS := 256 | 512 | 1024 | 2048
 const ANNOT_TILE_BASE_BP := 1024
 const ANNOT_MAX_TILES := 128
-const ANNOT_MIN_TOTAL := 800
-const ANNOT_MAX_TOTAL := 12000
 const ANNOT_TILE_CACHE_MAX_ENTRIES := 512
 const BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT := 15000000
 const ANNOT_MAX_ON_SCREEN_DEFAULT := 4400
@@ -2100,13 +2098,12 @@ func _refresh_visible_data() -> void:
 
 	if _seq_view_mode == SEQ_VIEW_SINGLE:
 		if need_annotations:
-			var ann_resp := _get_annotations_window_preloaded(_current_chr_id, query_start, query_end)
+			var ann_resp := _get_annotations_window_backend_tiled(_current_chr_id, query_start, query_end)
 			if not ann_resp.get("ok", false):
 				_set_status("Annotation query failed: %s" % ann_resp.get("error", "error"), true)
 				_finish_sync_fetch_attempt()
 				return
 			features = ann_resp.get("features", [])
-
 		if need_reference:
 			var ref_resp: Dictionary = _zem.get_reference_slice(_current_chr_id, query_start, query_end)
 			if not ref_resp.get("ok", false):
@@ -2123,14 +2120,13 @@ func _refresh_visible_data() -> void:
 			var a_offset := int(aov["offset"])
 			var a_local_start := int(aov["local_start"])
 			var a_local_end := int(aov["local_end"])
-			var ann_resp_part := _get_annotations_window_preloaded(a_chr_id, a_local_start, a_local_end)
+			var ann_resp_part := _get_annotations_window_backend_tiled(a_chr_id, a_local_start, a_local_end)
 			if not ann_resp_part.get("ok", false):
 				_set_status("Annotation query failed: %s" % ann_resp_part.get("error", "error"), true)
 				_finish_sync_fetch_attempt()
 				return
 			for f in ann_resp_part.get("features", []):
 				features.append(_shift_feature_coords(f, a_offset))
-
 		if need_reference:
 			ref_sequence = _build_concat_reference(query_start, query_end, overlaps)
 	features = _collapse_gene_cds_features(features)
@@ -2156,17 +2152,17 @@ func _refresh_visible_data() -> void:
 		"query_start": query_start,
 		"query_end": query_end,
 		"last_bp_per_px": _last_bp_per_px,
-		"show_reads": show_reads,
-		"show_gc_plot": show_gc_plot,
-		"show_depth_plot": show_depth_plot,
-		"has_bam_loaded": _has_bam_loaded,
+			"show_reads": show_reads,
+			"show_gc_plot": show_gc_plot,
+			"show_depth_plot": show_depth_plot,
+			"has_bam_loaded": _has_bam_loaded,
 		"seq_view_mode": _seq_view_mode,
 		"current_chr_id": _current_chr_id,
 		"bam_tracks": _bam_tracks,
-		"overlaps": overlaps,
-		"visible_track_ids": visible_track_ids,
-		"gc_window_bp": _gc_window_bp
-	})
+			"overlaps": overlaps,
+			"visible_track_ids": visible_track_ids,
+			"gc_window_bp": _gc_window_bp
+		})
 	return
 
 func _annotation_pixel_budget() -> int:
@@ -2177,11 +2173,11 @@ func _annotation_min_feature_len_bp() -> int:
 	var raw := int(ceil(min_px * _last_bp_per_px))
 	return maxi(raw, 1)
 
-func _annotation_tile_key(chr_id: int, zoom: int, tile_index: int, min_len_bp: int) -> String:
-	return "%s|%d|%d|%d|%d" % [_scope_cache_key(), chr_id, zoom, tile_index, min_len_bp]
+func _annotation_tile_key(chr_id: int, zoom: int, tile_index: int, min_len_bp: int, cap_per_tile: int) -> String:
+	return "%s|%d|%d|%d|%d|%d" % [_scope_cache_key(), chr_id, zoom, tile_index, min_len_bp, cap_per_tile]
 
-func _get_annotations_window_preloaded(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
-	return _get_annotations_window_tiled(chr_id, start_bp, end_bp)
+func _get_annotations_window_backend_tiled(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
+	return _get_annotations_window_backend_tiles(chr_id, start_bp, end_bp)
 
 func _annotation_select_spread(features_in: Array[Dictionary], start_bp: int, end_bp: int, cap_total: int) -> Array[Dictionary]:
 	if cap_total <= 0 or features_in.is_empty() or end_bp <= start_bp:
@@ -2210,7 +2206,7 @@ func _annotation_select_spread(features_in: Array[Dictionary], start_bp: int, en
 			break
 	return primary
 
-func _get_annotations_window_tiled(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
+func _get_annotations_window_backend_tiles(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
 	var t0 := Time.get_ticks_usec()
 	if end_bp <= start_bp:
 		return {"ok": true, "features": []}
@@ -2225,73 +2221,40 @@ func _get_annotations_window_tiled(chr_id: int, start_bp: int, end_bp: int) -> D
 	var cap_total := _annotation_pixel_budget()
 	var out: Array[Dictionary] = []
 	var seen: Dictionary = {}
-	if total_tiles > ANNOT_MAX_TILES:
-		var chunk_count := ANNOT_MAX_TILES
-		cap_total = maxi(cap_total, chunk_count)
-		var span := maxi(1, end_bp - start_bp)
-		var cap_per_chunk := clampi(int(ceil(float(cap_total) / float(maxi(1, chunk_count)) * 2.0)), 64, cap_total)
-		for i in range(chunk_count):
-			var c_start := start_bp + int(floor(float(i) * float(span) / float(chunk_count)))
-			var c_end := start_bp + int(ceil(float(i + 1) * float(span) / float(chunk_count)))
-			if c_end <= c_start:
-				c_end = c_start + 1
+	var tile_count := total_tiles
+	var cap_per_tile := clampi(int(ceil(float(cap_total) / float(maxi(1, tile_count)) * 1.5)), 128, cap_total)
+	for t in range(tile_start, tile_end + 1):
+		if _debug_enabled:
+			_dbg_ann_tile_requests += 1
+		var key := _annotation_tile_key(chr_id, zoom, t, min_len_bp, cap_per_tile)
+		var cached: Array[Dictionary] = []
+		if _annotation_tile_cache.has(key):
+			cached = _annotation_tile_cache[key]
 			if _debug_enabled:
-				_dbg_ann_tile_requests += 1
+				_dbg_ann_tile_cache_hits += 1
+		if cached.is_empty():
+			var resp: Dictionary = _zem.get_annotation_tile(chr_id, zoom, t, cap_per_tile, min_len_bp)
+			if not resp.get("ok", false):
+				return resp
+			cached = resp.get("features", [])
+			if _debug_enabled:
 				_dbg_ann_tile_queries += 1
-			var resp_chunk: Dictionary = _zem.get_annotations(chr_id, c_start, c_end, cap_per_chunk, min_len_bp)
-			if not resp_chunk.get("ok", false):
-				return resp_chunk
-			var chunk_feats: Array = resp_chunk.get("features", [])
-			if _debug_enabled:
-				_dbg_ann_features_examined += chunk_feats.size()
-			for f in chunk_feats:
-				var feat: Dictionary = f
-				var feat_start := int(feat.get("start", 0))
-				var feat_end := int(feat.get("end", feat_start))
-				if feat_end <= start_bp or feat_start >= end_bp:
-					continue
-				var key_f := _feature_dedupe_key(feat)
-				if seen.get(key_f, false):
-					continue
-				seen[key_f] = true
-				out.append(feat)
-	else:
-		var tile_count := total_tiles
-		var cap_per_tile := clampi(int(ceil(float(cap_total) / float(maxi(1, tile_count)) * 1.5)), 128, cap_total)
-		for t in range(tile_start, tile_end + 1):
-			if _debug_enabled:
-				_dbg_ann_tile_requests += 1
-			var t_start := t * tile_w
-			var t_end := t_start + tile_w
-			var key := _annotation_tile_key(chr_id, zoom, t, min_len_bp)
-			var cached: Array[Dictionary] = []
-			if _annotation_tile_cache.has(key):
-				cached = _annotation_tile_cache[key]
-				if _debug_enabled:
-					_dbg_ann_tile_cache_hits += 1
-			if cached.is_empty():
-				var resp: Dictionary = _zem.get_annotations(chr_id, t_start, t_end, cap_per_tile, min_len_bp)
-				if not resp.get("ok", false):
-					return resp
-				cached = resp.get("features", [])
-				if _debug_enabled:
-					_dbg_ann_tile_queries += 1
-				if _annotation_tile_cache.size() >= ANNOT_TILE_CACHE_MAX_ENTRIES:
-					_annotation_tile_cache.clear()
-				_annotation_tile_cache[key] = cached
-			if _debug_enabled:
-				_dbg_ann_features_examined += cached.size()
-			for f in cached:
-				var feat: Dictionary = f
-				var feat_start := int(feat.get("start", 0))
-				var feat_end := int(feat.get("end", feat_start))
-				if feat_end <= start_bp or feat_start >= end_bp:
-					continue
-				var key_f := _feature_dedupe_key(feat)
-				if seen.get(key_f, false):
-					continue
-				seen[key_f] = true
-				out.append(feat)
+			if _annotation_tile_cache.size() >= ANNOT_TILE_CACHE_MAX_ENTRIES:
+				_annotation_tile_cache.clear()
+			_annotation_tile_cache[key] = cached
+		if _debug_enabled:
+			_dbg_ann_features_examined += cached.size()
+		for f in cached:
+			var feat: Dictionary = f
+			var feat_start := int(feat.get("start", 0))
+			var feat_end := int(feat.get("end", feat_start))
+			if feat_end <= start_bp or feat_start >= end_bp:
+				continue
+			var key_f := _feature_dedupe_key(feat)
+			if seen.get(key_f, false):
+				continue
+			seen[key_f] = true
+			out.append(feat)
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var sa := int(a.get("start", 0))
 		var sb := int(b.get("start", 0))
@@ -2349,9 +2312,21 @@ func _drain_tile_fetch_result() -> void:
 			_fetch_timer.start()
 		return
 	var read_payload_by_track = tile_resp.get("read_payload_by_track", {})
-	var all_gc_plot_tiles: Array[Dictionary] = tile_resp.get("gc_plot_tiles", [])
-	var all_depth_plot_tiles: Array[Dictionary] = tile_resp.get("depth_plot_tiles", [])
-	var all_depth_plot_series: Array[Dictionary] = tile_resp.get("depth_plot_series", [])
+	var all_gc_plot_tiles: Array = tile_resp.get("gc_plot_tiles", [])
+	var all_depth_plot_tiles: Array = tile_resp.get("depth_plot_tiles", [])
+	var all_depth_plot_series: Array = tile_resp.get("depth_plot_series", [])
+	var gc_plot_tiles_typed: Array[Dictionary] = []
+	for tile_any in all_gc_plot_tiles:
+		if typeof(tile_any) == TYPE_DICTIONARY:
+			gc_plot_tiles_typed.append(tile_any)
+	var depth_plot_tiles_typed: Array[Dictionary] = []
+	for tile_any in all_depth_plot_tiles:
+		if typeof(tile_any) == TYPE_DICTIONARY:
+			depth_plot_tiles_typed.append(tile_any)
+	var depth_plot_series_typed: Array[Dictionary] = []
+	for series_any in all_depth_plot_series:
+		if typeof(series_any) == TYPE_DICTIONARY:
+			depth_plot_series_typed.append(series_any)
 	for t_any in _bam_tracks:
 		var track: Dictionary = t_any
 		var track_id := str(track.get("track_id", ""))
@@ -2367,13 +2342,13 @@ func _drain_tile_fetch_result() -> void:
 		if _center_strand_scroll_pending and int(track.get("view_mode", 0)) == 1 and (payload.get("reads", []) as Array).size() > 0:
 			genome_view.center_strand_scroll_for_track(track_id)
 			_center_strand_scroll_pending = false
-	genome_view.set_gc_plot_tiles(all_gc_plot_tiles)
-	genome_view.set_depth_plot_tiles(all_depth_plot_tiles)
-	for i in range(all_depth_plot_series.size()):
-		var series: Dictionary = all_depth_plot_series[i]
+	genome_view.set_gc_plot_tiles(gc_plot_tiles_typed)
+	genome_view.set_depth_plot_tiles(depth_plot_tiles_typed)
+	for i in range(depth_plot_series_typed.size()):
+		var series: Dictionary = depth_plot_series_typed[i]
 		series["color"] = _depth_plot_color_for_track(str(series.get("track_id", "")))
-		all_depth_plot_series[i] = series
-	genome_view.set_depth_plot_series(all_depth_plot_series)
+		depth_plot_series_typed[i] = series
+	genome_view.set_depth_plot_series(depth_plot_series_typed)
 	_cache_start = int(_pending_tile_apply.get("query_start", -1))
 	_cache_end = int(_pending_tile_apply.get("query_end", -1))
 	_cache_zoom = _compute_tile_zoom(_last_bp_per_px)

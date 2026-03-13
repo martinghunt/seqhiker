@@ -29,6 +29,7 @@ const (
 	readTileCacheKind   uint8 = 1
 	covTileCacheKind    uint8 = 2
 	plotTileCacheKind   uint8 = 3
+	annotTileCacheKind  uint8 = 4
 	maxScannedTileReads       = 2000000
 	snpDetailMaxZoom    uint8 = 5
 	plotTileBins              = 256
@@ -482,6 +483,41 @@ func (e *Engine) GetAnnotations(chrID uint16, start uint32, end uint32, maxRecor
 
 	features := queryFeatures(e.features[chr], int(start), int(end), maxRecs, minLen)
 	return encodeAnnotations(int(start), int(end), features), nil
+}
+
+func (e *Engine) GetAnnotationTile(chrID uint16, zoom uint8, tileIndex uint32, maxRecords uint16, minFeatureLen uint32) ([]byte, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	chr, ok := e.idToChr[chrID]
+	if !ok {
+		return nil, fmt.Errorf("unknown chromosome id %d", chrID)
+	}
+	maxRecs := int(maxRecords)
+	if maxRecs <= 0 {
+		maxRecs = 2000
+	}
+	minLen := int(minFeatureLen)
+	if minLen < 1 {
+		minLen = 1
+	}
+	minLenForKey := min(minLen, 0xFFFF)
+	key := tileCacheKey{
+		Generation: e.globalGeneration,
+		Kind:       annotTileCacheKind,
+		ChrID:      chrID,
+		Zoom:       zoom,
+		TileIndex:  tileIndex,
+		Param:      (uint32(maxRecords) << 16) | uint32(minLenForKey),
+	}
+	if payload, ok := e.getCachedTileLocked(key); ok {
+		return payload, nil
+	}
+	window := tileWindow(zoom, tileIndex)
+	features := queryFeatures(e.features[chr], window.start, window.end, maxRecs, minLen)
+	payload := encodeAnnotations(window.start, window.end, features)
+	e.putCachedTileLocked(key, payload)
+	return payload, nil
 }
 
 func (e *Engine) GetReferenceSlice(chrID uint16, start uint32, end uint32) ([]byte, error) {

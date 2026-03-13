@@ -21,6 +21,7 @@ const (
 	MsgGetAnnotationCounts uint16 = 12
 	MsgGetLoadState        uint16 = 13
 	MsgInspectInput        uint16 = 14
+	MsgGetAnnotationTile   uint16 = 15
 )
 
 type FrameHeader struct {

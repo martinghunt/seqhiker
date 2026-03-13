@@ -173,6 +173,18 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		resp, err := engine.GetAnnotations(chrID, start, end, maxRecs, minLen)
 		return MsgGetAnnotations, resp, err
 
+	case MsgGetAnnotationTile:
+		if len(payload) < 13 {
+			return 0, nil, fmt.Errorf("invalid annotation tile payload")
+		}
+		chrID := binary.LittleEndian.Uint16(payload[0:2])
+		zoom := payload[2]
+		tileIndex := binary.LittleEndian.Uint32(payload[3:7])
+		maxRecs := binary.LittleEndian.Uint16(payload[7:9])
+		minLen := binary.LittleEndian.Uint32(payload[9:13])
+		resp, err := engine.GetAnnotationTile(chrID, zoom, tileIndex, maxRecs, minLen)
+		return MsgGetAnnotationTile, resp, err
+
 	case MsgGetReferenceSlice:
 		if len(payload) < 10 {
 			return 0, nil, fmt.Errorf("invalid reference payload")

@@ -111,24 +111,24 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	var has_bam_loaded := bool(request.get("has_bam_loaded", false))
 	var seq_view_mode := int(request.get("seq_view_mode", SEQ_VIEW_SINGLE))
 	var current_chr_id := int(request.get("current_chr_id", -1))
-	var bam_tracks: Array[Dictionary] = request.get("bam_tracks", [])
-	var overlaps: Array[Dictionary] = request.get("overlaps", [])
-	var visible_track_ids: Dictionary = request.get("visible_track_ids", {})
+	var bam_tracks: Array = request.get("bam_tracks", [])
+	var overlaps: Array = request.get("overlaps", [])
+	var visible_track_ids = request.get("visible_track_ids", {})
 	var gc_window_bp := int(request.get("gc_window_bp", DEFAULT_GC_WINDOW_BP))
 	var keep_read_keys := {}
 	var keep_coverage_keys := {}
 	var keep_gc_keys := {}
 
 	var read_payload_by_track := {}
-	var gc_plot_tiles: Array[Dictionary] = []
-	var depth_plot_tiles: Array[Dictionary] = []
-	var depth_plot_series: Array[Dictionary] = []
+	var gc_plot_tiles: Array = []
+	var depth_plot_tiles: Array = []
+	var depth_plot_series: Array = []
 	var depth_series_by_track := {}
 
 	if seq_view_mode == SEQ_VIEW_SINGLE:
 		if has_bam_loaded and show_reads:
 			for t_any in bam_tracks:
-				var track: Dictionary = t_any
+				var track: Dictionary = t_any as Dictionary
 				var track_id := str(track.get("track_id", ""))
 				if not bool(visible_track_ids.get(track_id, false)):
 					continue
@@ -154,7 +154,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 						var cov_resp: Dictionary = _frame_get_coverage_tile(zem, source_id, current_chr_id, zoom, t)
 						if not cov_resp.get("ok", false):
 							return {"ok": false, "error": "Coverage query failed: %s" % cov_resp.get("error", "error")}
-						var cov_tile: Dictionary = cov_resp.get("coverage", {})
+						var cov_tile = cov_resp.get("coverage", {})
 						if last_bp_per_px > READ_RENDER_MAX_BP_PER_PX:
 							track_cov.append(cov_tile)
 						if show_depth_plot:
@@ -170,21 +170,22 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 			var tile_end_plot := int(floor(float(maxi(query_end - 1, query_start)) / float(tile_width_plot)))
 			for t in range(tile_start_plot, tile_end_plot + 1):
 				_mark_tile_range(keep_gc_keys, 0, current_chr_id, zoom, t, gc_window_bp)
-				var plot_resp: Dictionary = _frame_get_gc_plot_tile(zem, current_chr_id, zoom, t, gc_window_bp)
+				var plot_resp = _frame_get_gc_plot_tile(zem, current_chr_id, zoom, t, gc_window_bp)
 				if not plot_resp.get("ok", false):
 					return {"ok": false, "error": "GC plot query failed: %s" % plot_resp.get("error", "error")}
 				gc_plot_tiles.append(plot_resp.get("plot", {}))
 	else:
 		if has_bam_loaded and show_reads:
 			for t_any in bam_tracks:
-				var track: Dictionary = t_any
+				var track: Dictionary = t_any as Dictionary
 				var track_id := str(track.get("track_id", ""))
 				if not bool(visible_track_ids.get(track_id, false)):
 					continue
 				var source_id := int(track.get("source_id", 0))
 				var track_reads: Array[Dictionary] = []
 				var track_cov: Array[Dictionary] = []
-				for ov in overlaps:
+				for ov_any in overlaps:
+					var ov: Dictionary = ov_any as Dictionary
 					var chr_id := int(ov["id"])
 					var offset := int(ov["offset"])
 					var local_start := int(ov["local_start"])
@@ -208,7 +209,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 						var tile_end_cov := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width_cov)))
 						for t in range(tile_start_cov, tile_end_cov + 1):
 							_mark_tile_range(keep_coverage_keys, source_id, chr_id, zoom, t)
-							var cov_resp: Dictionary = _frame_get_coverage_tile(zem, source_id, chr_id, zoom, t)
+							var cov_resp = _frame_get_coverage_tile(zem, source_id, chr_id, zoom, t)
 							if not cov_resp.get("ok", false):
 								return {"ok": false, "error": "Coverage query failed: %s" % cov_resp.get("error", "error")}
 							var shifted_cov := _shift_coverage_coords(cov_resp.get("coverage", {}), offset)
@@ -222,7 +223,8 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 								depth_series_by_track[track_id] = depth_tiles_for_track
 				read_payload_by_track[track_id] = _prepare_track_payload(track, track_reads, track_cov, query_start, query_end)
 		if show_gc_plot:
-			for ov in overlaps:
+			for ov_any in overlaps:
+				var ov: Dictionary = ov_any as Dictionary
 				var chr_id := int(ov["id"])
 				var offset := int(ov["offset"])
 				var local_start := int(ov["local_start"])
@@ -232,15 +234,16 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 				var tile_end_plot := int(floor(float(maxi(local_end - 1, local_start)) / float(tile_width_plot)))
 				for t in range(tile_start_plot, tile_end_plot + 1):
 					_mark_tile_range(keep_gc_keys, 0, chr_id, zoom, t, gc_window_bp)
-					var plot_resp: Dictionary = _frame_get_gc_plot_tile(zem, chr_id, zoom, t, gc_window_bp)
+					var plot_resp = _frame_get_gc_plot_tile(zem, chr_id, zoom, t, gc_window_bp)
 					if not plot_resp.get("ok", false):
 						return {"ok": false, "error": "GC plot query failed: %s" % plot_resp.get("error", "error")}
 					gc_plot_tiles.append(_shift_plot_coords(plot_resp.get("plot", {}), offset, gc_window_bp))
 
-	for track in bam_tracks:
+	for track_any in bam_tracks:
+		var track: Dictionary = track_any as Dictionary
 		var track_id := str(track.get("track_id", ""))
 		if show_depth_plot and depth_series_by_track.has(track_id):
-			var depth_tiles: Array[Dictionary] = []
+			var depth_tiles: Array = []
 			for tile_any in depth_series_by_track[track_id]:
 				if typeof(tile_any) == TYPE_DICTIONARY:
 					depth_tiles.append(tile_any)
@@ -298,7 +301,7 @@ func _prepare_track_payload(track: Dictionary, track_reads: Array[Dictionary], t
 		"read_row_count": int(layout.get("read_row_count", 0)),
 		"strand_forward_rows": int(layout.get("strand_forward_rows", 0)),
 		"strand_reverse_rows": int(layout.get("strand_reverse_rows", 0))
-}
+	}
 
 func _dedupe_reads(reads_in: Array[Dictionary]) -> Array[Dictionary]:
 	var by_key: Dictionary = {}
