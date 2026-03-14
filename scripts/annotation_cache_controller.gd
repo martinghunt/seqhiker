@@ -162,9 +162,9 @@ func drain_tile_fetch_result() -> void:
 			int(track.get("max_rows", host.DEFAULT_READ_MAX_ROWS)),
 			bool(track.get("auto_expand_snp_text", true))
 		)
-		if host._center_strand_scroll_pending and int(track.get("view_mode", 0)) == 1 and (payload.get("reads", []) as Array).size() > 0:
+		if host.center_strand_scroll_pending and int(track.get("view_mode", 0)) == 1 and (payload.get("reads", []) as Array).size() > 0:
 			host.genome_view.center_strand_scroll_for_track(track_id)
-			host._center_strand_scroll_pending = false
+			host.center_strand_scroll_pending = false
 	host.genome_view.set_gc_plot_tiles(gc_plot_tiles_typed)
 	host.genome_view.set_depth_plot_tiles(depth_plot_tiles_typed)
 	for i in range(depth_plot_series_typed.size()):

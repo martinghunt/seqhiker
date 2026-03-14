@@ -104,7 +104,7 @@ func draw_aa_tracks(area: Rect2) -> void:
 			int(entry.get("font_size", view._font_size_small)),
 			entry.get("color", view._axis_text_color())
 		)
-	view._annotation_debug_stats = {
+	view.annotation_debug_stats_state = {
 		"seen": seen,
 		"drawn": drawn,
 		"labels": labels,
@@ -217,7 +217,7 @@ func genome_feature_row_center_y(area: Rect2, line_y: float, row: int) -> float:
 
 
 func annotation_debug_stats() -> Dictionary:
-	return view._annotation_debug_stats.duplicate()
+	return view.annotation_debug_stats_state.duplicate()
 
 
 func draw_aa_translation_letters(area_start: float) -> void:

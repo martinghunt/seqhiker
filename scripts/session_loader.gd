@@ -159,7 +159,7 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 			"auto_expand_snp_text": true
 		})
 		host._has_bam_loaded = true
-		host._center_strand_scroll_pending = true
+		host.center_strand_scroll_pending = true
 		host._sync_bam_read_tracks()
 		host.genome_view.set_track_visible(track_id, true)
 	host.genome_view.set_read_loading_message("")

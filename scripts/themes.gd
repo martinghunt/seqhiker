@@ -544,7 +544,7 @@ func _make_pill_icon(width: int, height: int, color: Color) -> ImageTexture:
 				img.set_pixel(x, y, Color(0, 0, 0, 0))
 	return ImageTexture.create_from_image(img)
 
-func _make_toggle_icon(width: int, height: int, fill: Color, border: Color, knob: Color, on: bool) -> ImageTexture:
+func _make_toggle_icon(width: int, height: int, fill: Color, _border: Color, knob: Color, on: bool) -> ImageTexture:
 	var img := Image.create(width, height, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
 	var cy := int(floor(float(height) * 0.5))

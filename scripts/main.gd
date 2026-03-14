@@ -195,7 +195,7 @@ var _selection_end := 0
 var _has_bam_loaded := false
 var _bam_tracks: Array[Dictionary] = []
 var _bam_track_serial := 0
-var _center_strand_scroll_pending := false
+var center_strand_scroll_pending := false
 var _has_sequence_loaded := false
 var _pending_annotation_highlight: Dictionary = {}
 var _cache_start := -1
@@ -808,12 +808,12 @@ func _delete_dir_contents_absolute(dir_path: String) -> bool:
 		return false
 	dir.list_dir_begin()
 	while true:
-		var name := dir.get_next()
-		if name.is_empty():
+		var entry_name := dir.get_next()
+		if entry_name.is_empty():
 			break
-		if name == "." or name == "..":
+		if entry_name == "." or entry_name == "..":
 			continue
-		var child_path := dir_path.path_join(name)
+		var child_path := dir_path.path_join(entry_name)
 		if dir.current_is_dir():
 			if not _delete_dir_contents_absolute(child_path):
 				dir.list_dir_end()

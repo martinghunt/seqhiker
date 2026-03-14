@@ -198,7 +198,7 @@ var _region_select_end_edge := 0
 var _font_size_small := 11
 var _font_size_medium := 13
 var _font_size_large := 14
-var _annotation_debug_stats := {
+var annotation_debug_stats_state := {
 	"seen": 0,
 	"drawn": 0,
 	"labels": 0,
