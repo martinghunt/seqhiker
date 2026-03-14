@@ -25,6 +25,7 @@ const (
 	MsgSearchDNAExact        uint16 = 16
 	MsgGetStrandCoverageTile uint16 = 17
 	MsgDownloadGenome        uint16 = 18
+	MsgGetVersion            uint16 = 19
 )
 
 type FrameHeader struct {

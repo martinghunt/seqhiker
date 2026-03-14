@@ -182,6 +182,7 @@ var _download_status_label: RichTextLabel
 var _download_thread: Thread
 var _download_in_progress := false
 var _local_zem_manager: RefCounted
+var _connected_zem_version := ""
 var _current_chr_id := -1
 var _current_chr_name := ""
 var _current_chr_len := 0
@@ -254,7 +255,7 @@ var _track_settings_open := false
 var _active_track_settings_id := ""
 var _debug_enabled := false
 var _debug_toggle: CheckButton
-var _debug_stats_label: Label
+var _debug_stats_label: RichTextLabel
 var _debug_loaded_files_label: Label
 var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
 var _genome_cache_max_mb := GENOME_CACHE_MAX_MB_DEFAULT
@@ -357,7 +358,10 @@ func _startup_connect_local_zem() -> void:
 	await get_tree().process_frame
 	# Keep startup connect snappy so first frame/UI does not stall.
 	if _local_zem_manager.connect_with_local_fallback(host, port, 100, 2, 80):
+		var version_resp: Dictionary = _zem.get_server_version()
+		_connected_zem_version = str(version_resp.get("version", "")).strip_edges() if bool(version_resp.get("ok", false)) else ""
 		_set_status("Connected %s:%d" % [host, port])
+		_update_debug_stats_label()
 	else:
 		var last_error: String = _local_zem_manager.last_error()
 		if not last_error.is_empty():
@@ -791,9 +795,12 @@ func _setup_debug_controls() -> void:
 	_debug_toggle.button_pressed = _debug_enabled
 	_debug_toggle.toggled.connect(_on_debug_toggled)
 	settings_content.add_child(_debug_toggle)
-	_debug_stats_label = Label.new()
+	_debug_stats_label = RichTextLabel.new()
 	_debug_stats_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
 	_debug_stats_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_debug_stats_label.fit_content = true
+	_debug_stats_label.scroll_active = false
+	_debug_stats_label.selection_enabled = true
 	_debug_stats_label.visible = _debug_enabled
 	_debug_stats_label.text = ""
 	settings_content.add_child(_debug_stats_label)
@@ -1015,14 +1022,27 @@ func _update_debug_stats_label() -> void:
 	if not _debug_enabled:
 		_debug_stats_label.text = ""
 		return
+	var version_resp: Dictionary = _zem.get_server_version()
+	var status_prefix := "ERROR" if _last_status_is_error else "OK"
+	var status_message := _last_status_message
+	if bool(version_resp.get("ok", false)):
+		_connected_zem_version = str(version_resp.get("version", "")).strip_edges()
+		status_prefix = "OK"
+		var conn_info: Dictionary = _zem.connection_info()
+		status_message = "Connected %s:%d" % [str(conn_info.get("host", "127.0.0.1")), int(conn_info.get("port", ZEM_DEFAULT_PORT))]
 	var hit_pct := 0.0
 	if _dbg_ann_tile_requests > 0:
 		hit_pct = 100.0 * float(_dbg_ann_tile_cache_hits) / float(_dbg_ann_tile_requests)
 	var draw_stats: Dictionary = genome_view.annotation_debug_stats()
-	var status_prefix := "ERROR" if _last_status_is_error else "OK"
-	_debug_stats_label.text = "Server [%s]: %s\nViewport: %s\nScale: %s\nAnn tiles req=%d, cache_hit=%d (%.1f%%), queried=%d\nAnn feats in=%d, out=%d, fetch=%.2fms\nAnn draw seen=%d, drawn=%d, labels=%d, hitboxes=%d, draw=%.2fms" % [
+	var godot_version := str(ProjectSettings.get_setting("application/config/version", "")).strip_edges()
+	var zem_version := _connected_zem_version if not _connected_zem_version.is_empty() else "unknown"
+	var versions_match := "true" if not godot_version.is_empty() and godot_version == _connected_zem_version else "false"
+	_debug_stats_label.text = "Godot version: %s\nZem version: %s\nVersions match: %s\nServer [%s]: %s\nViewport: %s\nScale: %s\nAnn tiles req=%d, cache_hit=%d (%.1f%%), queried=%d\nAnn feats in=%d, out=%d, fetch=%.2fms\nAnn draw seen=%d, drawn=%d, labels=%d, hitboxes=%d, draw=%.2fms" % [
+		godot_version,
+		zem_version,
+		versions_match,
 		status_prefix,
-		_last_status_message,
+		status_message,
 		_last_viewport_message,
 		_last_bp_per_px_message,
 		_dbg_ann_tile_requests,

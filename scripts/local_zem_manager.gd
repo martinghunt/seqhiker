@@ -30,9 +30,14 @@ func connect_with_local_fallback(host: String, port: int, connect_timeout_ms: in
 	if _zem.connect_to_server(host, port, connect_timeout_ms):
 		var probe_existing := _probe_zem_ready()
 		if bool(probe_existing.get("ok", false)):
-			return true
-		_last_connect_error = "Connected but zem probe failed: %s" % str(probe_existing.get("error", "unknown error"))
-		_zem.disconnect_from_server()
+			if try_local and not _connected_server_version_matches():
+				_zem.shutdown_server(400)
+				_zem.disconnect_from_server()
+			else:
+				return true
+		else:
+			_last_connect_error = "Connected but zem probe failed: %s" % str(probe_existing.get("error", "unknown error"))
+			_zem.disconnect_from_server()
 	if not try_local:
 		if _last_connect_error.is_empty():
 			_last_connect_error = "Unable to connect to %s:%d" % [host, port]
@@ -54,7 +59,7 @@ func connect_with_local_fallback(host: String, port: int, connect_timeout_ms: in
 	return false
 
 func ensure_local_zem_installed() -> bool:
-	if _local_zem_install_checked and not _local_zem_path.is_empty() and FileAccess.file_exists(_local_zem_path):
+	if _local_zem_install_checked and not _local_zem_path.is_empty() and FileAccess.file_exists(_local_zem_path) and _installed_binary_version_matches(_local_zem_path):
 		return true
 	_local_zem_install_checked = true
 	var bin_name := _zem_binary_name()
@@ -72,9 +77,15 @@ func ensure_local_zem_installed() -> bool:
 			return true
 		_last_connect_error = "No bundled zem found at res://bin/%s" % bin_name
 		return false
+	var expected_version := _expected_zem_version()
+	var target_matches_version := FileAccess.file_exists(target_abs) and _installed_binary_version_matches(target_abs)
 	if not FileAccess.file_exists(target_abs):
 		if not _copy_file_any_to_abs(source, target_abs):
 			_last_connect_error = "Failed to copy zem into %s" % target_abs
+			return false
+	elif not target_matches_version:
+		if not _copy_file_any_to_abs(source, target_abs):
+			_last_connect_error = "Failed to replace zem in %s" % target_abs
 			return false
 	else:
 		var src_hash := FileAccess.get_sha256(source)
@@ -85,6 +96,12 @@ func ensure_local_zem_installed() -> bool:
 				return false
 	if not OS.has_feature("windows"):
 		OS.execute("chmod", ["+x", target_abs], [], true)
+	if not _write_installed_version(target_abs):
+		_last_connect_error = "Failed to write zem version marker for %s" % target_abs
+		return false
+	if not expected_version.is_empty() and not _installed_binary_version_matches(target_abs):
+		_last_connect_error = "Installed zem version does not match project version %s" % expected_version
+		return false
 	_last_connect_error = ""
 	return true
 
@@ -144,3 +161,53 @@ func _zem_binary_name() -> String:
 	if OS.has_feature("windows"):
 		return "zem.exe"
 	return "zem"
+
+func _expected_zem_version() -> String:
+	return str(ProjectSettings.get_setting("application/config/version", "")).strip_edges()
+
+func _installed_binary_version_matches(binary_path: String) -> bool:
+	var expected_version := _expected_zem_version()
+	if expected_version.is_empty():
+		return true
+	var actual_version := _read_installed_version(binary_path)
+	return not actual_version.is_empty() and actual_version == expected_version
+
+func _version_marker_path(binary_path: String) -> String:
+	return "%s.version" % binary_path
+
+func _read_installed_version(binary_path: String) -> String:
+	var marker_path := _version_marker_path(binary_path)
+	if marker_path.is_empty() or not FileAccess.file_exists(marker_path):
+		return ""
+	var file := FileAccess.open(marker_path, FileAccess.READ)
+	if file == null:
+		return ""
+	var version := file.get_as_text().strip_edges()
+	file.close()
+	return version
+
+func _write_installed_version(binary_path: String) -> bool:
+	var expected_version := _expected_zem_version()
+	if expected_version.is_empty():
+		return true
+	var marker_path := _version_marker_path(binary_path)
+	var file := FileAccess.open(marker_path, FileAccess.WRITE)
+	if file == null:
+		return false
+	file.store_string(expected_version + "\n")
+	file.close()
+	return true
+
+func _connected_server_version_matches() -> bool:
+	var expected_version := _expected_zem_version()
+	if expected_version.is_empty():
+		return true
+	var resp: Dictionary = _zem.get_server_version()
+	if not bool(resp.get("ok", false)):
+		_last_connect_error = "Connected but zem version probe failed: %s" % str(resp.get("error", "unknown error"))
+		return false
+	var actual_version := str(resp.get("version", "")).strip_edges()
+	if actual_version == expected_version:
+		return true
+	_last_connect_error = "Zem version mismatch: app %s, server %s" % [expected_version, actual_version]
+	return false

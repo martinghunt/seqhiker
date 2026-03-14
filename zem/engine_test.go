@@ -543,6 +543,19 @@ func TestCoverageTailTilesUseProportionalBinCount(t *testing.T) {
 	}
 }
 
+func TestDispatchGetVersion(t *testing.T) {
+	msgType, payload, err := dispatch(NewEngine(), MsgGetVersion, nil)
+	if err != nil {
+		t.Fatalf("dispatch returned error: %v", err)
+	}
+	if msgType != MsgGetVersion {
+		t.Fatalf("unexpected message type: got %d, want %d", msgType, MsgGetVersion)
+	}
+	if got := decodeWireAckForTest(t, payload); got != ZemVersion {
+		t.Fatalf("unexpected version payload: got %q, want %q", got, ZemVersion)
+	}
+}
+
 func decodeDNAHitsForTest(payload []byte) (bool, []DNAExactHit) {
 	if len(payload) < 3 {
 		return false, nil
@@ -720,6 +733,18 @@ func decodeCoverageBinsForTest(t *testing.T, payload []byte) []uint16 {
 		off += 2
 	}
 	return bins
+}
+
+func decodeWireAckForTest(t *testing.T, payload []byte) string {
+	t.Helper()
+	if len(payload) < 2 {
+		t.Fatalf("ack payload too short")
+	}
+	n := int(binary.LittleEndian.Uint16(payload[0:2]))
+	if len(payload) < 2+n {
+		t.Fatalf("ack payload truncated")
+	}
+	return string(payload[2 : 2+n])
 }
 
 func decodeStrandCoverageBinsForTest(t *testing.T, payload []byte) ([]uint16, []uint16) {

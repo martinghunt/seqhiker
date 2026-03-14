@@ -245,6 +245,9 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		}
 		return MsgDownloadGenome, encodeStringList(files), nil
 
+	case MsgGetVersion:
+		return MsgGetVersion, ackPayload(ZemVersion), nil
+
 	default:
 		return 0, nil, fmt.Errorf("unknown message type %d", msgType)
 	}

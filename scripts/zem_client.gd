@@ -19,6 +19,7 @@ const MSG_GET_ANNOTATION_TILE := 15
 const MSG_SEARCH_DNA_EXACT := 16
 const MSG_GET_STRAND_COVERAGE_TILE := 17
 const MSG_DOWNLOAD_GENOME := 18
+const MSG_GET_VERSION := 19
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -284,6 +285,13 @@ func download_genome(accession: String, cache_dir: String = "", max_cache_bytes:
 	resp["files"] = _parse_string_list(resp.get("payload", PackedByteArray()))
 	return resp
 
+func get_server_version() -> Dictionary:
+	var resp := _send_request(MSG_GET_VERSION, PackedByteArray())
+	if not resp.get("ok", false):
+		return resp
+	resp["version"] = _decode_ack_message(resp.get("payload", PackedByteArray()))
+	return resp
+
 func connection_info() -> Dictionary:
 	return {"host": _host, "port": _port}
 
@@ -351,6 +359,14 @@ func _decode_error_string(payload: PackedByteArray) -> String:
 	var ln := payload.decode_u16(0)
 	if payload.size() < 2 + ln:
 		return "Malformed server error"
+	return _decode_wire_text(payload.slice(2, 2 + ln))
+
+func _decode_ack_message(payload: PackedByteArray) -> String:
+	if payload.size() < 2:
+		return ""
+	var ln := payload.decode_u16(0)
+	if payload.size() < 2 + ln:
+		return ""
 	return _decode_wire_text(payload.slice(2, 2 + ln))
 
 func _describe_stream_error(err: int) -> String:
