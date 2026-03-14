@@ -167,7 +167,9 @@ text = "X"
 [node name="PanLeftButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Pan left
-Keyboard: left arrow"
+Keyboard: left arrow
+Trackpad: pinch zoom
+Mouse wheel: shift+up"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_pan_left")
 shortcut_in_tooltip = false
@@ -176,7 +178,8 @@ text = "U"
 [node name="PanRightButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Pan right
-Keyboard: right arrow"
+Keyboard: right arrow
+Mouse wheel: shift+down"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_pan_right")
 shortcut_in_tooltip = false
@@ -185,7 +188,10 @@ text = "T"
 [node name="ZoomOutButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Zoom out
-Keyboard: -"
+Keyboard: -, or pinch
+with trackpad, or use
+mouse wheel
+"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_zoom_out")
 shortcut_in_tooltip = false
@@ -194,7 +200,9 @@ text = "E"
 [node name="ZoomInButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Zoom in
-Keyboard: +"
+Keyboard: +, or pinch
+with trackpad, or use
+mouse wheel"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_zoom_in")
 shortcut_in_tooltip = false
@@ -318,26 +326,51 @@ theme_override_constants/separation = 4
 [node name="ShowMapTrack" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox"]
 custom_minimum_size = Vector2(0, 24)
 layout_mode = 2
+tooltip_text = "Toggle visibility of \"map\" track.
+This shows layout of whole genome,
+with a slider to indicate position
+currently being viewed.
+Drag the slider to pan the view."
 text = " Map"
 
 [node name="ShowGenomeTrack" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox"]
 custom_minimum_size = Vector2(0, 24)
 layout_mode = 2
+tooltip_text = "Toggle visibility of genome track.
+Shows:
+- coordinates of genome
+- annotations that do not have a
+  reading frame (or all annotations
+  if AA/annotations track turned off)
+- nucleotides when zoomed in"
 text = " Genome"
 
 [node name="ShowAATrack" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox"]
 custom_minimum_size = Vector2(0, 24)
 layout_mode = 2
+tooltip_text = "Toggle visibility of amino
+acid/annotation track. Shows:
+- all six reading frames (3 on each
+  strand)
+- annotations that have a reading
+  frame (eg genes)
+- amino acids, when zoomed in"
 text = " AA / Annotation"
 
 [node name="ShowGCPlotTrack" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox"]
 custom_minimum_size = Vector2(0, 24)
 layout_mode = 2
+tooltip_text = "Toggle visibility of GC plot"
 text = " GC Plot"
 
 [node name="ShowDepthPlotTrack" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox"]
 custom_minimum_size = Vector2(0, 24)
 layout_mode = 2
+tooltip_text = "Toggle visibility of read depth plot.
+Only applicable when BAMs are
+loaded. When more than one BAM
+loaded, each one's depth shown in
+a different colour"
 text = " Depth Plot"
 
 [node name="ThemeLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
