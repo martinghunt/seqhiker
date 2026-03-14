@@ -152,6 +152,7 @@ var _selected_read_pair_b_start := -1
 var _selected_read_pair_b_end := -1
 var _trackpad_pan_sensitivity := 1.0
 var _trackpad_pinch_sensitivity := 1.0
+var _vertical_swipe_zoom_enabled := true
 var _mouse_wheel_zoom_sensitivity := 1.0
 var _invert_mouse_wheel_zoom := false
 var _mouse_wheel_pan_sensitivity := 1.0
@@ -561,6 +562,9 @@ func set_trackpad_pan_sensitivity(value: float) -> void:
 
 func set_trackpad_pinch_sensitivity(value: float) -> void:
 	_trackpad_pinch_sensitivity = clampf(value, 0.5, 20.0)
+
+func set_vertical_swipe_zoom_enabled(enabled: bool) -> void:
+	_vertical_swipe_zoom_enabled = enabled
 
 func set_mouse_wheel_zoom_sensitivity(value: float) -> void:
 	_mouse_wheel_zoom_sensitivity = clampf(value, 0.1, 10.0)
@@ -1839,7 +1843,15 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	elif event is InputEventPanGesture:
 		var pan_event := event as InputEventPanGesture
-		if absf(pan_event.delta.x) > 0.0:
+		if _vertical_swipe_zoom_enabled and absf(pan_event.delta.y) > absf(pan_event.delta.x) and absf(pan_event.delta.y) > 0.0:
+			var zoom_in := pan_event.delta.y < 0.0
+			if _invert_mouse_wheel_zoom:
+				zoom_in = not zoom_in
+			var gesture_factor := 0.88 if zoom_in else 1.14
+			var scaled_factor := pow(gesture_factor, absf(pan_event.delta.y) * _mouse_wheel_zoom_sensitivity)
+			zoom_by_at_x(scaled_factor, pan_event.position.x, 0.12)
+			accept_event()
+		elif absf(pan_event.delta.x) > 0.0:
 			_pan_by_pixels(pan_event.delta.x * _trackpad_pan_sensitivity * 3.0)
 			accept_event()
 	elif event is InputEventMagnifyGesture:

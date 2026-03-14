@@ -128,6 +128,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var _font_size_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/FontSizeRow/FontSizeSlider
 @onready var trackpad_pan_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackpadPanSlider
 @onready var trackpad_pinch_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackpadPinchSlider
+@onready var enable_vertical_swipe_zoom_button: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/EnableVerticalSwipeZoom
 @onready var mouse_wheel_zoom_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelZoomSlider
 @onready var invert_mouse_wheel_zoom_button: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/InvertMouseWheelZoom
 @onready var mouse_wheel_pan_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelPanSlider
@@ -313,6 +314,7 @@ func _ready() -> void:
 	_on_ui_scale_changed(ui_scale_slider.value)
 	_on_trackpad_pan_changed(trackpad_pan_slider.value)
 	_on_trackpad_pinch_changed(trackpad_pinch_slider.value)
+	_on_enable_vertical_swipe_zoom_toggled(enable_vertical_swipe_zoom_button.button_pressed)
 	_on_mouse_wheel_zoom_changed(mouse_wheel_zoom_slider.value)
 	_on_invert_mouse_wheel_zoom_toggled(invert_mouse_wheel_zoom_button.button_pressed)
 	_on_mouse_wheel_pan_changed(mouse_wheel_pan_slider.value)
@@ -413,6 +415,7 @@ func _connect_ui() -> void:
 	ui_scale_slider.drag_ended.connect(_on_ui_scale_drag_ended)
 	trackpad_pan_slider.value_changed.connect(_on_trackpad_pan_changed)
 	trackpad_pinch_slider.value_changed.connect(_on_trackpad_pinch_changed)
+	enable_vertical_swipe_zoom_button.toggled.connect(_on_enable_vertical_swipe_zoom_toggled)
 	mouse_wheel_zoom_slider.value_changed.connect(_on_mouse_wheel_zoom_changed)
 	invert_mouse_wheel_zoom_button.toggled.connect(_on_invert_mouse_wheel_zoom_toggled)
 	mouse_wheel_pan_slider.value_changed.connect(_on_mouse_wheel_pan_changed)
@@ -646,6 +649,10 @@ func _on_trackpad_pan_changed(value: float) -> void:
 
 func _on_trackpad_pinch_changed(value: float) -> void:
 	genome_view.set_trackpad_pinch_sensitivity(value)
+
+func _on_enable_vertical_swipe_zoom_toggled(enabled: bool) -> void:
+	enable_vertical_swipe_zoom_button.button_pressed = enabled
+	genome_view.set_vertical_swipe_zoom_enabled(enabled)
 
 func _on_mouse_wheel_zoom_changed(value: float) -> void:
 	genome_view.set_mouse_wheel_zoom_sensitivity(value)
@@ -2383,6 +2390,7 @@ func _load_or_init_config() -> void:
 		play_speed_slider.value = 0.3
 	trackpad_pan_slider.value = float(cfg.get_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value))
 	trackpad_pinch_slider.value = float(cfg.get_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value))
+	enable_vertical_swipe_zoom_button.button_pressed = bool(cfg.get_value("input", "enable_vertical_swipe_zoom", true))
 	mouse_wheel_zoom_slider.value = float(cfg.get_value("input", "mouse_wheel_zoom_sensitivity", mouse_wheel_zoom_slider.value))
 	invert_mouse_wheel_zoom_button.button_pressed = bool(cfg.get_value("input", "invert_mouse_wheel_zoom", false))
 	mouse_wheel_pan_slider.value = float(cfg.get_value("input", "mouse_wheel_pan_sensitivity", mouse_wheel_pan_slider.value))
@@ -2469,6 +2477,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "debug_enabled", _debug_enabled)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
 	cfg.set_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value)
+	cfg.set_value("input", "enable_vertical_swipe_zoom", enable_vertical_swipe_zoom_button.button_pressed)
 	cfg.set_value("input", "mouse_wheel_zoom_sensitivity", mouse_wheel_zoom_slider.value)
 	cfg.set_value("input", "invert_mouse_wheel_zoom", invert_mouse_wheel_zoom_button.button_pressed)
 	cfg.set_value("input", "mouse_wheel_pan_sensitivity", mouse_wheel_pan_slider.value)
