@@ -227,6 +227,7 @@ func make_theme(theme_name: String, font_size: int) -> Theme:
 	_set_item_list_styles(t, p)
 	_set_popup_menu_styles(t, p)
 	_set_checkbox_styles(t, p)
+	_set_check_button_styles(t, p)
 	_set_slider_styles(t, p)
 	_set_option_button_icons(t, p)
 	return t
@@ -248,6 +249,12 @@ func _set_font_colors(theme: Theme, p: Dictionary) -> void:
 	theme.set_color("font_hover_pressed_color", "CheckBox", text)
 	theme.set_color("font_focus_color", "CheckBox", text)
 	theme.set_color("font_disabled_color", "CheckBox", text_muted)
+	theme.set_color("font_color", "CheckButton", text)
+	theme.set_color("font_hover_color", "CheckButton", text)
+	theme.set_color("font_pressed_color", "CheckButton", text)
+	theme.set_color("font_hover_pressed_color", "CheckButton", text)
+	theme.set_color("font_focus_color", "CheckButton", text)
+	theme.set_color("font_disabled_color", "CheckButton", text_muted)
 	theme.set_color("font_color", "LineEdit", text)
 	theme.set_color("caret_color", "LineEdit", text)
 	theme.set_color("selection_color", "LineEdit", text)
@@ -407,6 +414,47 @@ func _set_checkbox_styles(theme: Theme, p: Dictionary) -> void:
 	focus.set_border_width_all(1)
 	theme.set_stylebox("focus", "CheckBox", focus)
 
+func _set_check_button_styles(theme: Theme, p: Dictionary) -> void:
+	var toggle_w := 40
+	var toggle_h := 22
+	var off_icon := _make_toggle_icon(toggle_w, toggle_h, p["panel_alt"], p["field_border"], p["button_bg"], false)
+	var on_icon := _make_toggle_icon(toggle_w, toggle_h, p["panel_alt"], p["field_border"], p["accent"], true)
+	theme.set_icon("off", "CheckButton", off_icon)
+	theme.set_icon("off_disabled", "CheckButton", off_icon)
+	theme.set_icon("on", "CheckButton", on_icon)
+	theme.set_icon("on_disabled", "CheckButton", on_icon)
+	theme.set_icon("unchecked", "CheckButton", off_icon)
+	theme.set_icon("unchecked_disabled", "CheckButton", off_icon)
+	theme.set_icon("checked", "CheckButton", on_icon)
+	theme.set_icon("checked_disabled", "CheckButton", on_icon)
+	theme.set_constant("h_separation", "CheckButton", 8)
+	theme.set_constant("icon_max_width", "CheckButton", toggle_w)
+
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0, 0, 0, 0)
+	normal.border_color = Color(0, 0, 0, 0)
+	normal.set_border_width_all(0)
+	normal.set_corner_radius_all(6)
+	normal.content_margin_left = 2
+	normal.content_margin_right = 2
+	normal.content_margin_top = 2
+	normal.content_margin_bottom = 2
+	theme.set_stylebox("normal", "CheckButton", normal)
+
+	var hover := normal.duplicate()
+	theme.set_stylebox("hover", "CheckButton", hover)
+
+	var pressed := normal.duplicate()
+	theme.set_stylebox("pressed", "CheckButton", pressed)
+	theme.set_stylebox("hover_pressed", "CheckButton", pressed.duplicate())
+
+	var disabled := normal.duplicate()
+	theme.set_stylebox("disabled", "CheckButton", disabled)
+	theme.set_stylebox("disabled_mirrored", "CheckButton", disabled.duplicate())
+
+	var focus := normal.duplicate()
+	theme.set_stylebox("focus", "CheckButton", focus)
+
 func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	var grabber_size := 18
 	var grabber := _make_pill_icon(grabber_size, grabber_size, p["accent"])
@@ -494,6 +542,29 @@ func _make_pill_icon(width: int, height: int, color: Color) -> ImageTexture:
 				img.set_pixel(x, y, color)
 			else:
 				img.set_pixel(x, y, Color(0, 0, 0, 0))
+	return ImageTexture.create_from_image(img)
+
+func _make_toggle_icon(width: int, height: int, fill: Color, border: Color, knob: Color, on: bool) -> ImageTexture:
+	var img := Image.create(width, height, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var cy := int(floor(float(height) * 0.5))
+	var knob_radius := maxi(6, int(floor(float(height) * 0.38)))
+	var track_margin := knob_radius + 1
+	var track_h := 8
+	var track_y0 := cy - int(floor(float(track_h) * 0.5))
+	var track_y1 := track_y0 + track_h - 1
+	for y in range(track_y0, track_y1 + 1):
+		for x in range(track_margin, width - track_margin):
+			if y >= 0 and y < height and x >= 0 and x < width:
+				img.set_pixel(x, y, fill)
+	var knob_cx := width - knob_radius - 2 if on else knob_radius + 1
+	var knob_cy := cy
+	for y in range(height):
+		for x in range(width):
+			var dx := x - knob_cx
+			var dy := y - knob_cy
+			if dx * dx + dy * dy <= knob_radius * knob_radius:
+				img.set_pixel(x, y, knob)
 	return ImageTexture.create_from_image(img)
 
 func _make_check_texture(size: int, bg: Color, mark: Color, border: Color) -> ImageTexture:

@@ -140,6 +140,11 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var settings_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent
 @onready var _track_order_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityLabel
 @onready var _track_visibility_box: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox
+@onready var _track_visibility_aa: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowAATrack
+@onready var _track_visibility_genome: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowGenomeTrack
+@onready var _track_visibility_gc_plot: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowGCPlotTrack
+@onready var _track_visibility_depth_plot: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowDepthPlotTrack
+@onready var _track_visibility_map: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowMapTrack
 @onready var _bam_cov_cutoff_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffLabel
 @onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffSpin
 @onready var close_settings_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader/CloseSettingsButton
@@ -723,6 +728,11 @@ func _setup_sequence_controls() -> void:
 func _setup_track_visibility_controls() -> void:
 	_track_order_label.text = "Track Visibility"
 	_track_visibility_box.add_theme_constant_override("separation", 4)
+	_track_visibility_aa.toggled.connect(_on_track_visibility_toggled.bind(TRACK_AA))
+	_track_visibility_genome.toggled.connect(_on_track_visibility_toggled.bind(TRACK_GENOME))
+	_track_visibility_gc_plot.toggled.connect(_on_track_visibility_toggled.bind(TRACK_GC_PLOT))
+	_track_visibility_depth_plot.toggled.connect(_on_track_visibility_toggled.bind(TRACK_DEPTH_PLOT))
+	_track_visibility_map.toggled.connect(_on_track_visibility_toggled.bind("map"))
 	_refresh_track_visibility_controls(genome_view.get_track_order())
 
 func _setup_debug_controls() -> void:
@@ -1082,21 +1092,32 @@ func _refresh_track_order_list(order: PackedStringArray, select_idx: int = -1) -
 func _refresh_track_visibility_controls(order: PackedStringArray) -> void:
 	if _track_visibility_box == null:
 		return
-	for child in _track_visibility_box.get_children():
-		child.queue_free()
+	var visible_ids := {}
 	for id_any in order:
 		var track_id := str(id_any)
 		if track_id == TRACK_READS or track_id.begins_with("reads:"):
 			continue
-		var cb := CheckBox.new()
-		cb.text = "Show %s" % _track_label_for_id(track_id)
-		var is_depth := track_id == TRACK_DEPTH_PLOT
+		visible_ids[track_id] = true
+	var controls := {
+		TRACK_AA: _track_visibility_aa,
+		TRACK_GENOME: _track_visibility_genome,
+		TRACK_GC_PLOT: _track_visibility_gc_plot,
+		TRACK_DEPTH_PLOT: _track_visibility_depth_plot,
+		"map": _track_visibility_map
+	}
+	for track_id_any in controls.keys():
+		var track_id := str(track_id_any)
+		var cb := controls[track_id] as CheckButton
+		if cb == null:
+			continue
+		cb.visible = bool(visible_ids.get(track_id, false))
+		if not cb.visible:
+			continue
+		var is_depth: bool = track_id == TRACK_DEPTH_PLOT
 		if is_depth and not _has_bam_loaded:
 			genome_view.set_track_visible(track_id, false)
-		cb.button_pressed = genome_view.is_track_visible(track_id)
+		cb.set_pressed_no_signal(genome_view.is_track_visible(track_id))
 		cb.disabled = is_depth and not _has_bam_loaded
-		cb.toggled.connect(_on_track_visibility_toggled.bind(track_id))
-		_track_visibility_box.add_child(cb)
 
 func _on_track_order_changed(order: PackedStringArray) -> void:
 	_refresh_track_order_list(order)
