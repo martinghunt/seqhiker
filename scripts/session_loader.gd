@@ -9,27 +9,46 @@ func configure(next_host: Node) -> void:
 
 
 func on_files_dropped(files: PackedStringArray) -> void:
+	_load_paths(files)
+
+
+func load_server_paths(files: PackedStringArray) -> Dictionary:
+	return _load_paths(files)
+
+func apply_already_loaded_genome(files: PackedStringArray) -> void:
+	host._reset_loaded_state()
+	record_loaded_files(files, true)
+	host.genome_view.load_files(files)
+	refresh_sequence_loaded_state()
+	refresh_chromosomes(true)
+	host._refresh_visible_data()
+
+
+func _load_paths(files: PackedStringArray) -> Dictionary:
 	if not ensure_server_connected():
-		return
-	var drop_info := inspect_dropped_files(files)
+		return {"ok": false, "error": str(host._last_status_message)}
+	var drop_info: Dictionary = inspect_dropped_files(files)
 	if not drop_info.get("ok", false):
-		host._set_status(str(drop_info.get("error", "Unable to inspect dropped files.")), true)
-		return
+		var err_msg := str(drop_info.get("error", "Unable to inspect dropped files."))
+		host._set_status(err_msg, true)
+		return {"ok": false, "error": err_msg}
 	var dropped_sequence := bool(drop_info.get("has_sequence", false))
 	if int(drop_info.get("sequence_root_count", 0)) > 1:
-		host._set_status("Drop only one sequence-bearing genome source at a time.", true)
-		return
+		var err_msg := "Drop only one sequence-bearing genome source at a time."
+		host._set_status(err_msg, true)
+		return {"ok": false, "error": err_msg}
 	if dropped_sequence:
 		reset_loaded_state()
 	else:
 		host._view_slots.clear()
 	if not load_dropped_files(files):
-		return
+		return {"ok": false, "error": str(host._last_status_message)}
 	record_loaded_files(files, dropped_sequence)
 	host.genome_view.load_files(files)
 	refresh_sequence_loaded_state()
 	refresh_chromosomes(dropped_sequence)
 	host._refresh_visible_data()
+	return {"ok": true}
 
 
 func ensure_server_connected() -> bool:
@@ -37,13 +56,13 @@ func ensure_server_connected() -> bool:
 		refresh_sequence_loaded_state()
 		host._set_status("Connected")
 		return true
-	var host_ip := "127.0.0.1"
+	var host_ip: String = "127.0.0.1"
 	var port: int = host.ZEM_DEFAULT_PORT
 	if host._local_zem_manager.connect_with_local_fallback(host_ip, port):
 		refresh_sequence_loaded_state()
 		host._set_status("Connected %s:%d" % [host_ip, port])
 		return true
-	var msg := "Disconnected"
+	var msg: String = "Disconnected"
 	var last_error: String = host._local_zem_manager.last_error()
 	if not last_error.is_empty():
 		msg = last_error
@@ -78,12 +97,12 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 	var genome_targets: Array[String] = []
 	var bam_targets: Array[String] = []
 	for path in files:
-		var ext := path.get_extension().to_lower()
+		var ext: String = path.get_extension().to_lower()
 		if ext == "bam":
 			bam_targets.append(path)
 		elif genome_targets.find(path) < 0:
 			genome_targets.append(path)
-	var pending := genome_targets.duplicate()
+	var pending: Array[String] = genome_targets.duplicate()
 	while not pending.is_empty():
 		var deferred: Array[String] = []
 		var progress := false
@@ -121,8 +140,8 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 				return false
 			source_id = int(bam_resp.get("source_id", 0))
 		host._bam_track_serial += 1
-		var label := bam_path.get_file()
-		var track_id := "reads:%d" % host._bam_track_serial
+		var label: String = bam_path.get_file()
+		var track_id: String = "reads:%d" % host._bam_track_serial
 		host._bam_tracks.append({
 			"source_id": source_id,
 			"path": bam_path,
@@ -152,7 +171,7 @@ func refresh_chromosomes(reset_viewport: bool = true) -> void:
 	if not resp.get("ok", false):
 		host._set_status("Chrom query failed: %s" % resp.get("error", "error"), true)
 		return
-	var chroms_any = resp.get("chromosomes", [])
+	var chroms_any: Array = resp.get("chromosomes", [])
 	var chroms: Array[Dictionary] = []
 	for c in chroms_any:
 		if typeof(c) == TYPE_DICTIONARY:
@@ -178,8 +197,8 @@ func rebuild_concat_segments() -> void:
 	var pos := 0
 	for i in range(host._chromosomes.size()):
 		var c: Dictionary = host._chromosomes[i]
-		var seg_len := int(c.get("length", 0))
-		var seg := {
+		var seg_len: int = int(c.get("length", 0))
+		var seg: Dictionary = {
 			"id": int(c.get("id", -1)),
 			"name": str(c.get("name", "chr")),
 			"length": seg_len,

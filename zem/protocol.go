@@ -24,6 +24,7 @@ const (
 	MsgGetAnnotationTile     uint16 = 15
 	MsgSearchDNAExact        uint16 = 16
 	MsgGetStrandCoverageTile uint16 = 17
+	MsgDownloadGenome        uint16 = 18
 )
 
 type FrameHeader struct {
@@ -76,6 +77,28 @@ func decodePathPayload(payload []byte) (string, error) {
 		return "", fmt.Errorf("invalid path payload length")
 	}
 	return string(payload[2 : 2+pathLen]), nil
+}
+
+func decodeDownloadGenomePayload(payload []byte) (string, string, uint32, error) {
+	if len(payload) < 8 {
+		return "", "", 0, fmt.Errorf("payload too short for download request")
+	}
+	accessionLen := int(binary.LittleEndian.Uint16(payload[0:2]))
+	if len(payload) < 2+accessionLen+2+4 {
+		return "", "", 0, fmt.Errorf("invalid download payload length")
+	}
+	off := 2
+	accession := string(payload[off : off+accessionLen])
+	off += accessionLen
+	cacheDirLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+	off += 2
+	if len(payload) < off+cacheDirLen+4 {
+		return "", "", 0, fmt.Errorf("invalid download cache-dir payload length")
+	}
+	cacheDir := string(payload[off : off+cacheDirLen])
+	off += cacheDirLen
+	maxBytes := binary.LittleEndian.Uint32(payload[off : off+4])
+	return accession, cacheDir, maxBytes, nil
 }
 
 func encodeChromosomes(chroms []ChromInfo) []byte {
@@ -153,6 +176,22 @@ func encodeDNAExactHits(truncated bool, hits []DNAExactHit) []byte {
 		binary.LittleEndian.PutUint32(buf[off+4:off+8], uint32(hit.End))
 		buf[off+8] = hit.Strand
 		off += 9
+	}
+	return buf
+}
+
+func encodeStringList(values []string) []byte {
+	total := 2
+	for _, value := range values {
+		total += 2 + len(value)
+	}
+	buf := make([]byte, total)
+	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(values)))
+	off := 2
+	for _, value := range values {
+		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(value)))
+		copy(buf[off+2:off+2+len(value)], value)
+		off += 2 + len(value)
 	}
 	return buf
 }

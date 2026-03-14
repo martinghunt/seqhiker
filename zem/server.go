@@ -226,6 +226,25 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		resp, err := engine.SearchDNAExact(chrID, pattern, includeRevComp, maxHits)
 		return MsgSearchDNAExact, resp, err
 
+	case MsgDownloadGenome:
+		accession, cacheDir, maxBytes, err := decodeDownloadGenomePayload(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		files, err := engine.DownloadGenome(accession, cacheDir, int64(maxBytes))
+		if err != nil {
+			return 0, nil, err
+		}
+		if len(files) == 0 {
+			return 0, nil, fmt.Errorf("download returned no files")
+		}
+		for _, path := range files {
+			if err := engine.LoadGenome(path); err != nil {
+				return 0, nil, err
+			}
+		}
+		return MsgDownloadGenome, encodeStringList(files), nil
+
 	default:
 		return 0, nil, fmt.Errorf("unknown message type %d", msgType)
 	}

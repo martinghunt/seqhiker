@@ -20,6 +20,7 @@ const DEFAULT_READ_MAX_ROWS := 500
 const DEFAULT_READ_MIN_MAPQ := 0
 const DEFAULT_READ_HIDDEN_FLAGS := 256 | 512 | 1024 | 2048
 const BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT := 15000000
+const GENOME_CACHE_MAX_MB_DEFAULT := 50
 const ANNOT_MAX_ON_SCREEN_DEFAULT := 4400
 const ANNOT_MAX_ON_SCREEN_MIN := 200
 const ANNOT_MAX_ON_SCREEN_MAX := 50000
@@ -34,6 +35,12 @@ const DEFAULT_GC_WINDOW_BP := 200
 const PLOT_Y_UNIT := 0
 const PLOT_Y_AUTOSCALE := 1
 const PLOT_Y_FIXED := 2
+const CONTEXT_PANEL_NONE := 0
+const CONTEXT_PANEL_FEATURE := 1
+const CONTEXT_PANEL_TRACK_SETTINGS := 2
+const CONTEXT_PANEL_SEARCH := 3
+const CONTEXT_PANEL_GO := 4
+const CONTEXT_PANEL_DOWNLOAD := 5
 const DEFAULT_PLOT_HEIGHT := 100.0
 const MIN_PLOT_HEIGHT := 50.0
 const MAX_PLOT_HEIGHT := 360.0
@@ -92,6 +99,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var settings_toggle_button: Button = $Root/TopBar/SettingsToggleButton
 @onready var search_button: Button = $Root/TopBar/ActionClipper/ActionStrip/SearchButton
 @onready var go_button: Button = $Root/TopBar/ActionClipper/ActionStrip/GoButton
+@onready var download_button: Button = $Root/TopBar/ActionClipper/ActionStrip/DownloadButton
 @onready var pan_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanLeftButton
 @onready var jump_start_button: Button = $Root/TopBar/ActionClipper/ActionStrip/JumpStartButton
 @onready var pan_right_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanRightButton
@@ -141,6 +149,7 @@ var _settings_tween: Tween
 var _settings_toggle_icon: Control
 var _settings_toggle_icon_label: Label
 var _feature_panel_open := false
+var _context_panel_mode := CONTEXT_PANEL_NONE
 var _feature_tween: Tween
 var _fetch_timer: Timer
 var _fetch_in_progress := false
@@ -160,6 +169,12 @@ var _go_chr_option: OptionButton
 var _go_start_edit: LineEdit
 var _go_end_edit: LineEdit
 var _go_status_label: Label
+var _download_panel: VBoxContainer
+var _download_accession_edit: LineEdit
+var _download_action_button: Button
+var _download_status_label: RichTextLabel
+var _download_thread: Thread
+var _download_in_progress := false
 var _local_zem_manager: RefCounted
 var _current_chr_id := -1
 var _current_chr_name := ""
@@ -236,6 +251,10 @@ var _debug_toggle: CheckBox
 var _debug_stats_label: Label
 var _debug_loaded_files_label: Label
 var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
+var _genome_cache_max_mb := GENOME_CACHE_MAX_MB_DEFAULT
+var _genome_cache_label: Label
+var _genome_cache_spin: SpinBox
+var _genome_cache_clear_button: Button
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
 var _annotation_counts_by_chr := {}
 var _dbg_ann_tile_requests := 0
@@ -372,6 +391,7 @@ func _connect_ui() -> void:
 	stop_button.pressed.connect(_stop_auto_play)
 	search_button.pressed.connect(_toggle_search_panel)
 	go_button.pressed.connect(_toggle_go_panel)
+	download_button.pressed.connect(_toggle_download_panel)
 	genome_view.viewport_changed.connect(_on_viewport_changed)
 	genome_view.feature_clicked.connect(_on_feature_selected)
 	genome_view.feature_activated.connect(_on_feature_clicked)
@@ -401,6 +421,7 @@ func _disable_button_focus() -> void:
 		settings_toggle_button,
 		search_button,
 		go_button,
+		download_button,
 		pan_left_button,
 		jump_start_button,
 		pan_right_button,
@@ -713,6 +734,23 @@ func _setup_debug_controls() -> void:
 	_bam_cov_cutoff_spin.allow_lesser = false
 	if not _bam_cov_cutoff_spin.value_changed.is_connected(_on_bam_cov_cutoff_changed):
 		_bam_cov_cutoff_spin.value_changed.connect(_on_bam_cov_cutoff_changed)
+	_genome_cache_label = Label.new()
+	_genome_cache_label.text = "Genome Cache Max (MB)"
+	settings_content.add_child(_genome_cache_label)
+	_genome_cache_spin = SpinBox.new()
+	_genome_cache_spin.min_value = 1
+	_genome_cache_spin.max_value = 100000
+	_genome_cache_spin.step = 10
+	_genome_cache_spin.value = _genome_cache_max_mb
+	_genome_cache_spin.allow_greater = false
+	_genome_cache_spin.allow_lesser = false
+	_genome_cache_spin.value_changed.connect(_on_genome_cache_max_changed)
+	settings_content.add_child(_genome_cache_spin)
+	_genome_cache_clear_button = Button.new()
+	_genome_cache_clear_button.text = "Clear Genome Cache"
+	_genome_cache_clear_button.size_flags_horizontal = Control.SIZE_FILL
+	_genome_cache_clear_button.pressed.connect(_clear_genome_cache)
+	settings_content.add_child(_genome_cache_clear_button)
 	_debug_toggle = CheckBox.new()
 	_debug_toggle.text = "Debug"
 	_debug_toggle.button_pressed = _debug_enabled
@@ -735,6 +773,51 @@ func _setup_debug_controls() -> void:
 func _on_bam_cov_cutoff_changed(value: float) -> void:
 	_bam_cov_precompute_cutoff_bp = maxi(0, int(round(value)))
 
+func _on_genome_cache_max_changed(value: float) -> void:
+	_genome_cache_max_mb = maxi(1, int(round(value)))
+
+func _genome_cache_dir() -> String:
+	return OS.get_user_data_dir().path_join("genomes_cache")
+
+func _genome_cache_max_bytes() -> int:
+	return _genome_cache_max_mb * 1024 * 1024
+
+func _clear_genome_cache() -> void:
+	var cache_dir := _genome_cache_dir()
+	if not DirAccess.dir_exists_absolute(cache_dir):
+		_set_status("Genome cache already empty.")
+		return
+	if not _delete_dir_contents_absolute(cache_dir):
+		_set_status("Failed to clear genome cache.", true)
+		return
+	_set_status("Genome cache cleared.")
+
+func _delete_dir_contents_absolute(dir_path: String) -> bool:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return false
+	dir.list_dir_begin()
+	while true:
+		var name := dir.get_next()
+		if name.is_empty():
+			break
+		if name == "." or name == "..":
+			continue
+		var child_path := dir_path.path_join(name)
+		if dir.current_is_dir():
+			if not _delete_dir_contents_absolute(child_path):
+				dir.list_dir_end()
+				return false
+			if DirAccess.remove_absolute(child_path) != OK:
+				dir.list_dir_end()
+				return false
+		else:
+			if DirAccess.remove_absolute(child_path) != OK:
+				dir.list_dir_end()
+				return false
+	dir.list_dir_end()
+	return true
+
 func _on_annotation_max_on_screen_changed(value: float) -> void:
 	_annotation_max_on_screen = clampi(int(value), ANNOT_MAX_ON_SCREEN_MIN, ANNOT_MAX_ON_SCREEN_MAX)
 	genome_view.set_annotation_max_on_screen(_annotation_max_on_screen)
@@ -753,6 +836,7 @@ func _setup_track_settings_panel() -> void:
 		"on_hit_selected": Callable(self, "_jump_to_search_hit")
 	})
 	_setup_go_panel()
+	_setup_download_panel()
 
 func _setup_go_panel() -> void:
 	var panel := GoPanelScene.instantiate()
@@ -775,6 +859,44 @@ func _setup_go_panel() -> void:
 	if _go_end_edit != null:
 		_go_end_edit.text_submitted.connect(func(_text: String) -> void:
 			_apply_go_request()
+		)
+
+func _setup_download_panel() -> void:
+	_download_panel = VBoxContainer.new()
+	_download_panel.visible = false
+	_download_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_download_panel.add_theme_constant_override("separation", 8)
+	feature_content.add_child(_download_panel)
+
+	var hint := Label.new()
+	hint.text = "Enter an accession such as NC_000913.3 or GCF_000005845.2."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_download_panel.add_child(hint)
+
+	_download_accession_edit = LineEdit.new()
+	_download_accession_edit.placeholder_text = "Accession"
+	_download_accession_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_download_panel.add_child(_download_accession_edit)
+
+	_download_action_button = Button.new()
+	_download_action_button.text = "Download and Load"
+	_download_action_button.size_flags_horizontal = Control.SIZE_FILL
+	_download_panel.add_child(_download_action_button)
+
+	_download_status_label = RichTextLabel.new()
+	_download_status_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+	_download_status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_download_status_label.fit_content = true
+	_download_status_label.scroll_active = false
+	_download_status_label.selection_enabled = true
+	_download_panel.add_child(_download_status_label)
+
+	if _download_action_button != null:
+		_download_action_button.pressed.connect(_start_download_genome)
+	if _download_accession_edit != null:
+		_download_accession_edit.text_submitted.connect(func(_text: String) -> void:
+			_start_download_genome()
 		)
 
 func _on_read_view_selected(index: int) -> void:
@@ -1077,15 +1199,8 @@ func _on_track_settings_requested(track_id: String) -> void:
 		return
 	if _track_settings_open and _active_track_settings_id == TRACK_GENOME and track_id != TRACK_GENOME:
 		_save_config()
-	_set_feature_labels_visible(false)
-	if _search_controller != null:
-		_search_controller.hide_panel()
-	if _go_panel != null:
-		_go_panel.visible = false
-	if _read_mate_jump_button != null:
-		_read_mate_jump_button.visible = false
+	_prepare_context_panel(CONTEXT_PANEL_TRACK_SETTINGS, "%s track settings" % _track_label_for_id(track_id), false)
 	feature_name_label.visible = true
-	feature_title_label.text = "%s track settings" % _track_label_for_id(track_id)
 	feature_name_label.text = ""
 	for child in _track_settings_box.get_children():
 		child.queue_free()
@@ -1429,26 +1544,10 @@ func _on_track_settings_requested(track_id: String) -> void:
 func _toggle_search_panel() -> void:
 	if _search_controller == null:
 		return
-	if _feature_panel_open and _search_controller.is_visible():
+	if _feature_panel_open and _context_panel_mode == CONTEXT_PANEL_SEARCH:
 		_close_feature_panel()
 		return
-	_maybe_save_genome_track_settings()
-	_track_settings_open = false
-	_active_track_settings_id = ""
-	_set_feature_labels_visible(false)
-	feature_title_label.text = "Search"
-	feature_name_label.visible = false
-	feature_type_label.visible = false
-	feature_range_label.visible = false
-	feature_strand_label.visible = false
-	feature_source_label.visible = false
-	feature_seq_label.visible = false
-	if _track_settings_box != null:
-		_track_settings_box.visible = false
-	if _go_panel != null:
-		_go_panel.visible = false
-	if _read_mate_jump_button != null:
-		_read_mate_jump_button.visible = false
+	_prepare_context_panel(CONTEXT_PANEL_SEARCH, "Search", false)
 	_search_controller.show_panel()
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)
@@ -1457,31 +1556,57 @@ func _toggle_search_panel() -> void:
 func _toggle_go_panel() -> void:
 	if _go_panel == null:
 		return
-	if _feature_panel_open and _go_panel.visible:
+	if _feature_panel_open and _context_panel_mode == CONTEXT_PANEL_GO:
 		_close_feature_panel()
 		return
-	_maybe_save_genome_track_settings()
-	_track_settings_open = false
-	_active_track_settings_id = ""
-	_set_feature_labels_visible(false)
-	feature_title_label.text = "Go to position"
-	feature_name_label.visible = false
-	feature_type_label.visible = false
-	feature_range_label.visible = false
-	feature_strand_label.visible = false
-	feature_source_label.visible = false
-	feature_seq_label.visible = false
-	if _track_settings_box != null:
-		_track_settings_box.visible = false
-	if _search_controller != null:
-		_search_controller.hide_panel()
-	if _read_mate_jump_button != null:
-		_read_mate_jump_button.visible = false
+	_prepare_context_panel(CONTEXT_PANEL_GO, "Go to position", false)
 	_go_panel.visible = true
 	_refresh_go_chromosomes()
 	_clear_go_status()
 	_feature_panel_open = true
 	_slide_feature_panel(true, true)
+
+func _toggle_download_panel() -> void:
+	if _download_panel == null:
+		return
+	if _feature_panel_open and _context_panel_mode == CONTEXT_PANEL_DOWNLOAD:
+		_close_feature_panel()
+		return
+	_prepare_context_panel(CONTEXT_PANEL_DOWNLOAD, "Download Genome", false)
+	_download_panel.visible = true
+	if not _download_in_progress:
+		_set_download_status("")
+	_feature_panel_open = true
+	_slide_feature_panel(true, true)
+	if _download_accession_edit != null:
+		_download_accession_edit.grab_focus()
+
+func _prepare_context_panel(mode: int, title: String, show_detail_labels: bool) -> void:
+	if _context_panel_mode == CONTEXT_PANEL_TRACK_SETTINGS and mode != CONTEXT_PANEL_TRACK_SETTINGS:
+		_maybe_save_genome_track_settings()
+	_context_panel_mode = mode
+	_track_settings_open = false
+	_active_track_settings_id = ""
+	feature_title_label.text = title
+	feature_name_label.visible = show_detail_labels
+	feature_type_label.visible = show_detail_labels
+	feature_range_label.visible = show_detail_labels
+	feature_strand_label.visible = show_detail_labels
+	feature_source_label.visible = show_detail_labels
+	feature_seq_label.visible = show_detail_labels
+	_hide_context_subpanels()
+
+func _hide_context_subpanels() -> void:
+	if _track_settings_box != null:
+		_track_settings_box.visible = false
+	if _search_controller != null:
+		_search_controller.hide_panel()
+	if _go_panel != null:
+		_go_panel.visible = false
+	if _download_panel != null:
+		_download_panel.visible = false
+	if _read_mate_jump_button != null:
+		_read_mate_jump_button.visible = false
 
 func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	var hit: Dictionary = hit_any
@@ -1632,6 +1757,74 @@ func _set_feature_labels_visible(show_labels: bool) -> void:
 	feature_strand_label.visible = show_labels
 	feature_source_label.visible = show_labels
 	feature_seq_label.visible = show_labels
+
+func _set_download_status(message: String, is_error: bool = false) -> void:
+	if _download_status_label != null:
+		_download_status_label.text = message
+	if is_error:
+		_set_status(message, true)
+	call_deferred("_update_feature_panel_width")
+
+func _set_download_controls_enabled(enabled: bool) -> void:
+	if _download_accession_edit != null:
+		_download_accession_edit.editable = enabled
+	if _download_action_button != null:
+		_download_action_button.disabled = not enabled
+
+func _start_download_genome() -> void:
+	if _download_in_progress:
+		return
+	if _download_accession_edit == null:
+		return
+	var accession := _download_accession_edit.text.strip_edges()
+	if accession.is_empty():
+		_set_download_status("Enter an accession.", true)
+		return
+	if not _session_loader.ensure_server_connected():
+		return
+	var cache_dir := _genome_cache_dir()
+	var mk_err := DirAccess.make_dir_recursive_absolute(cache_dir)
+	if mk_err != OK and not DirAccess.dir_exists_absolute(cache_dir):
+		_set_download_status("Could not create genome cache directory.", true)
+		return
+	var conn: Dictionary = _zem.connection_info()
+	_download_thread = Thread.new()
+	var err := _download_thread.start(
+		Callable(self, "_download_genome_thread").bind(
+			accession,
+			str(conn.get("host", "127.0.0.1")),
+			int(conn.get("port", ZEM_DEFAULT_PORT)),
+			cache_dir,
+			_genome_cache_max_bytes()
+		)
+	)
+	if err != OK:
+		_download_thread = null
+		_set_download_status("Could not start download thread: %s" % error_string(err), true)
+		return
+	_download_in_progress = true
+	_set_download_controls_enabled(false)
+	_set_download_status("Downloading %s..." % accession)
+
+func _download_genome_thread(accession: String, host_ip: String, port: int, cache_dir: String, max_cache_bytes: int) -> Dictionary:
+	var client = ZemClientScript.new()
+	if not client.connect_to_server(host_ip, port, 2000):
+		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
+	return client.download_genome(accession, cache_dir, max_cache_bytes)
+
+func _finish_download_genome(result_any: Variant) -> void:
+	_download_in_progress = false
+	_set_download_controls_enabled(true)
+	var result: Dictionary = result_any if result_any is Dictionary else {}
+	if result.is_empty() or not result.get("ok", false):
+		_set_download_status("Download failed: %s" % result.get("error", "error"), true)
+		return
+	var files: PackedStringArray = result.get("files", PackedStringArray())
+	if files.is_empty():
+		_set_download_status("Download failed: no genome files returned.", true)
+		return
+	_session_loader.apply_already_loaded_genome(files)
+	_set_download_status("Downloaded and loaded:\n%s" % "\n".join(files))
 
 func _on_seq_view_selected(index: int) -> void:
 	if _seq_view_option != null and _seq_view_option.selected != index:
@@ -1806,6 +1999,10 @@ func _apply_topbar_button_font_size() -> void:
 	var topbar_buttons := [
 		settings_toggle_button,
 		search_button,
+		go_button,
+		download_button,
+		jump_start_button,
+		jump_end_button,
 		pan_left_button,
 		pan_right_button,
 		zoom_out_button,
@@ -1837,6 +2034,9 @@ func _inspect_dropped_files(files: PackedStringArray) -> Dictionary:
 func _exit_tree() -> void:
 	if _tile_controller != null:
 		_tile_controller.shutdown()
+	if _download_thread != null and _download_thread.is_started():
+		_download_thread.wait_to_finish()
+		_download_thread = null
 	if _local_zem_manager != null:
 		_local_zem_manager.shutdown_on_exit()
 
@@ -2174,6 +2374,9 @@ func _load_or_init_config() -> void:
 	_bam_cov_precompute_cutoff_bp = maxi(0, int(cfg.get_value("ui", "bam_cov_precompute_cutoff_bp", BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT)))
 	if _bam_cov_cutoff_spin != null:
 		_bam_cov_cutoff_spin.value = _bam_cov_precompute_cutoff_bp
+	_genome_cache_max_mb = maxi(1, int(cfg.get_value("ui", "genome_cache_max_mb", GENOME_CACHE_MAX_MB_DEFAULT)))
+	if _genome_cache_spin != null:
+		_genome_cache_spin.value = _genome_cache_max_mb
 	_annotation_max_on_screen = clampi(int(cfg.get_value("ui", "annotation_max_on_screen", ANNOT_MAX_ON_SCREEN_DEFAULT)), ANNOT_MAX_ON_SCREEN_MIN, ANNOT_MAX_ON_SCREEN_MAX)
 	genome_view.set_annotation_max_on_screen(_annotation_max_on_screen)
 	_gc_plot_y_mode = clampi(int(cfg.get_value("ui", "gc_plot_y_mode", PLOT_Y_UNIT)), PLOT_Y_UNIT, PLOT_Y_FIXED)
@@ -2213,6 +2416,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "axis_coords_with_commas", _axis_coords_with_commas)
 	cfg.set_value("ui", "gc_window_bp", _gc_window_bp)
 	cfg.set_value("ui", "bam_cov_precompute_cutoff_bp", _bam_cov_precompute_cutoff_bp)
+	cfg.set_value("ui", "genome_cache_max_mb", _genome_cache_max_mb)
 	cfg.set_value("ui", "annotation_max_on_screen", _annotation_max_on_screen)
 	cfg.set_value("ui", "gc_plot_y_mode", _gc_plot_y_mode)
 	cfg.set_value("ui", "gc_plot_y_min", _gc_plot_y_min)
@@ -2249,6 +2453,10 @@ func _close_feature_panel() -> void:
 
 func _process(delta: float) -> void:
 	_drain_tile_fetch_result()
+	if _download_thread != null and _download_thread.is_started() and not _download_thread.is_alive():
+		var download_result: Variant = _download_thread.wait_to_finish()
+		_download_thread = null
+		_finish_download_genome(download_result)
 	if not _auto_play_enabled:
 		return
 	if _current_chr_len <= 0:

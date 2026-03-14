@@ -9,10 +9,7 @@ func configure(next_host: Node) -> void:
 
 
 func on_feature_clicked(feature: Dictionary) -> void:
-	host._track_settings_open = false
-	host._active_track_settings_id = ""
-	host.feature_title_label.text = "Feature Details"
-	host._set_feature_labels_visible(true)
+	host._prepare_context_panel(host.CONTEXT_PANEL_FEATURE, "Feature Details", true)
 	host.feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -20,12 +17,6 @@ func on_feature_clicked(feature: Dictionary) -> void:
 	host.feature_source_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_seq_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_name_label.visible = true
-	if host._track_settings_box != null:
-		host._track_settings_box.visible = false
-	if host._search_controller != null:
-		host._search_controller.hide_panel()
-	if host._read_mate_jump_button != null:
-		host._read_mate_jump_button.visible = false
 	host.feature_name_label.text = "Name: %s" % str(feature.get("name", "-"))
 	host.feature_type_label.text = "Type: %s" % str(feature.get("type", "-"))
 	host.feature_range_label.text = "Range: %d - %d" % [int(feature.get("start", 0)), int(feature.get("end", 0))]
@@ -62,10 +53,7 @@ func on_feature_selected(feature: Dictionary) -> void:
 
 
 func on_read_clicked(read: Dictionary) -> void:
-	host._track_settings_open = false
-	host._active_track_settings_id = ""
-	host.feature_title_label.text = "Feature Details"
-	host._set_feature_labels_visible(true)
+	host._prepare_context_panel(host.CONTEXT_PANEL_FEATURE, "Feature Details", true)
 	host.feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -73,10 +61,6 @@ func on_read_clicked(read: Dictionary) -> void:
 	host.feature_source_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_seq_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	host.feature_name_label.visible = true
-	if host._track_settings_box != null:
-		host._track_settings_box.visible = false
-	if host._search_controller != null:
-		host._search_controller.hide_panel()
 	var read_name := str(read.get("name", ""))
 	if read_name.is_empty():
 		read_name = "(unnamed)"
@@ -155,13 +139,9 @@ func format_read_flags(flags: int) -> String:
 
 func close_feature_panel() -> void:
 	host._maybe_save_genome_track_settings()
+	host._context_panel_mode = host.CONTEXT_PANEL_NONE
 	host._feature_panel_open = false
 	host._track_settings_open = false
 	host._active_track_settings_id = ""
-	if host._track_settings_box != null:
-		host._track_settings_box.visible = false
-	if host._search_controller != null:
-		host._search_controller.hide_panel()
-	if host._go_panel != null:
-		host._go_panel.visible = false
+	host._hide_context_subpanels()
 	host._slide_feature_panel(false, true)

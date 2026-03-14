@@ -18,6 +18,7 @@ const MSG_INSPECT_INPUT := 14
 const MSG_GET_ANNOTATION_TILE := 15
 const MSG_SEARCH_DNA_EXACT := 16
 const MSG_GET_STRAND_COVERAGE_TILE := 17
+const MSG_DOWNLOAD_GENOME := 18
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -262,6 +263,30 @@ func search_dna_exact(chr_id: int, pattern: String, include_revcomp: bool, max_h
 	resp.merge(_parse_dna_exact_hits(resp["payload"]), true)
 	return resp
 
+func download_genome(accession: String, cache_dir: String = "", max_cache_bytes: int = 0) -> Dictionary:
+	var accession_bytes := accession.strip_edges().to_utf8_buffer()
+	var cache_dir_bytes := cache_dir.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(8 + accession_bytes.size() + cache_dir_bytes.size())
+	payload.encode_u16(0, accession_bytes.size())
+	for i in range(accession_bytes.size()):
+		payload[2 + i] = accession_bytes[i]
+	var off := 2 + accession_bytes.size()
+	payload.encode_u16(off, cache_dir_bytes.size())
+	off += 2
+	for i in range(cache_dir_bytes.size()):
+		payload[off + i] = cache_dir_bytes[i]
+	off += cache_dir_bytes.size()
+	payload.encode_u32(off, maxi(0, max_cache_bytes))
+	var resp := _send_request(MSG_DOWNLOAD_GENOME, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["files"] = _parse_string_list(resp.get("payload", PackedByteArray()))
+	return resp
+
+func connection_info() -> Dictionary:
+	return {"host": _host, "port": _port}
+
 func shutdown_server(timeout_ms: int = 600) -> Dictionary:
 	return _send_request(MSG_SHUTDOWN, PackedByteArray(), timeout_ms)
 
@@ -357,6 +382,23 @@ func _parse_chromosomes(payload: PackedByteArray) -> Array[Dictionary]:
 		var name := _decode_wire_text(payload.slice(off, off + name_len))
 		off += name_len
 		out.append({"id": chr_id, "length": length, "name": name})
+	return out
+
+func _parse_string_list(payload: PackedByteArray) -> PackedStringArray:
+	var out := PackedStringArray()
+	if payload.size() < 2:
+		return out
+	var count := payload.decode_u16(0)
+	var off := 2
+	for _i in range(count):
+		if off + 2 > payload.size():
+			break
+		var item_len := payload.decode_u16(off)
+		off += 2
+		if off + item_len > payload.size():
+			break
+		out.append(_decode_wire_text(payload.slice(off, off + item_len)))
+		off += item_len
 	return out
 
 func _parse_annotation_counts(payload: PackedByteArray) -> Dictionary:

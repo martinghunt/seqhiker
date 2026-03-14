@@ -140,6 +140,12 @@ shortcut = SubResource("Shortcut_go")
 shortcut_in_tooltip = false
 text = "G"
 
+[node name="DownloadButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+layout_mode = 2
+tooltip_text = "Download genome from internet"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+text = "Z"
+
 [node name="JumpStartButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Jump to genome start
