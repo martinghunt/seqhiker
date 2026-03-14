@@ -48,8 +48,8 @@ const ROOT_VERTICAL_GAP := 8.0
 const CONTENT_MARGIN_BOTTOM := 10.0
 const READS_TRACK_MIN_HEIGHT := 140.0
 const DEFAULT_UI_FONT_SIZE := 15
-const MIN_UI_FONT_SIZE := 9
-const MAX_UI_FONT_SIZE := 24
+const MIN_UI_FONT_SIZE := 8
+const MAX_UI_FONT_SIZE := 26
 const DEPTH_SERIES_COLORS := [
 	Color("345995"),
 	Color("2a9d8f"),
@@ -125,21 +125,16 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var feature_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent
 @onready var feature_scroll: ScrollContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll
 @onready var ui_scale_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UIScaleSlider
-@onready var ui_scale_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UIScaleValue
-@onready var _font_size_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/FontSizeSpin
+@onready var _font_size_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/FontSizeRow/FontSizeSlider
 @onready var trackpad_pan_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackpadPanSlider
-@onready var trackpad_pan_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackpadPanValue
 @onready var trackpad_pinch_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackpadPinchSlider
-@onready var trackpad_pinch_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackpadPinchValue
 @onready var mouse_wheel_zoom_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelZoomSlider
-@onready var mouse_wheel_zoom_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelZoomValue
 @onready var invert_mouse_wheel_zoom_button: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/InvertMouseWheelZoom
 @onready var mouse_wheel_pan_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelPanSlider
-@onready var mouse_wheel_pan_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelPanValue
-@onready var pan_step_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepSlider
-@onready var pan_step_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepValue
-@onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedSlider
-@onready var play_speed_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedValue
+@onready var pan_step_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepRow/PanStepSlider
+@onready var pan_step_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepRow/PanStepValue
+@onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedSlider
+@onready var play_speed_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedValue
 @onready var theme_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ThemeOption
 @onready var settings_scroll: ScrollContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll
 @onready var settings_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent
@@ -383,12 +378,12 @@ func _setup_theme_selector() -> void:
 			break
 
 func _setup_font_size_control() -> void:
-	_font_size_spin.min_value = MIN_UI_FONT_SIZE
-	_font_size_spin.max_value = MAX_UI_FONT_SIZE
-	_font_size_spin.step = 1
-	_font_size_spin.value = _ui_font_size
-	if not _font_size_spin.value_changed.is_connected(_on_font_size_changed):
-		_font_size_spin.value_changed.connect(_on_font_size_changed)
+	_font_size_slider.min_value = MIN_UI_FONT_SIZE
+	_font_size_slider.max_value = MAX_UI_FONT_SIZE
+	_font_size_slider.step = 1
+	_font_size_slider.value = _ui_font_size
+	if not _font_size_slider.drag_ended.is_connected(_on_font_size_drag_ended):
+		_font_size_slider.drag_ended.connect(_on_font_size_drag_ended)
 
 func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
@@ -637,26 +632,22 @@ func _slide_feature_panel(open: bool, animated: bool) -> void:
 		_apply_feature_panel_offsets(open)
 		feature_panel.visible = open
 
-func _on_ui_scale_value_changed(value: float) -> void:
-	ui_scale_value.text = "%.2fx" % value
+func _on_ui_scale_value_changed(_value: float) -> void:
+	pass
 
 func _on_ui_scale_drag_ended(_value_changed: bool) -> void:
 	_on_ui_scale_changed(ui_scale_slider.value)
 
 func _on_ui_scale_changed(value: float) -> void:
 	get_window().content_scale_factor = value
-	ui_scale_value.text = "%.2fx" % value
 
 func _on_trackpad_pan_changed(value: float) -> void:
-	trackpad_pan_value.text = "%.2fx" % value
 	genome_view.set_trackpad_pan_sensitivity(value)
 
 func _on_trackpad_pinch_changed(value: float) -> void:
-	trackpad_pinch_value.text = "%.2fx" % value
 	genome_view.set_trackpad_pinch_sensitivity(value)
 
 func _on_mouse_wheel_zoom_changed(value: float) -> void:
-	mouse_wheel_zoom_value.text = "%.2fx" % value
 	genome_view.set_mouse_wheel_zoom_sensitivity(value)
 
 func _on_invert_mouse_wheel_zoom_toggled(enabled: bool) -> void:
@@ -664,7 +655,6 @@ func _on_invert_mouse_wheel_zoom_toggled(enabled: bool) -> void:
 	genome_view.set_invert_mouse_wheel_zoom(enabled)
 
 func _on_mouse_wheel_pan_changed(value: float) -> void:
-	mouse_wheel_pan_value.text = "%.2fx" % value
 	genome_view.set_mouse_wheel_pan_sensitivity(value)
 
 func _on_pan_step_changed(value: float) -> void:
@@ -674,12 +664,15 @@ func _on_pan_step_changed(value: float) -> void:
 	pan_step_value.text = "%d%%" % int(round(_pan_step_percent))
 
 func _on_play_speed_changed(value: float) -> void:
-	play_speed_value.text = "%.2f widths/s" % value
+	play_speed_value.text = "%.2f" % value
+
+func _on_font_size_drag_ended(_value_changed: bool) -> void:
+	_on_font_size_changed(_font_size_slider.value)
 
 func _on_font_size_changed(value: float) -> void:
 	_ui_font_size = clampi(int(round(value)), MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
-	if _font_size_spin != null and int(_font_size_spin.value) != _ui_font_size:
-		_font_size_spin.value = _ui_font_size
+	if _font_size_slider != null and int(_font_size_slider.value) != _ui_font_size:
+		_font_size_slider.value = _ui_font_size
 	_apply_theme(theme_option.get_item_text(theme_option.selected))
 
 func _start_auto_play() -> void:
@@ -2396,8 +2389,8 @@ func _load_or_init_config() -> void:
 	pan_step_slider.value = clampf(float(cfg.get_value("input", "pan_step_percent", 75.0)), 1.0, 100.0)
 	_on_pan_step_changed(pan_step_slider.value)
 	_ui_font_size = clampi(int(cfg.get_value("ui", "font_size", DEFAULT_UI_FONT_SIZE)), MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
-	if _font_size_spin != null:
-		_font_size_spin.value = _ui_font_size
+	if _font_size_slider != null:
+		_font_size_slider.value = _ui_font_size
 
 	var theme_name := str(cfg.get_value("ui", "theme", theme_option.get_item_text(theme_option.selected)))
 	_select_theme_option(theme_name)

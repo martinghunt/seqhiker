@@ -391,18 +391,19 @@ max_value = 2.5
 step = 0.05
 value = 1.55
 
-[node name="UIScaleValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
-layout_mode = 2
-text = "1.55x"
-
 [node name="FontSizeLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Font Size"
 
-[node name="FontSizeSpin" type="SpinBox" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+[node name="FontSizeRow" type="HBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
-min_value = 9.0
-max_value = 24.0
+theme_override_constants/separation = 8
+
+[node name="FontSizeSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/FontSizeRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 8.0
+max_value = 26.0
 value = 15.0
 
 [node name="TrackpadPanLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
@@ -416,10 +417,6 @@ max_value = 20.0
 step = 0.05
 value = 8.0
 
-[node name="TrackpadPanValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
-layout_mode = 2
-text = "1.00x"
-
 [node name="TrackpadPinchLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Trackpad Pinch Sensitivity"
@@ -431,10 +428,6 @@ max_value = 20.0
 step = 0.05
 value = 8.0
 
-[node name="TrackpadPinchValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
-layout_mode = 2
-text = "1.00x"
-
 [node name="MouseWheelZoomLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Mouse Wheel Zoom Sensitivity"
@@ -445,10 +438,6 @@ min_value = 0.1
 max_value = 10.0
 step = 0.05
 value = 0.8
-
-[node name="MouseWheelZoomValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
-layout_mode = 2
-text = "1.00x"
 
 [node name="InvertMouseWheelZoom" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 custom_minimum_size = Vector2(0, 24)
@@ -466,20 +455,21 @@ max_value = 20.0
 step = 0.05
 value = 8.0
 
-[node name="MouseWheelPanValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
-layout_mode = 2
-text = "1.00x"
-
 [node name="PanStepLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Pan Step (% screen width)"
 
-[node name="PanStepSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+[node name="PanStepRow" type="HBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PanStepSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepRow"]
+layout_mode = 2
+size_flags_horizontal = 3
 min_value = 1.0
 value = 75.0
 
-[node name="PanStepValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+[node name="PanStepValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepRow"]
 layout_mode = 2
 text = "75%"
 
@@ -487,16 +477,21 @@ text = "75%"
 layout_mode = 2
 text = "Play Speed (screen width/s)"
 
-[node name="PlaySpeedSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+[node name="PlaySpeedRow" type="HBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PlaySpeedSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow"]
+layout_mode = 2
+size_flags_horizontal = 3
 min_value = 0.05
 max_value = 5.0
 step = 0.01
 value = 0.3
 
-[node name="PlaySpeedValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+[node name="PlaySpeedValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow"]
 layout_mode = 2
-text = "0.30 widths/s"
+text = "0.30"
 
 [node name="BAMCoverageCutoffLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
