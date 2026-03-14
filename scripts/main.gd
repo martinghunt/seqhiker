@@ -252,7 +252,7 @@ var _track_settings_box: VBoxContainer
 var _track_settings_open := false
 var _active_track_settings_id := ""
 var _debug_enabled := false
-var _debug_toggle: CheckBox
+var _debug_toggle: CheckButton
 var _debug_stats_label: Label
 var _debug_loaded_files_label: Label
 var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
@@ -761,7 +761,7 @@ func _setup_debug_controls() -> void:
 	_genome_cache_clear_button.size_flags_horizontal = Control.SIZE_FILL
 	_genome_cache_clear_button.pressed.connect(_clear_genome_cache)
 	settings_content.add_child(_genome_cache_clear_button)
-	_debug_toggle = CheckBox.new()
+	_debug_toggle = CheckButton.new()
 	_debug_toggle.text = "Debug"
 	_debug_toggle.button_pressed = _debug_enabled
 	_debug_toggle.toggled.connect(_on_debug_toggled)
@@ -1279,7 +1279,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 		mapq_spin.allow_lesser = false
 		mapq_spin.value = float(int(track_meta.get("min_mapq", DEFAULT_READ_MIN_MAPQ)))
 		var hidden_flags := int(track_meta.get("hidden_flags", DEFAULT_READ_HIDDEN_FLAGS))
-		var auto_expand_snp_cb := CheckBox.new()
+		var auto_expand_snp_cb := CheckButton.new()
 		auto_expand_snp_cb.text = "Auto-expand to fit SNP letters"
 		auto_expand_snp_cb.button_pressed = bool(track_meta.get("auto_expand_snp_text", true))
 		_track_settings_box.add_child(thickness_label)
@@ -1413,7 +1413,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 			_schedule_fetch()
 		)
 	elif track_id == "aa":
-		var region_cb := CheckBox.new()
+		var region_cb := CheckButton.new()
 		region_cb.text = "Show full-length region annotations"
 		region_cb.button_pressed = _show_full_length_regions
 		region_cb.toggled.connect(_on_show_full_region_toggled)
@@ -1460,12 +1460,12 @@ func _on_track_settings_requested(track_id: String) -> void:
 		gap_spin.value = _concat_gap_bp
 		_track_settings_box.add_child(gap_label)
 		_track_settings_box.add_child(gap_spin)
-		var colorize_cb := CheckBox.new()
+		var colorize_cb := CheckButton.new()
 		colorize_cb.text = "Color nucleotides by base"
 		colorize_cb.button_pressed = _colorize_nucleotides
 		colorize_cb.toggled.connect(_on_colorize_nucleotides_toggled)
 		_track_settings_box.add_child(colorize_cb)
-		var coord_commas_cb := CheckBox.new()
+		var coord_commas_cb := CheckButton.new()
 		coord_commas_cb.text = "Use commas in axis coordinates"
 		coord_commas_cb.button_pressed = _axis_coords_with_commas
 		coord_commas_cb.toggled.connect(_on_axis_coords_commas_toggled)
