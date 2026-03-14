@@ -426,9 +426,12 @@ func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_c
 func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
+	var prev_view_mode := _read_view_mode
 	var next_view_mode := clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
 	var current_summary_only := bp_per_px > DETAILED_READ_MAX_BP_PER_PX and bp_per_px <= READ_RENDER_MAX_BP_PER_PX
 	var should_center_paired_from_summary := _was_summary_only and not current_summary_only and next_view_mode == READ_VIEW_PAIRED
+	var should_center_strand := prev_view_mode != READ_VIEW_STRAND and next_view_mode == READ_VIEW_STRAND
+	var should_bottom_align_stack_like := prev_view_mode != next_view_mode and (next_view_mode == READ_VIEW_STACK or next_view_mode == READ_VIEW_PAIRED)
 	_read_view_mode = next_view_mode
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
@@ -448,6 +451,11 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	if should_center_paired_from_summary and _reads_scrollbar != null and _reads_scrollbar.visible:
 		var max_offset := maxf(0.0, _reads_scrollbar.max_value - _reads_scrollbar.page)
 		_reads_scrollbar.value = max_offset * 0.5
+	elif should_bottom_align_stack_like and _reads_scrollbar != null and _reads_scrollbar.visible:
+		var max_offset_stack := maxf(0.0, _reads_scrollbar.max_value - _reads_scrollbar.page)
+		_reads_scrollbar.value = max_offset_stack
+	if should_center_strand:
+		center_strand_scroll()
 	_was_summary_only = current_summary_only
 	_persist_active_read_track()
 	queue_redraw()
@@ -455,6 +463,7 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
+	var prev_view_mode := _read_view_mode
 	_read_view_mode = clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
@@ -462,6 +471,11 @@ func set_read_track_settings(track_id: String, view_mode: int, fragment_log: boo
 	_read_row_limit = maxi(0, row_limit)
 	_layout_reads()
 	_layout_read_scrollbar()
+	if prev_view_mode != READ_VIEW_STRAND and _read_view_mode == READ_VIEW_STRAND:
+		center_strand_scroll()
+	elif prev_view_mode != _read_view_mode and (_read_view_mode == READ_VIEW_STACK or _read_view_mode == READ_VIEW_PAIRED) and _reads_scrollbar != null and _reads_scrollbar.visible:
+		var max_offset := maxf(0.0, _reads_scrollbar.max_value - _reads_scrollbar.page)
+		_reads_scrollbar.value = max_offset
 	_persist_active_read_track()
 	queue_redraw()
 
@@ -583,6 +597,7 @@ func set_base_font_size(base_size: int) -> void:
 
 func set_read_view_mode(mode: int) -> void:
 	_activate_read_track(TRACK_ID_READS)
+	var prev_view_mode := _read_view_mode
 	_read_view_mode = clampi(mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
 	_strand_split_lock_y = -1.0
 	if _reads_scrollbar != null:
@@ -590,8 +605,11 @@ func set_read_view_mode(mode: int) -> void:
 	_layout_reads()
 	_layout_read_scrollbar()
 	_persist_active_read_track()
-	if _read_view_mode == READ_VIEW_STRAND and _reads_scrollbar != null and _reads_scrollbar.visible:
-		_reads_scrollbar.value = _reads_scrollbar.max_value * 0.5
+	if prev_view_mode != READ_VIEW_STRAND and _read_view_mode == READ_VIEW_STRAND:
+		center_strand_scroll()
+	elif prev_view_mode != _read_view_mode and (_read_view_mode == READ_VIEW_STACK or _read_view_mode == READ_VIEW_PAIRED) and _reads_scrollbar != null and _reads_scrollbar.visible:
+		var max_offset := maxf(0.0, _reads_scrollbar.max_value - _reads_scrollbar.page)
+		_reads_scrollbar.value = max_offset
 	queue_redraw()
 
 func set_fragment_log_scale(enabled: bool) -> void:
@@ -698,7 +716,9 @@ func center_strand_scroll() -> void:
 	_strand_split_lock_y = (content_top + content_bottom) * 0.5
 	_layout_read_scrollbar()
 	if _reads_scrollbar.visible:
-		_reads_scrollbar.value = _reads_scrollbar.max_value * 0.5
+		var max_offset := maxf(0.0, _reads_scrollbar.max_value - _reads_scrollbar.page)
+		_reads_scrollbar.value = max_offset * 0.5
+		_update_strand_split_lock_from_scrollbar(TRACK_ID_READS)
 	_persist_active_read_track()
 	queue_redraw()
 
@@ -2433,6 +2453,8 @@ func _layout_read_scrollbar() -> void:
 		_reads_scrollbar.value = clamped_stack
 
 func _on_reads_scroll_changed_for_track(_value: float, track_id: String) -> void:
+	if _read_view_mode == READ_VIEW_STRAND:
+		_update_strand_split_lock_from_scrollbar(track_id)
 	if _active_read_track_id == track_id:
 		_persist_active_read_track()
 	queue_redraw()
@@ -2446,3 +2468,38 @@ func _on_read_scrollbar_gui_input(event: InputEvent, sb: VScrollBar) -> void:
 
 func _strand_split_gap_px() -> float:
 	return 12.0
+
+func _strand_split_y_for_area(area: Rect2, scroll_value: float) -> float:
+	var row_h := current_read_row_h()
+	var row_step := current_read_row_step()
+	var step_px := row_step
+	var split_gap := _strand_split_gap_px()
+	var content_top := area.position.y + 30.0
+	var content_bottom := area.position.y + area.size.y - 4.0
+	var forward_extent := 0.0
+	var reverse_extent := 0.0
+	if _strand_forward_rows > 0:
+		forward_extent = row_h + float(_strand_forward_rows - 1) * step_px + split_gap * 0.5
+	if _strand_reverse_rows > 0:
+		reverse_extent = row_h + float(_strand_reverse_rows - 1) * step_px + split_gap * 0.5
+	var split_at_forward_top := content_top + forward_extent
+	var split_at_reverse_bottom := content_bottom - reverse_extent
+	if split_at_forward_top <= split_at_reverse_bottom:
+		return (split_at_forward_top + split_at_reverse_bottom) * 0.5
+	var range_px := maxf(0.0, split_at_forward_top - split_at_reverse_bottom)
+	var off_px := clampf(scroll_value, 0.0, range_px)
+	return split_at_forward_top - off_px
+
+func _update_strand_split_lock_from_scrollbar(track_id: String) -> void:
+	if _read_view_mode != READ_VIEW_STRAND:
+		return
+	var state: Dictionary = _read_track_states.get(track_id, {})
+	var sb: VScrollBar = state.get("scrollbar", null)
+	if sb == null or not is_instance_valid(sb):
+		sb = _reads_scrollbar
+	if sb == null or not is_instance_valid(sb):
+		return
+	var read_area := _track_rect(track_id)
+	if read_area.size.y <= 0.0:
+		return
+	_strand_split_lock_y = _strand_split_y_for_area(read_area, sb.value)

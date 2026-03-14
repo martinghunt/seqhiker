@@ -54,22 +54,7 @@ func draw_read_tracks(area: Rect2) -> void:
 		scroll_px = effective_offset * row_step
 	var strand_split_y := 0.0
 	if view._read_view_mode == view.READ_VIEW_STRAND:
-		var step_px := row_step
-		var split_gap := view._strand_split_gap_px()
-		var forward_extent := 0.0
-		var reverse_extent := 0.0
-		if view._strand_forward_rows > 0:
-			forward_extent = row_h + float(view._strand_forward_rows - 1) * step_px + split_gap * 0.5
-		if view._strand_reverse_rows > 0:
-			reverse_extent = row_h + float(view._strand_reverse_rows - 1) * step_px + split_gap * 0.5
-		var split_at_forward_top := content_top + forward_extent
-		var split_at_reverse_bottom := content_bottom - reverse_extent
-		if split_at_forward_top <= split_at_reverse_bottom:
-			strand_split_y = (split_at_forward_top + split_at_reverse_bottom) * 0.5
-		else:
-			var range_px := maxf(0.0, split_at_forward_top - split_at_reverse_bottom)
-			var off_px := clampf(view._reads_scrollbar.value, 0.0, range_px)
-			strand_split_y = split_at_forward_top - off_px
+		strand_split_y = view._strand_split_y_for_area(area, view._reads_scrollbar.value)
 		if strand_split_y >= content_top and strand_split_y <= content_bottom:
 			view.draw_line(Vector2(0.0, strand_split_y), Vector2(view.size.x, strand_split_y), Color(0, 0, 0, 0.9), view.STRAND_SPLIT_LINE_WIDTH)
 	var drawn_pairs: Dictionary = {}
