@@ -152,6 +152,9 @@ var _selected_read_pair_b_start := -1
 var _selected_read_pair_b_end := -1
 var _trackpad_pan_sensitivity := 1.0
 var _trackpad_pinch_sensitivity := 1.0
+var _mouse_wheel_zoom_sensitivity := 1.0
+var _invert_mouse_wheel_zoom := false
+var _mouse_wheel_pan_sensitivity := 1.0
 var _reads_scrollbar: VScrollBar
 var _laid_out_reads: Array[Dictionary] = []
 var _read_layout_helper := ReadLayoutHelperScript.new()
@@ -558,6 +561,15 @@ func set_trackpad_pan_sensitivity(value: float) -> void:
 
 func set_trackpad_pinch_sensitivity(value: float) -> void:
 	_trackpad_pinch_sensitivity = clampf(value, 0.5, 20.0)
+
+func set_mouse_wheel_zoom_sensitivity(value: float) -> void:
+	_mouse_wheel_zoom_sensitivity = clampf(value, 0.1, 10.0)
+
+func set_invert_mouse_wheel_zoom(enabled: bool) -> void:
+	_invert_mouse_wheel_zoom = enabled
+
+func set_mouse_wheel_pan_sensitivity(value: float) -> void:
+	_mouse_wheel_pan_sensitivity = clampf(value, 0.5, 20.0)
 
 func set_base_font_size(base_size: int) -> void:
 	_font_size_medium = clampi(base_size, 9, 24)
@@ -1678,6 +1690,37 @@ func _gui_input(event: InputEvent) -> void:
 			_emit_viewport_changed()
 			accept_event()
 			return
+	elif event is InputEventMouseButton and event.pressed and (
+		event.button_index == MOUSE_BUTTON_WHEEL_UP
+		or event.button_index == MOUSE_BUTTON_WHEEL_DOWN
+		or event.button_index == MOUSE_BUTTON_WHEEL_LEFT
+		or event.button_index == MOUSE_BUTTON_WHEEL_RIGHT
+	):
+		var wheel_event := event as InputEventMouseButton
+		var is_horizontal_wheel := wheel_event.button_index == MOUSE_BUTTON_WHEEL_LEFT or wheel_event.button_index == MOUSE_BUTTON_WHEEL_RIGHT
+		var shift_held := wheel_event.shift_pressed or Input.is_key_pressed(KEY_SHIFT)
+		if is_horizontal_wheel or shift_held:
+			var pan_sign := 0.0
+			if wheel_event.button_index == MOUSE_BUTTON_WHEEL_LEFT:
+				pan_sign = -1.0
+			elif wheel_event.button_index == MOUSE_BUTTON_WHEEL_RIGHT:
+				pan_sign = 1.0
+			else:
+				pan_sign = -1.0 if wheel_event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0
+			var pan_fraction := 0.12 * _mouse_wheel_pan_sensitivity
+			var pan_bp := get_visible_span_bp() * pan_fraction
+			_pan_by_pixels(pan_sign * pan_bp / maxf(bp_per_px, 0.000001))
+			accept_event()
+			return
+		var zoom_in := wheel_event.button_index == MOUSE_BUTTON_WHEEL_UP
+		if _invert_mouse_wheel_zoom:
+			zoom_in = not zoom_in
+		var wheel_factor := 0.88 if zoom_in else 1.14
+		var scaled_factor := pow(wheel_factor, _mouse_wheel_zoom_sensitivity)
+		var local_mouse := wheel_event.position
+		zoom_by_at_x(scaled_factor, local_mouse.x, 0.12)
+		accept_event()
+		return
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		var mb := event as InputEventMouseButton
 		var mouse_pos: Vector2 = mb.position

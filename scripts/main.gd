@@ -131,6 +131,11 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var trackpad_pan_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackpadPanValue
 @onready var trackpad_pinch_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackpadPinchSlider
 @onready var trackpad_pinch_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackpadPinchValue
+@onready var mouse_wheel_zoom_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelZoomSlider
+@onready var mouse_wheel_zoom_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelZoomValue
+@onready var invert_mouse_wheel_zoom_button: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/InvertMouseWheelZoom
+@onready var mouse_wheel_pan_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelPanSlider
+@onready var mouse_wheel_pan_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelPanValue
 @onready var pan_step_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepSlider
 @onready var pan_step_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepValue
 @onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedSlider
@@ -313,6 +318,9 @@ func _ready() -> void:
 	_on_ui_scale_changed(ui_scale_slider.value)
 	_on_trackpad_pan_changed(trackpad_pan_slider.value)
 	_on_trackpad_pinch_changed(trackpad_pinch_slider.value)
+	_on_mouse_wheel_zoom_changed(mouse_wheel_zoom_slider.value)
+	_on_invert_mouse_wheel_zoom_toggled(invert_mouse_wheel_zoom_button.button_pressed)
+	_on_mouse_wheel_pan_changed(mouse_wheel_pan_slider.value)
 	_on_pan_step_changed(pan_step_slider.value)
 	_on_play_speed_changed(play_speed_slider.value)
 	_setup_fetch_timer()
@@ -410,6 +418,9 @@ func _connect_ui() -> void:
 	ui_scale_slider.drag_ended.connect(_on_ui_scale_drag_ended)
 	trackpad_pan_slider.value_changed.connect(_on_trackpad_pan_changed)
 	trackpad_pinch_slider.value_changed.connect(_on_trackpad_pinch_changed)
+	mouse_wheel_zoom_slider.value_changed.connect(_on_mouse_wheel_zoom_changed)
+	invert_mouse_wheel_zoom_button.toggled.connect(_on_invert_mouse_wheel_zoom_toggled)
+	mouse_wheel_pan_slider.value_changed.connect(_on_mouse_wheel_pan_changed)
 	pan_step_slider.value_changed.connect(_on_pan_step_changed)
 	play_speed_slider.value_changed.connect(_on_play_speed_changed)
 	theme_option.item_selected.connect(_on_theme_selected)
@@ -441,6 +452,8 @@ func _disable_button_focus() -> void:
 		ui_scale_slider,
 		trackpad_pan_slider,
 		trackpad_pinch_slider,
+		mouse_wheel_zoom_slider,
+		mouse_wheel_pan_slider,
 		pan_step_slider,
 		play_speed_slider
 	]
@@ -641,6 +654,18 @@ func _on_trackpad_pan_changed(value: float) -> void:
 func _on_trackpad_pinch_changed(value: float) -> void:
 	trackpad_pinch_value.text = "%.2fx" % value
 	genome_view.set_trackpad_pinch_sensitivity(value)
+
+func _on_mouse_wheel_zoom_changed(value: float) -> void:
+	mouse_wheel_zoom_value.text = "%.2fx" % value
+	genome_view.set_mouse_wheel_zoom_sensitivity(value)
+
+func _on_invert_mouse_wheel_zoom_toggled(enabled: bool) -> void:
+	invert_mouse_wheel_zoom_button.button_pressed = enabled
+	genome_view.set_invert_mouse_wheel_zoom(enabled)
+
+func _on_mouse_wheel_pan_changed(value: float) -> void:
+	mouse_wheel_pan_value.text = "%.2fx" % value
+	genome_view.set_mouse_wheel_pan_sensitivity(value)
 
 func _on_pan_step_changed(value: float) -> void:
 	_pan_step_percent = clampf(value, 1.0, 100.0)
@@ -2365,6 +2390,9 @@ func _load_or_init_config() -> void:
 		play_speed_slider.value = 0.3
 	trackpad_pan_slider.value = float(cfg.get_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value))
 	trackpad_pinch_slider.value = float(cfg.get_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value))
+	mouse_wheel_zoom_slider.value = float(cfg.get_value("input", "mouse_wheel_zoom_sensitivity", mouse_wheel_zoom_slider.value))
+	invert_mouse_wheel_zoom_button.button_pressed = bool(cfg.get_value("input", "invert_mouse_wheel_zoom", false))
+	mouse_wheel_pan_slider.value = float(cfg.get_value("input", "mouse_wheel_pan_sensitivity", mouse_wheel_pan_slider.value))
 	pan_step_slider.value = clampf(float(cfg.get_value("input", "pan_step_percent", 75.0)), 1.0, 100.0)
 	_on_pan_step_changed(pan_step_slider.value)
 	_ui_font_size = clampi(int(cfg.get_value("ui", "font_size", DEFAULT_UI_FONT_SIZE)), MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
@@ -2448,6 +2476,9 @@ func _save_config() -> void:
 	cfg.set_value("ui", "debug_enabled", _debug_enabled)
 	cfg.set_value("input", "trackpad_pan_sensitivity", trackpad_pan_slider.value)
 	cfg.set_value("input", "trackpad_pinch_sensitivity", trackpad_pinch_slider.value)
+	cfg.set_value("input", "mouse_wheel_zoom_sensitivity", mouse_wheel_zoom_slider.value)
+	cfg.set_value("input", "invert_mouse_wheel_zoom", invert_mouse_wheel_zoom_button.button_pressed)
+	cfg.set_value("input", "mouse_wheel_pan_sensitivity", mouse_wheel_pan_slider.value)
 	cfg.set_value("input", "pan_step_percent", _pan_step_percent)
 	cfg.save(CONFIG_PATH)
 

@@ -402,6 +402,41 @@ value = 8.0
 layout_mode = 2
 text = "1.00x"
 
+[node name="MouseWheelZoomLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+text = "Mouse Wheel Zoom Sensitivity"
+
+[node name="MouseWheelZoomSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+min_value = 0.1
+max_value = 10.0
+step = 0.05
+value = 0.8
+
+[node name="MouseWheelZoomValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+text = "1.00x"
+
+[node name="InvertMouseWheelZoom" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+text = "Invert mouse wheel zoom direction"
+
+[node name="MouseWheelPanLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+text = "Mouse Wheel Pan Sensitivity"
+
+[node name="MouseWheelPanSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+min_value = 0.5
+max_value = 20.0
+step = 0.05
+value = 8.0
+
+[node name="MouseWheelPanValue" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+text = "1.00x"
+
 [node name="PanStepLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "Pan Step (% screen width)"
