@@ -292,7 +292,7 @@ func TestEncodeCoverageTilesFromStrandPrefixes(t *testing.T) {
 		reverse[i+1] = reverse[i]
 	}
 
-	totalPayload, err := encodeCoverageTileFromStrandPrefixes(0, 256, forward, reverse)
+	totalPayload, err := encodeCoverageTileFromStrandPrefixes(0, 256, forward, reverse, 256)
 	if err != nil {
 		t.Fatalf("encodeCoverageTileFromStrandPrefixes returned error: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestEncodeCoverageTilesFromStrandPrefixes(t *testing.T) {
 		t.Fatalf("unexpected total bins: got [%d %d %d], want [5 1 4]", totalBins[0], totalBins[1], totalBins[2])
 	}
 
-	strandPayload, err := encodeStrandCoverageTileFromStrandPrefixes(0, 256, forward, reverse)
+	strandPayload, err := encodeStrandCoverageTileFromStrandPrefixes(0, 256, forward, reverse, 256)
 	if err != nil {
 		t.Fatalf("encodeStrandCoverageTileFromStrandPrefixes returned error: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestLoadBAMFixtureReadBoundariesAreExact(t *testing.T) {
 	chrID := e.chrToID["chrTest"]
 	src := e.bamSources[sourceID]
 	ref := src.RefByChrID[chrID]
-	payload, err := loadIndexedTilePayload(src.Path, src.Index, ref, 0, 3000, readTileCacheKind, 100, true, e.sequences["chrTest"])
+	payload, err := loadIndexedTilePayload(src.Path, src.Index, ref, 0, 3000, readTileCacheKind, 100, true, e.sequences["chrTest"], 0)
 	if err != nil {
 		t.Fatalf("loadIndexedTilePayload returned error: %v", err)
 	}
@@ -481,7 +481,7 @@ func TestLoadBAMFixtureCoverageBoundariesAreExact(t *testing.T) {
 
 	forwardWindowStart := 100
 	forwardWindowEnd := 356 // 256 bp window; one bin per base.
-	covPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, forwardWindowStart, forwardWindowEnd, covTileCacheKind, 0, false, "")
+	covPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, forwardWindowStart, forwardWindowEnd, covTileCacheKind, 0, false, "", 256)
 	if err != nil {
 		t.Fatalf("forward-window coverage payload error: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestLoadBAMFixtureCoverageBoundariesAreExact(t *testing.T) {
 		t.Fatalf("unexpected forward coverage edges around pair1 start/end: bins[99..100]=[%d %d] bins[224..225]=[%d %d]", covBins[99], covBins[100], covBins[224], covBins[225])
 	}
 
-	strandPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, forwardWindowStart, forwardWindowEnd, strandCovTileCacheKind, 0, false, "")
+	strandPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, forwardWindowStart, forwardWindowEnd, strandCovTileCacheKind, 0, false, "", 256)
 	if err != nil {
 		t.Fatalf("forward-window strand coverage payload error: %v", err)
 	}
@@ -501,13 +501,45 @@ func TestLoadBAMFixtureCoverageBoundariesAreExact(t *testing.T) {
 
 	reverseWindowStart := 400
 	reverseWindowEnd := 656 // 256 bp window; one bin per base.
-	reverseStrandPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, reverseWindowStart, reverseWindowEnd, strandCovTileCacheKind, 0, false, "")
+	reverseStrandPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, reverseWindowStart, reverseWindowEnd, strandCovTileCacheKind, 0, false, "", 256)
 	if err != nil {
 		t.Fatalf("reverse-window strand coverage payload error: %v", err)
 	}
 	fwdBins, revBins = decodeStrandCoverageBinsForTest(t, reverseStrandPayload)
 	if fwdBins[20] != 0 || revBins[20] != 1 || fwdBins[144] != 0 || revBins[144] != 1 || revBins[145] != 0 {
 		t.Fatalf("unexpected strand coverage around second mate edges: fwd[20]=%d rev[20]=%d fwd[144]=%d rev[144]=%d rev[145]=%d", fwdBins[20], revBins[20], fwdBins[144], revBins[144], revBins[145])
+	}
+}
+
+func TestCoverageTailTilesUseProportionalBinCount(t *testing.T) {
+	tailBins := coverageTileBinCount(1024, 2048, 0, 1536)
+	if tailBins != 128 {
+		t.Fatalf("unexpected tail coverage bin count: got %d, want 128", tailBins)
+	}
+
+	forwardPrefix := make([]uint64, 1537)
+	reversePrefix := make([]uint64, 1537)
+	for i := 1024; i < 1536; i++ {
+		forwardPrefix[i+1] = forwardPrefix[i] + 1
+		reversePrefix[i+1] = reversePrefix[i]
+	}
+
+	covPayload, err := encodeCoverageTileFromStrandPrefixes(1024, 2048, forwardPrefix, reversePrefix, tailBins)
+	if err != nil {
+		t.Fatalf("encodeCoverageTileFromStrandPrefixes returned error: %v", err)
+	}
+	covBins := decodeCoverageBinsForTest(t, covPayload)
+	if len(covBins) != 128 {
+		t.Fatalf("unexpected tail coverage bin length: got %d, want 128", len(covBins))
+	}
+
+	strandPayload, err := encodeStrandCoverageTileFromStrandPrefixes(1024, 2048, forwardPrefix, reversePrefix, tailBins)
+	if err != nil {
+		t.Fatalf("encodeStrandCoverageTileFromStrandPrefixes returned error: %v", err)
+	}
+	forwardBins, reverseBins := decodeStrandCoverageBinsForTest(t, strandPayload)
+	if len(forwardBins) != 128 || len(reverseBins) != 128 {
+		t.Fatalf("unexpected tail strand coverage bin lengths: got %d/%d, want 128/128", len(forwardBins), len(reverseBins))
 	}
 }
 

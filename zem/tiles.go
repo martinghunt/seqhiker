@@ -134,6 +134,7 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 		maxTileRecs *= 2
 	}
 	window := tileWindow(zoom, tileIndex)
+	binCount := coverageTileBinCount(window.start, window.end, 0, ref.Len())
 	generation := src.Generation
 	prefetchRadius := e.prefetchRadius
 	refSeq := e.sequences[chr]
@@ -144,12 +145,12 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 	var payload []byte
 	if (kind == covTileCacheKind || kind == strandCovTileCacheKind) && (len(covPrefixFwd) > 0 || len(covPrefixRev) > 0) {
 		if kind == strandCovTileCacheKind {
-			payload, err = encodeStrandCoverageTileFromStrandPrefixes(window.start, window.end, covPrefixFwd, covPrefixRev)
+			payload, err = encodeStrandCoverageTileFromStrandPrefixes(window.start, window.end, covPrefixFwd, covPrefixRev, binCount)
 		} else {
-			payload, err = encodeCoverageTileFromStrandPrefixes(window.start, window.end, covPrefixFwd, covPrefixRev)
+			payload, err = encodeCoverageTileFromStrandPrefixes(window.start, window.end, covPrefixFwd, covPrefixRev, binCount)
 		}
 	} else {
-		payload, err = loadIndexedTilePayload(bamPath, bamIdx, ref, window.start, window.end, kind, maxTileRecs, includeSNPs, refSeq)
+		payload, err = loadIndexedTilePayload(bamPath, bamIdx, ref, window.start, window.end, kind, maxTileRecs, includeSNPs, refSeq, binCount)
 	}
 	if err != nil {
 		return nil, err
@@ -168,7 +169,21 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 	return payload, nil
 }
 
-func encodeCoverageTileFromStrandPrefixes(start, end int, forwardPrefix, reversePrefix []uint64) ([]byte, error) {
+func coverageTileBinCount(windowStart, windowEnd, minPos, maxPos int) int {
+	nominalSpan := max(0, windowEnd-windowStart)
+	actualStart := max(windowStart, minPos)
+	actualEnd := min(windowEnd, maxPos)
+	actualSpan := max(0, actualEnd-actualStart)
+	if nominalSpan <= 0 || actualSpan <= 0 {
+		return 0
+	}
+	if actualSpan >= nominalSpan {
+		return plotTileBins
+	}
+	return max(1, int(math.Round(float64(plotTileBins)*float64(actualSpan)/float64(nominalSpan))))
+}
+
+func encodeCoverageTileFromStrandPrefixes(start, end int, forwardPrefix, reversePrefix []uint64, binCount int) ([]byte, error) {
 	if start < 0 {
 		start = 0
 	}
@@ -182,7 +197,10 @@ func encodeCoverageTileFromStrandPrefixes(start, end int, forwardPrefix, reverse
 	if end > maxPos {
 		end = maxPos
 	}
-	bins := make([]uint16, 256)
+	if binCount <= 0 {
+		return encodeCoverageTile(start, end, nil), nil
+	}
+	bins := make([]uint16, binCount)
 	span := max(1, end-start)
 	for b := range bins {
 		bStart := start + (b*span)/len(bins)
@@ -216,7 +234,7 @@ func encodeCoverageTileFromStrandPrefixes(start, end int, forwardPrefix, reverse
 	return encodeCoverageTile(start, end, bins), nil
 }
 
-func encodeStrandCoverageTileFromStrandPrefixes(start, end int, forwardPrefix, reversePrefix []uint64) ([]byte, error) {
+func encodeStrandCoverageTileFromStrandPrefixes(start, end int, forwardPrefix, reversePrefix []uint64, binCount int) ([]byte, error) {
 	if start < 0 {
 		start = 0
 	}
@@ -230,8 +248,11 @@ func encodeStrandCoverageTileFromStrandPrefixes(start, end int, forwardPrefix, r
 	if end > maxPos {
 		end = maxPos
 	}
-	forwardBins := make([]uint16, 256)
-	reverseBins := make([]uint16, 256)
+	if binCount <= 0 {
+		return encodeStrandCoverageTile(start, end, nil, nil), nil
+	}
+	forwardBins := make([]uint16, binCount)
+	reverseBins := make([]uint16, binCount)
 	span := max(1, end-start)
 	for b := range forwardBins {
 		bStart := start + (b*span)/len(forwardBins)
@@ -277,7 +298,7 @@ func prefixDelta(prefix []uint64, start, end int) uint64 {
 	return prefix[end] - prefix[start]
 }
 
-func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Reference, start, end int, kind uint8, maxTileRecs uint32, includeSNPs bool, refSeq string) ([]byte, error) {
+func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Reference, start, end int, kind uint8, maxTileRecs uint32, includeSNPs bool, refSeq string, binCount int) ([]byte, error) {
 	if start < 0 {
 		start = 0
 	}
@@ -310,10 +331,11 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 	}
 	if len(chunks) == 0 {
 		if kind == covTileCacheKind {
-			return encodeCoverageTile(start, end, make([]uint16, 256)), nil
+			return encodeCoverageTile(start, end, make([]uint16, max(0, binCount))), nil
 		}
 		if kind == strandCovTileCacheKind {
-			return encodeStrandCoverageTile(start, end, make([]uint16, 256), make([]uint16, 256)), nil
+			zeros := make([]uint16, max(0, binCount))
+			return encodeStrandCoverageTile(start, end, zeros, zeros), nil
 		}
 		return encodeAlignmentTile(start, end, nil), nil
 	}
@@ -326,7 +348,10 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 
 	switch kind {
 	case covTileCacheKind:
-		bins := make([]uint16, 256)
+		if binCount <= 0 {
+			return encodeCoverageTile(start, end, nil), nil
+		}
+		bins := make([]uint16, binCount)
 		sumDepthBp := make([]uint64, len(bins))
 		span := max(1, end-start)
 		seen := make(map[string]struct{})
@@ -381,8 +406,11 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 		return encodeCoverageTile(start, end, bins), nil
 
 	case strandCovTileCacheKind:
-		forwardBins := make([]uint16, 256)
-		reverseBins := make([]uint16, 256)
+		if binCount <= 0 {
+			return encodeStrandCoverageTile(start, end, nil, nil), nil
+		}
+		forwardBins := make([]uint16, binCount)
+		reverseBins := make([]uint16, binCount)
 		sumDepthBpFwd := make([]uint64, len(forwardBins))
 		sumDepthBpRev := make([]uint64, len(reverseBins))
 		span := max(1, end-start)
@@ -619,7 +647,7 @@ func (e *Engine) prefetchReadTile(sourceID uint16, generation uint64, chrID uint
 	e.mu.Unlock()
 
 	includeSNPs := zoom <= snpDetailMaxZoom
-	payload, err := loadIndexedTilePayload(bamPath, bamIdx, ref, window.start, window.end, readTileCacheKind, maxTileRecs, includeSNPs, refSeq)
+	payload, err := loadIndexedTilePayload(bamPath, bamIdx, ref, window.start, window.end, readTileCacheKind, maxTileRecs, includeSNPs, refSeq, 0)
 	if err != nil {
 		return nil, err
 	}

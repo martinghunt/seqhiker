@@ -1092,6 +1092,9 @@ func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_
 		y_max = y_min + 1.0
 	var y_span := y_max - y_min
 	_draw_plot_scale(area, top, bottom, y_min, y_max)
+	var prev := Vector2.ZERO
+	var have_prev := false
+	var prev_tile_end := 0
 	for tile in tiles:
 		if typeof(tile) != TYPE_DICTIONARY:
 			continue
@@ -1102,8 +1105,8 @@ func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_
 		var vals: PackedFloat32Array = tile.get("values", PackedFloat32Array())
 		if vals.is_empty():
 			continue
-		var prev := Vector2.ZERO
-		var have_prev := false
+		if have_prev and tile_start > prev_tile_end:
+			have_prev = false
 		var count := vals.size()
 		for i in range(count):
 			var v := float(vals[i])
@@ -1121,6 +1124,7 @@ func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_
 				draw_line(prev, p, line_color, 1.5)
 			prev = p
 			have_prev = true
+		prev_tile_end = tile_end
 
 func _draw_plot_track_multi(area: Rect2, series: Array[Dictionary], y_mode: int, y_min_fixed: float, y_max_fixed: float) -> void:
 	if area.size.y <= 24.0:
@@ -1183,6 +1187,9 @@ func _draw_plot_track_multi(area: Rect2, series: Array[Dictionary], y_mode: int,
 		var series_dict: Dictionary = series_any
 		var line_color: Color = series_dict.get("color", palette.get("depth_plot", palette["read"]))
 		var tiles_any: Array = series_dict.get("tiles", [])
+		var prev := Vector2.ZERO
+		var have_prev := false
+		var prev_tile_end := 0
 		for tile_any in tiles_any:
 			if typeof(tile_any) != TYPE_DICTIONARY:
 				continue
@@ -1194,8 +1201,8 @@ func _draw_plot_track_multi(area: Rect2, series: Array[Dictionary], y_mode: int,
 			var vals: PackedFloat32Array = tile.get("values", PackedFloat32Array())
 			if vals.is_empty():
 				continue
-			var prev := Vector2.ZERO
-			var have_prev := false
+			if have_prev and tile_start > prev_tile_end:
+				have_prev = false
 			var count := vals.size()
 			for i in range(count):
 				var v := float(vals[i])
@@ -1213,6 +1220,7 @@ func _draw_plot_track_multi(area: Rect2, series: Array[Dictionary], y_mode: int,
 					draw_line(prev, p, line_color, 1.5)
 				prev = p
 				have_prev = true
+			prev_tile_end = tile_end
 
 func _draw_plot_scale(area: Rect2, top: float, bottom: float, y_min: float, y_max: float) -> void:
 	var tick_x := TRACK_LEFT_PAD - 6.0
