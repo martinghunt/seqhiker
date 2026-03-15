@@ -221,6 +221,7 @@ var _track_order_list: ItemList
 var _read_mate_jump_button: Button
 var read_mate_jump_start := -1
 var read_mate_jump_end := -1
+var read_mate_jump_ref_id := -1
 var _ui_font_size := DEFAULT_UI_FONT_SIZE
 var _track_dragging := false
 var _track_drag_index := -1

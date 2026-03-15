@@ -97,19 +97,11 @@ func on_read_clicked(read: Dictionary) -> void:
 	host.feature_source_label.text = "%s | Fragment: %d bp" % [mate_text, frag_len]
 	host.feature_seq_label.text = "Flags:\n%s" % format_read_flags(flags)
 	if mate_start >= 0 and mate_end > mate_start:
-		if host._read_mate_jump_button == null:
-			host._read_mate_jump_button = Button.new()
-			host._read_mate_jump_button.text = "Jump to mate"
-			host._read_mate_jump_button.size_flags_horizontal = Control.SIZE_FILL
-			host.feature_content.add_child(host._read_mate_jump_button)
-			host._read_mate_jump_button.pressed.connect(func() -> void:
-				jump_to_mate(host.read_mate_jump_start, host.read_mate_jump_end)
-			)
-		host._read_mate_jump_button.visible = true
-		host.read_mate_jump_start = mate_start
-		host.read_mate_jump_end = mate_end
-	elif host._read_mate_jump_button != null:
-		host._read_mate_jump_button.visible = false
+		_show_mate_jump_button(mate_start, mate_end, -1)
+	elif mate_ref_id >= 0 and mate_raw_start >= 0 and mate_raw_end > mate_raw_start:
+		_show_mate_jump_button(mate_raw_start, mate_raw_end, mate_ref_id)
+	else:
+		_hide_mate_jump_button()
 	host._feature_panel_open = true
 	host._slide_feature_panel(true, true)
 
@@ -153,16 +145,66 @@ func _format_read_range(start_bp: int, end_bp: int) -> String:
 	return "%s:%d - %s:%d" % [start_name, start_local, str(end_seg.get("name", "")), end_local]
 
 
+func _ensure_mate_jump_button() -> void:
+	if host._read_mate_jump_button != null:
+		return
+	host._read_mate_jump_button = Button.new()
+	host._read_mate_jump_button.text = "Jump to mate"
+	host._read_mate_jump_button.size_flags_horizontal = Control.SIZE_FILL
+	host.feature_content.add_child(host._read_mate_jump_button)
+	host._read_mate_jump_button.pressed.connect(func() -> void:
+		jump_to_mate(host.read_mate_jump_start, host.read_mate_jump_end, host.read_mate_jump_ref_id)
+	)
+
+
+func _show_mate_jump_button(start_bp: int, end_bp: int, ref_id: int) -> void:
+	_ensure_mate_jump_button()
+	host._read_mate_jump_button.visible = true
+	host.read_mate_jump_start = start_bp
+	host.read_mate_jump_end = end_bp
+	host.read_mate_jump_ref_id = ref_id
+
+
+func _hide_mate_jump_button() -> void:
+	if host._read_mate_jump_button != null:
+		host._read_mate_jump_button.visible = false
+	host.read_mate_jump_ref_id = -1
+
+
 func on_read_selected(read: Dictionary) -> void:
 	if not host._feature_panel_open:
 		return
 	on_read_clicked(read)
 
 
-func jump_to_mate(start_bp: int, end_bp: int) -> void:
-	if host._current_chr_len <= 0:
-		return
+func jump_to_mate(start_bp: int, end_bp: int, mate_ref_id: int = -1) -> void:
 	if start_bp < 0 or end_bp <= start_bp:
+		return
+	if host._seq_view_mode == host.SEQ_VIEW_CONCAT:
+		var target_start_bp := start_bp
+		var target_end_bp := end_bp
+		if mate_ref_id >= 0:
+			var seg := _concat_segment_for_chr_id(mate_ref_id)
+			if seg.is_empty():
+				return
+			target_start_bp = int(seg.get("start", 0)) + start_bp
+			target_end_bp = int(seg.get("start", 0)) + end_bp
+		_jump_to_range(target_start_bp, target_end_bp)
+		return
+	if mate_ref_id >= 0 and mate_ref_id != host._selected_seq_id:
+		if host._seq_view_mode != host.SEQ_VIEW_SINGLE:
+			host._seq_view_option.select(host.SEQ_VIEW_SINGLE)
+			host._on_seq_view_selected(host.SEQ_VIEW_SINGLE)
+		for i in range(host._seq_option.item_count):
+			if int(host._seq_option.get_item_id(i)) == mate_ref_id:
+				host._seq_option.select(i)
+				host._on_seq_selected(i)
+				break
+	_jump_to_range(start_bp, end_bp)
+
+
+func _jump_to_range(start_bp: int, end_bp: int) -> void:
+	if host._current_chr_len <= 0:
 		return
 	var width_px := maxf(1.0, host.genome_view.size.x)
 	var current_bp_per_px := clampf(host._last_bp_per_px, host.genome_view.min_bp_per_px, host.genome_view.max_bp_per_px)
@@ -173,6 +215,14 @@ func jump_to_mate(start_bp: int, end_bp: int) -> void:
 	host.genome_view.clear_region_selection()
 	host._invalidate_viewport_cache()
 	host._schedule_fetch()
+
+
+func _concat_segment_for_chr_id(chr_id: int) -> Dictionary:
+	for seg_any in host._concat_segments:
+		var seg: Dictionary = seg_any
+		if int(seg.get("id", -1)) == chr_id:
+			return seg
+	return {}
 
 
 func format_read_flags(flags: int) -> String:
