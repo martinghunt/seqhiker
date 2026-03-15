@@ -137,6 +137,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedSlider
 @onready var play_speed_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedValue
 @onready var theme_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ThemeOption
+@onready var sequence_letter_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/SequenceLetterFontOption
 @onready var settings_scroll: ScrollContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll
 @onready var settings_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent
 @onready var _track_order_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityLabel
@@ -223,6 +224,7 @@ var read_mate_jump_start := -1
 var read_mate_jump_end := -1
 var read_mate_jump_ref_id := -1
 var _ui_font_size := DEFAULT_UI_FONT_SIZE
+var _sequence_letter_font_name := "Anonymous Pro"
 var _track_dragging := false
 var _track_drag_index := -1
 var _track_drop_index := -1
@@ -300,6 +302,7 @@ func _ready() -> void:
 	_disable_button_focus()
 	_setup_settings_toggle_icon()
 	_setup_theme_selector()
+	_setup_sequence_letter_font_selector()
 	_setup_font_size_control()
 	_setup_read_view_controls()
 	_setup_sequence_controls()
@@ -387,6 +390,16 @@ func _setup_theme_selector() -> void:
 			theme_option.select(i)
 			break
 
+
+func _setup_sequence_letter_font_selector() -> void:
+	sequence_letter_font_option.clear()
+	sequence_letter_font_option.add_item("Anonymous Pro")
+	sequence_letter_font_option.add_item("Courier New")
+	for i in range(sequence_letter_font_option.item_count):
+		if sequence_letter_font_option.get_item_text(i) == _sequence_letter_font_name:
+			sequence_letter_font_option.select(i)
+			break
+
 func _setup_font_size_control() -> void:
 	_font_size_slider.min_value = MIN_UI_FONT_SIZE
 	_font_size_slider.max_value = MAX_UI_FONT_SIZE
@@ -430,6 +443,7 @@ func _connect_ui() -> void:
 	pan_step_slider.value_changed.connect(_on_pan_step_changed)
 	play_speed_slider.value_changed.connect(_on_play_speed_changed)
 	theme_option.item_selected.connect(_on_theme_selected)
+	sequence_letter_font_option.item_selected.connect(_on_sequence_letter_font_selected)
 	feature_close_button.pressed.connect(_close_feature_panel)
 	_show_full_region_checkbox.toggled.connect(_on_show_full_region_toggled)
 	if _track_order_list != null:
@@ -709,6 +723,14 @@ func _stop_auto_play() -> void:
 
 func _on_theme_selected(index: int) -> void:
 	_apply_theme(theme_option.get_item_text(index))
+
+
+func _on_sequence_letter_font_selected(index: int) -> void:
+	if index < 0 or index >= sequence_letter_font_option.item_count:
+		return
+	_sequence_letter_font_name = sequence_letter_font_option.get_item_text(index)
+	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
+	_save_config()
 
 func _setup_read_view_controls() -> void:
 	_read_view_label = Label.new()
@@ -2501,6 +2523,12 @@ func _load_or_init_config() -> void:
 	_ui_font_size = clampi(int(cfg.get_value("ui", "font_size", DEFAULT_UI_FONT_SIZE)), MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
 	if _font_size_slider != null:
 		_font_size_slider.value = _ui_font_size
+	_sequence_letter_font_name = str(cfg.get_value("ui", "sequence_letter_font", "Anonymous Pro"))
+	for i in range(sequence_letter_font_option.item_count):
+		if sequence_letter_font_option.get_item_text(i) == _sequence_letter_font_name:
+			sequence_letter_font_option.select(i)
+			break
+	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
 
 	var theme_name := str(cfg.get_value("ui", "theme", theme_option.get_item_text(theme_option.selected)))
 	_select_theme_option(theme_name)
@@ -2560,6 +2588,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "play_speed_widths_per_sec", play_speed_slider.value)
 	cfg.set_value("ui", "theme", theme_option.get_item_text(theme_option.selected))
 	cfg.set_value("ui", "font_size", _ui_font_size)
+	cfg.set_value("ui", "sequence_letter_font", _sequence_letter_font_name)
 	cfg.set_value("ui", "sequence_view_mode", _seq_view_mode)
 	cfg.set_value("ui", "concat_gap_bp", _concat_gap_bp)
 	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)

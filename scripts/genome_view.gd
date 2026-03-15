@@ -1,6 +1,8 @@
 extends Control
 class_name GenomeView
 const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
+const ANONYMOUS_PRO_FONT := preload("res://fonts/Anonymous-Pro/Anonymous_Pro.ttf")
+const COURIER_NEW_FONT := preload("res://fonts/Courier-New/couriernew.ttf")
 const TRACK_ROW_SCENE := preload("res://scenes/Track.tscn")
 const ReadLayoutHelperScript = preload("res://scripts/read_layout_helper.gd")
 const ReadTrackRendererScript = preload("res://scripts/read_track_renderer.gd")
@@ -204,6 +206,7 @@ var _region_select_end_edge := 0
 var _font_size_small := 11
 var _font_size_medium := 13
 var _font_size_large := 14
+var _sequence_letter_font_name := "Anonymous Pro"
 var annotation_debug_stats_state := {
 	"seen": 0,
 	"drawn": 0,
@@ -601,6 +604,19 @@ func set_base_font_size(base_size: int) -> void:
 	_font_size_large = _font_size_medium + 1
 	queue_redraw()
 
+
+func set_sequence_letter_font_name(font_name: String) -> void:
+	_sequence_letter_font_name = font_name
+	queue_redraw()
+
+
+func sequence_letter_font() -> Font:
+	match _sequence_letter_font_name:
+		"Courier New":
+			return COURIER_NEW_FONT
+		_:
+			return ANONYMOUS_PRO_FONT
+
 func set_read_view_mode(mode: int) -> void:
 	_activate_read_track(TRACK_ID_READS)
 	var prev_view_mode := _read_view_mode
@@ -644,7 +660,7 @@ func current_read_row_step() -> float:
 func can_draw_read_snp_letters_for_row_h(row_h: float) -> bool:
 	if row_h < 10.0:
 		return false
-	var font := get_theme_default_font()
+	var font := sequence_letter_font()
 	var font_size := _read_text_font_size_for_row_h(row_h)
 	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	if char_px <= 0.0:
@@ -1381,7 +1397,7 @@ func _can_draw_aa_letters() -> bool:
 func _can_draw_aa_letters_without_reference() -> bool:
 	if _zoom_tween != null and _zoom_tween.is_running():
 		return false
-	var font := get_theme_default_font()
+	var font := sequence_letter_font()
 	var nuc_font_size := _font_size_large
 	var nuc_char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, nuc_font_size).x
 	if nuc_char_px <= 0.0:
@@ -1398,7 +1414,7 @@ func _can_draw_aa_letters_without_reference() -> bool:
 	return 3.0 * pixels_per_bp >= min_aa_codon_px
 
 func _can_draw_nucleotide_letters() -> bool:
-	var font := get_theme_default_font()
+	var font := sequence_letter_font()
 	var font_size := _font_size_large
 	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	if char_px <= 0.0:
@@ -1655,7 +1671,7 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 		return
 	if not _can_draw_nucleotide_letters():
 		return
-	var font := get_theme_default_font()
+	var font := sequence_letter_font()
 	var font_size := _font_size_large
 
 	var base_count: int = reference_sequence.length()
@@ -1673,8 +1689,10 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 		return
 	if i_end - i_start + 1 > NUC_TEXT_MAX_BASES:
 		i_end = i_start + NUC_TEXT_MAX_BASES - 1
-	var fwd_y := line_y - 12.0
-	var rev_y := line_y + 38.0
+	var fwd_center_y := _text_center_y(font, font_size, line_y - 12.0)
+	var rev_center_y := _text_center_y(font, font_size, line_y + 38.0)
+	var fwd_y := _text_baseline_for_center(fwd_center_y, font, font_size)
+	var rev_y := _text_baseline_for_center(rev_center_y, font, font_size)
 	var base_colors := {
 		"A": Color("2b9348"),
 		"C": Color("1d4ed8"),

@@ -224,7 +224,7 @@ func draw_read_tracks(area: Rect2) -> void:
 	var inferred_ids := _inferred_mate_contig_ids(view._laid_out_reads)
 	var mate_contig_colors := _mate_contig_colors(view._laid_out_reads)
 	var draw_snp_text := can_draw_read_snp_letters()
-	var snp_font := view.get_theme_default_font()
+	var snp_font := view.sequence_letter_font()
 	var snp_font_size := read_text_font_size()
 	for i in range(view._laid_out_reads.size()):
 		var read: Dictionary = view._laid_out_reads[i]
@@ -304,7 +304,7 @@ func draw_read_tracks(area: Rect2) -> void:
 				if draw_snp_text and not base_text.is_empty():
 					var tw := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x
 					var tx := sx - tw * 0.5
-					var ty := y + (row_h + float(snp_font_size)) * 0.5 - 1.0
+					var ty := view._text_baseline_for_center(y + row_h * 0.5, snp_font, snp_font_size)
 					view.draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
 			draw_indel_markers(read, y)
 

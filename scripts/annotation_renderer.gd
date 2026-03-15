@@ -199,8 +199,7 @@ func text_baseline_for_center(center_y: float, font: Font, font_size: int) -> fl
 
 
 func aa_frame_row_center_y(area_start: float, frame: int) -> float:
-	var font := view.get_theme_default_font()
-	return text_center_y(font, view._font_size_medium, area_start + frame * (view.AA_ROW_H + view.AA_ROW_GAP) + 17.0)
+	return area_start + frame * (view.AA_ROW_H + view.AA_ROW_GAP) + view.AA_ROW_H * 0.5
 
 
 func genome_feature_row_center_y(area: Rect2, line_y: float, row: int) -> float:
@@ -223,7 +222,7 @@ func annotation_debug_stats() -> Dictionary:
 func draw_aa_translation_letters(area_start: float) -> void:
 	if not view._can_draw_aa_letters():
 		return
-	var font := view.get_theme_default_font()
+	var font := view.sequence_letter_font()
 	var aa_font_size := view._font_size_medium
 	var aa_char_px := font.get_string_size("M", HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size).x
 
@@ -264,14 +263,16 @@ func draw_aa_translation_letters(area_start: float) -> void:
 			var aa_fwd := view._translate_codon(codon)
 			if not aa_fwd.is_empty():
 				var x := view.TRACK_LEFT_PAD + view._bp_to_x(float(bp) + 1.5) - aa_char_px * 0.5
-				var y := area_start + frame * (view.AA_ROW_H + view.AA_ROW_GAP) + 17.0
+				var center_y := aa_frame_row_center_y(area_start, frame)
+				var y := text_baseline_for_center(center_y, font, aa_font_size)
 				view.draw_string(font, Vector2(x, y), aa_fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, view.palette["text"])
 
 			var rev_codon := view._complement_base(b2) + view._complement_base(b1) + view._complement_base(b0)
 			var aa_rev := view._translate_codon(rev_codon)
 			if not aa_rev.is_empty():
 				var rx := view.TRACK_LEFT_PAD + view._bp_to_x(float(bp) + 1.5) - aa_char_px * 0.5
-				var ry := area_start + (3 + frame) * (view.AA_ROW_H + view.AA_ROW_GAP) + 17.0
+				var rev_center_y := aa_frame_row_center_y(area_start, 3 + frame)
+				var ry := text_baseline_for_center(rev_center_y, font, aa_font_size)
 				view.draw_string(font, Vector2(rx, ry), aa_rev, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, view.palette["text"])
 
 
