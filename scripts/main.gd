@@ -137,6 +137,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedSlider
 @onready var play_speed_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedValue
 @onready var theme_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ThemeOption
+@onready var ui_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UIFontOption
 @onready var sequence_letter_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/SequenceLetterFontOption
 @onready var settings_scroll: ScrollContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll
 @onready var settings_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent
@@ -224,6 +225,7 @@ var read_mate_jump_start := -1
 var read_mate_jump_end := -1
 var read_mate_jump_ref_id := -1
 var _ui_font_size := DEFAULT_UI_FONT_SIZE
+var _ui_font_name := "Noto Sans"
 var _sequence_letter_font_name := "Anonymous Pro"
 var _track_dragging := false
 var _track_drag_index := -1
@@ -302,6 +304,7 @@ func _ready() -> void:
 	_disable_button_focus()
 	_setup_settings_toggle_icon()
 	_setup_theme_selector()
+	_setup_ui_font_selector()
 	_setup_sequence_letter_font_selector()
 	_setup_font_size_control()
 	_setup_read_view_controls()
@@ -391,8 +394,22 @@ func _setup_theme_selector() -> void:
 			break
 
 
+func _setup_ui_font_selector() -> void:
+	ui_font_option.clear()
+	ui_font_option.add_item("Noto Sans")
+	ui_font_option.add_item("DejaVu Sans")
+	ui_font_option.add_item("Courier New")
+	ui_font_option.add_item("Anonymous Pro")
+	for i in range(ui_font_option.item_count):
+		if ui_font_option.get_item_text(i) == _ui_font_name:
+			ui_font_option.select(i)
+			break
+
+
 func _setup_sequence_letter_font_selector() -> void:
 	sequence_letter_font_option.clear()
+	sequence_letter_font_option.add_item("Noto Sans")
+	sequence_letter_font_option.add_item("DejaVu Sans")
 	sequence_letter_font_option.add_item("Anonymous Pro")
 	sequence_letter_font_option.add_item("Courier New")
 	for i in range(sequence_letter_font_option.item_count):
@@ -443,6 +460,7 @@ func _connect_ui() -> void:
 	pan_step_slider.value_changed.connect(_on_pan_step_changed)
 	play_speed_slider.value_changed.connect(_on_play_speed_changed)
 	theme_option.item_selected.connect(_on_theme_selected)
+	ui_font_option.item_selected.connect(_on_ui_font_selected)
 	sequence_letter_font_option.item_selected.connect(_on_sequence_letter_font_selected)
 	feature_close_button.pressed.connect(_close_feature_panel)
 	_show_full_region_checkbox.toggled.connect(_on_show_full_region_toggled)
@@ -722,7 +740,16 @@ func _stop_auto_play() -> void:
 	_auto_play_enabled = false
 
 func _on_theme_selected(index: int) -> void:
+	_apply_classic_font_defaults_for_theme(theme_option.get_item_text(index))
 	_apply_theme(theme_option.get_item_text(index))
+
+
+func _on_ui_font_selected(index: int) -> void:
+	if index < 0 or index >= ui_font_option.item_count:
+		return
+	_ui_font_name = ui_font_option.get_item_text(index)
+	_apply_theme(theme_option.get_item_text(theme_option.selected))
+	_save_config()
 
 
 func _on_sequence_letter_font_selected(index: int) -> void:
@@ -731,6 +758,22 @@ func _on_sequence_letter_font_selected(index: int) -> void:
 	_sequence_letter_font_name = sequence_letter_font_option.get_item_text(index)
 	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
 	_save_config()
+
+
+func _apply_classic_font_defaults_for_theme(theme_name: String) -> void:
+	if theme_name != "Classic":
+		return
+	_ui_font_name = "Courier New"
+	for i in range(ui_font_option.item_count):
+		if ui_font_option.get_item_text(i) == _ui_font_name:
+			ui_font_option.select(i)
+			break
+	_sequence_letter_font_name = "Courier New"
+	for i in range(sequence_letter_font_option.item_count):
+		if sequence_letter_font_option.get_item_text(i) == _sequence_letter_font_name:
+			sequence_letter_font_option.select(i)
+			break
+	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
 
 func _setup_read_view_controls() -> void:
 	_read_view_label = Label.new()
@@ -2024,7 +2067,7 @@ func _apply_theme(theme_name: String) -> void:
 	if not _themes_lib.has_theme(theme_name):
 		return
 	var palette: Dictionary = _themes_lib.palette(theme_name)
-	self.theme = _themes_lib.make_theme(theme_name, _ui_font_size)
+	self.theme = _themes_lib.make_theme(theme_name, _ui_font_size, _ui_font_name)
 	_theme_text_color = palette["text"]
 	_theme_error_color = palette["status_error"]
 	background.color = palette["bg"]
@@ -2523,6 +2566,11 @@ func _load_or_init_config() -> void:
 	_ui_font_size = clampi(int(cfg.get_value("ui", "font_size", DEFAULT_UI_FONT_SIZE)), MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
 	if _font_size_slider != null:
 		_font_size_slider.value = _ui_font_size
+	_ui_font_name = str(cfg.get_value("ui", "font_name", "Noto Sans"))
+	for i in range(ui_font_option.item_count):
+		if ui_font_option.get_item_text(i) == _ui_font_name:
+			ui_font_option.select(i)
+			break
 	_sequence_letter_font_name = str(cfg.get_value("ui", "sequence_letter_font", "Anonymous Pro"))
 	for i in range(sequence_letter_font_option.item_count):
 		if sequence_letter_font_option.get_item_text(i) == _sequence_letter_font_name:
@@ -2587,6 +2635,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "scale", ui_scale_slider.value)
 	cfg.set_value("ui", "play_speed_widths_per_sec", play_speed_slider.value)
 	cfg.set_value("ui", "theme", theme_option.get_item_text(theme_option.selected))
+	cfg.set_value("ui", "font_name", _ui_font_name)
 	cfg.set_value("ui", "font_size", _ui_font_size)
 	cfg.set_value("ui", "sequence_letter_font", _sequence_letter_font_name)
 	cfg.set_value("ui", "sequence_view_mode", _seq_view_mode)

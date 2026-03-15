@@ -1,22 +1,64 @@
 extends RefCounted
 class_name ThemesLib
 
+const ANONYMOUS_PRO_FONT := preload("res://fonts/Anonymous-Pro/Anonymous_Pro.ttf")
+const COURIER_NEW_FONT := preload("res://fonts/Courier-New/couriernew.ttf")
+const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
+
+
+# Key explanations:
+#  - bg: main app background
+#  - panel: panel/container background
+#  - panel_alt: alternate panel/control background
+#  - grid: gridlines and light guide lines
+#  - border: general panel/control borders
+#  - text: main text color
+#  - scrollbar_outline: scrollbar grabber outline
+#  - text_muted: secondary/de-emphasized text
+#  - text_inverse: text on dark/accent fills
+#  - button_bg: normal button fill
+#  - button_hover: hovered button fill
+#  - button_pressed: pressed button fill
+#  - field_bg: text/input field background
+#  - field_border: text/input field border
+#  - field_focus: focused input/control outline
+#  - accent: primary accent color
+#  - status_error: error/status text color
+#  - aa_alt_bg: alternating AA row background
+#  - map_contig: primary contig fill in map track
+#  - map_contig_alt: alternating contig fill in map track
+#  - map_view_fill: map viewport/drag selection fill
+#  - map_view_outline: map viewport/drag selection outline
+#  - region_select_fill: genome-track dragged region fill
+#  - region_select_outline: genome-track dragged region outline
+#  - genome: genome axis/main genome highlight color
+#  - read: default read/depth-summary color
+#  - gc_plot: GC plot color
+#  - depth_plot: depth plot color
+#  - snp: SNP marker fill
+#  - snp_text: text drawn on SNP markers
+#  - aa_forward: forward-frame AA summary/read-derived accent
+#  - aa_reverse: reverse-frame AA summary/read-derived accent
+#  - feature: annotation feature box fill
+#  - feature_text: annotation feature label/border color
+
+
 const THEMES := {
 	"Classic": {
 		"bg": Color("ffffff"),
 		"panel": Color("ffffff"),
 		"panel_alt": Color("efefef"),
 		"grid": Color("c8c8c8"),
-		"border": Color("c8c8c8"),
+		"border": Color8(115, 137, 189),
 		"text": Color("000000"),
-		"scrollbar_outline": Color("7a7a7a"),
+		"scrollbar_outline": Color8(115, 137, 189),
 		"text_muted": Color("7d7d7d"),
 		"text_inverse": Color("ffffff"),
 		"button_bg": Color("f2f2f2"),
 		"button_hover": Color("e6e6e6"),
 		"button_pressed": Color("dcdcdc"),
 		"field_bg": Color("ffffff"),
-		"field_border": Color("b4b4b4"),
+		"field_border": Color8(115, 137, 189),
 		"field_focus": Color("0000ff"),
 		"accent": Color("0000ff"),
 		"status_error": Color("ff0000"),
@@ -313,11 +355,35 @@ func genome_palette(theme_name: String) -> Dictionary:
 		"feature_text": p["feature_text"]
 	}
 
-func make_theme(theme_name: String, font_size: int) -> Theme:
+func ui_font(font_name: String) -> Font:
+	match font_name:
+		"Anonymous Pro":
+			return ANONYMOUS_PRO_FONT
+		"Courier New":
+			return COURIER_NEW_FONT
+		"DejaVu Sans":
+			return _load_dejavu_sans_font()
+		_:
+			return ThemeDB.fallback_font
+
+
+func _load_dejavu_sans_font() -> Font:
+	if _dejavu_sans_font != null:
+		return _dejavu_sans_font
+	var font := FontFile.new()
+	var err := font.load_dynamic_font(DEJAVU_SANS_FONT_PATH)
+	if err != OK:
+		return ThemeDB.fallback_font
+	_dejavu_sans_font = font
+	return _dejavu_sans_font
+
+
+func make_theme(theme_name: String, font_size: int, font_name: String = "Noto Sans") -> Theme:
 	var p := palette(theme_name)
 	var t := Theme.new()
 	var fs := maxi(8, font_size)
 	t.default_font_size = fs
+	t.default_font = ui_font(font_name)
 
 	_set_font_colors(t, p)
 	_set_panel_styles(t, p)
@@ -696,3 +762,4 @@ func _make_arrow_icon(width: int, height: int, color: Color) -> ImageTexture:
 			if x >= 0 and x < width:
 				img.set_pixel(x, y, color)
 	return ImageTexture.create_from_image(img)
+var _dejavu_sans_font: FontFile = null

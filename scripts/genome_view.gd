@@ -3,6 +3,7 @@ class_name GenomeView
 const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
 const ANONYMOUS_PRO_FONT := preload("res://fonts/Anonymous-Pro/Anonymous_Pro.ttf")
 const COURIER_NEW_FONT := preload("res://fonts/Courier-New/couriernew.ttf")
+const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 const TRACK_ROW_SCENE := preload("res://scenes/Track.tscn")
 const ReadLayoutHelperScript = preload("res://scripts/read_layout_helper.gd")
 const ReadTrackRendererScript = preload("res://scripts/read_track_renderer.gd")
@@ -207,6 +208,7 @@ var _font_size_small := 11
 var _font_size_medium := 13
 var _font_size_large := 14
 var _sequence_letter_font_name := "Anonymous Pro"
+var _dejavu_sans_font: FontFile = null
 var annotation_debug_stats_state := {
 	"seen": 0,
 	"drawn": 0,
@@ -612,10 +614,25 @@ func set_sequence_letter_font_name(font_name: String) -> void:
 
 func sequence_letter_font() -> Font:
 	match _sequence_letter_font_name:
+		"Noto Sans":
+			return ThemeDB.fallback_font
+		"DejaVu Sans":
+			return _load_dejavu_sans_font()
 		"Courier New":
 			return COURIER_NEW_FONT
 		_:
 			return ANONYMOUS_PRO_FONT
+
+
+func _load_dejavu_sans_font() -> Font:
+	if _dejavu_sans_font != null:
+		return _dejavu_sans_font
+	var font := FontFile.new()
+	var err := font.load_dynamic_font(DEJAVU_SANS_FONT_PATH)
+	if err != OK:
+		return ThemeDB.fallback_font
+	_dejavu_sans_font = font
+	return _dejavu_sans_font
 
 func set_read_view_mode(mode: int) -> void:
 	_activate_read_track(TRACK_ID_READS)
