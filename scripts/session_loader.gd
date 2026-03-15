@@ -38,7 +38,7 @@ func _load_paths(files: PackedStringArray) -> Dictionary:
 		host._set_status(err_msg, true)
 		return {"ok": false, "error": err_msg}
 	if dropped_sequence:
-		reset_loaded_state()
+		host._reset_loaded_state()
 	else:
 		host._view_slots.clear()
 	if not load_dropped_files(files):
