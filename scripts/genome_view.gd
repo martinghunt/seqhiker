@@ -170,6 +170,7 @@ var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
 var _auto_expand_snp_text := false
+var _color_by_mate_contig := false
 var _read_row_limit := 0
 var _annotation_max_on_screen := 4400
 var _show_full_length_regions := false
@@ -249,6 +250,7 @@ func _ready() -> void:
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
 		"auto_expand_snp_text": _auto_expand_snp_text,
+		"color_by_mate_contig": _color_by_mate_contig,
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
 	}
@@ -317,12 +319,13 @@ func sync_read_tracks(track_ids: PackedStringArray) -> void:
 			"strand_reverse_rows": 0,
 			"strand_split_lock_y": -1.0,
 			"was_summary_only": false,
-				"read_view_mode": READ_VIEW_STACK,
-				"fragment_log_scale": false,
-				"read_row_h": READ_ROW_H,
-				"read_row_limit": 0,
-				"scrollbar": _reads_scrollbar
-			}
+			"read_view_mode": READ_VIEW_STACK,
+			"fragment_log_scale": false,
+			"read_row_h": READ_ROW_H,
+			"color_by_mate_contig": false,
+			"read_row_limit": 0,
+			"scrollbar": _reads_scrollbar
+		}
 	_sync_track_rows()
 	queue_redraw()
 
@@ -424,7 +427,7 @@ func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_c
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false) -> void:
+func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, color_by_mate_contig: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
 	var prev_view_mode := _read_view_mode
@@ -437,6 +440,7 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
 	_auto_expand_snp_text = auto_expand_snp_text
+	_color_by_mate_contig = color_by_mate_contig
 	_read_row_limit = maxi(0, row_limit)
 	reads = _as_dict_array(payload.get("reads", []))
 	coverage_tiles = _as_dict_array(payload.get("coverage", []))
@@ -461,7 +465,7 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false) -> void:
+func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, color_by_mate_contig: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
 	var prev_view_mode := _read_view_mode
@@ -469,6 +473,7 @@ func set_read_track_settings(track_id: String, view_mode: int, fragment_log: boo
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
 	_auto_expand_snp_text = auto_expand_snp_text
+	_color_by_mate_contig = color_by_mate_contig
 	_read_row_limit = maxi(0, row_limit)
 	_layout_reads()
 	_layout_read_scrollbar()
@@ -1022,7 +1027,7 @@ func _read_y_for_area(read: Dictionary, content_top: float, content_bottom: floa
 	return _read_renderer.read_y_for_area(read, content_top, content_bottom, scroll_px, strand_split_y)
 
 func _draw_pair_connector(read: Dictionary, y: float) -> void:
-	_read_renderer.draw_pair_connector(read, y)
+	_read_renderer.draw_pair_connector(read, y, palette["read"])
 
 func _can_draw_read_snp_letters() -> bool:
 	return _read_renderer.can_draw_read_snp_letters()
@@ -1034,7 +1039,7 @@ func _draw_indel_markers(read: Dictionary, y: float) -> void:
 	_read_renderer.draw_indel_markers(read, y)
 
 func _draw_mate_block(read: Dictionary, y: float) -> void:
-	_read_renderer.draw_mate_block(read, y)
+	_read_renderer.draw_mate_block(read, y, palette["read"])
 
 func _mate_rect_for_read(read: Dictionary, y: float) -> Rect2:
 	return _read_renderer.mate_rect_for_read(read, y)
@@ -2307,6 +2312,7 @@ func _ensure_read_track_state(track_id: String) -> void:
 		"fragment_log_scale": true,
 		"read_row_h": READ_ROW_H,
 		"auto_expand_snp_text": false,
+		"color_by_mate_contig": false,
 		"read_row_limit": 0,
 		"scrollbar": sb
 	}
@@ -2334,6 +2340,7 @@ func _activate_read_track(track_id: String) -> void:
 	_fragment_log_scale = bool(state.get("fragment_log_scale", true))
 	_read_row_h = float(state.get("read_row_h", READ_ROW_H))
 	_auto_expand_snp_text = bool(state.get("auto_expand_snp_text", false))
+	_color_by_mate_contig = bool(state.get("color_by_mate_contig", false))
 	_read_row_limit = int(state.get("read_row_limit", 0))
 	_reads_scrollbar = state.get("scrollbar", _reads_scrollbar)
 
@@ -2365,6 +2372,7 @@ func _persist_active_read_track() -> void:
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
 		"auto_expand_snp_text": _auto_expand_snp_text,
+		"color_by_mate_contig": _color_by_mate_contig,
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
 	}

@@ -590,8 +590,8 @@ func TestGenerateTestData(t *testing.T) {
 		t.Fatalf("loading generated paired-end BAM failed: %v", err)
 	}
 	chroms := e.ListChromosomes()
-	if len(chroms) != 3 {
-		t.Fatalf("unexpected chromosome count after generated test data load: got %d, want 3", len(chroms))
+	if len(chroms) != 8 {
+		t.Fatalf("unexpected chromosome count after generated test data load: got %d, want 8", len(chroms))
 	}
 }
 
@@ -698,7 +698,7 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 	alns := make([]Alignment, 0, count)
 	off := 13
 	for i := 0; i < count; i++ {
-		if off+26 > len(payload) {
+		if off+38 > len(payload) {
 			t.Fatalf("alignment payload too short")
 		}
 		start := int(binary.LittleEndian.Uint32(payload[off : off+4]))
@@ -709,8 +709,11 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 		mateStartRaw := binary.LittleEndian.Uint32(payload[off+12 : off+16])
 		mateEndRaw := binary.LittleEndian.Uint32(payload[off+16 : off+20])
 		fragLen := int(binary.LittleEndian.Uint32(payload[off+20 : off+24]))
-		nameLen := int(binary.LittleEndian.Uint16(payload[off+24 : off+26]))
-		off += 26
+		mateRawStartRaw := binary.LittleEndian.Uint32(payload[off+24 : off+28])
+		mateRawEndRaw := binary.LittleEndian.Uint32(payload[off+28 : off+32])
+		mateRefIDRaw := binary.LittleEndian.Uint32(payload[off+32 : off+36])
+		nameLen := int(binary.LittleEndian.Uint16(payload[off+36 : off+38]))
+		off += 38
 		if off+nameLen > len(payload) {
 			t.Fatalf("alignment name overflow")
 		}
@@ -736,21 +739,34 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 		}
 		mateStart := -1
 		mateEnd := -1
+		mateRawStart := -1
+		mateRawEnd := -1
+		mateRefID := -1
 		if mateStartRaw != 0xFFFFFFFF && mateEndRaw != 0xFFFFFFFF {
 			mateStart = int(mateStartRaw)
 			mateEnd = int(mateEndRaw)
 		}
+		if mateRawStartRaw != 0xFFFFFFFF && mateRawEndRaw != 0xFFFFFFFF {
+			mateRawStart = int(mateRawStartRaw)
+			mateRawEnd = int(mateRawEndRaw)
+		}
+		if mateRefIDRaw != 0xFFFFFFFF {
+			mateRefID = int(mateRefIDRaw)
+		}
 		alns = append(alns, Alignment{
-			Start:     start,
-			End:       end,
-			Name:      name,
-			MapQ:      mapQ,
-			Flags:     flags,
-			Cigar:     cigar,
-			Reverse:   reverse,
-			MateStart: mateStart,
-			MateEnd:   mateEnd,
-			FragLen:   fragLen,
+			Start:        start,
+			End:          end,
+			Name:         name,
+			MapQ:         mapQ,
+			Flags:        flags,
+			Cigar:        cigar,
+			Reverse:      reverse,
+			MateStart:    mateStart,
+			MateEnd:      mateEnd,
+			MateRawStart: mateRawStart,
+			MateRawEnd:   mateRawEnd,
+			MateRefID:    mateRefID,
+			FragLen:      fragLen,
 		})
 	}
 	return alns

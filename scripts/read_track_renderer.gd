@@ -7,6 +7,166 @@ var view: GenomeView = null
 func configure(next_view: GenomeView) -> void:
 	view = next_view
 
+func _color_distance(a: Color, b: Color) -> float:
+	var dr := a.r - b.r
+	var dg := a.g - b.g
+	var db := a.b - b.b
+	return sqrt(dr * dr + dg * dg + db * db)
+
+
+func _distinct_mate_palette() -> Array[Color]:
+	var read_col: Color = view.palette["read"]
+	var candidates: Array[Color] = [
+		view.palette.get("aa_reverse", read_col.darkened(0.35)),
+		view.palette.get("aa_forward", read_col.lightened(0.35)),
+		view.palette.get("depth_plot", read_col.darkened(0.20)),
+		view.palette.get("accent", read_col.lightened(0.20)),
+		view.palette.get("gc_plot", read_col)
+	]
+	var out: Array[Color] = []
+	for cand in candidates:
+		if _color_distance(cand, read_col) < 0.18:
+			continue
+		var distinct := true
+		for existing in out:
+			if _color_distance(cand, existing) < 0.12:
+				distinct = false
+				break
+		if distinct:
+			out.append(cand)
+	while out.size() < 5:
+		var idx := out.size()
+		var derived := read_col
+		derived.h = fposmod(read_col.h + 0.16 * float(idx + 1), 1.0)
+		derived.s = min(1.0, max(read_col.s, 0.55))
+		derived.v = min(1.0, max(read_col.v, 0.75))
+		out.append(derived)
+	return out
+
+func _origin_contig_id(read: Dictionary) -> int:
+	if not view.concat_segments.is_empty():
+		var start_bp := int(read.get("start", 0))
+		var end_bp := int(read.get("end", start_bp))
+		var mid_bp := int(floor(0.5 * float(start_bp + end_bp)))
+		return _segment_id_for_bp(mid_bp)
+	return 0
+
+
+func _mate_contig_colors(reads_in: Array[Dictionary]) -> Dictionary:
+	if not view._color_by_mate_contig:
+		return {}
+	var inferred_ids := _inferred_mate_contig_ids(reads_in)
+	var counts_by_origin := {}
+	for read in reads_in:
+		var origin_ref_id := _origin_contig_id(read)
+		if origin_ref_id < 0:
+			continue
+		var mate_ref_id := _effective_mate_contig_id(read, inferred_ids)
+		if mate_ref_id < 0:
+			continue
+		if not counts_by_origin.has(origin_ref_id):
+			counts_by_origin[origin_ref_id] = {}
+		var counts: Dictionary = counts_by_origin[origin_ref_id]
+		counts[mate_ref_id] = int(counts.get(mate_ref_id, 0)) + 1
+		counts_by_origin[origin_ref_id] = counts
+	if counts_by_origin.is_empty():
+		return {}
+	var palette_colors := _distinct_mate_palette()
+	var out := {}
+	for origin_any in counts_by_origin.keys():
+		var origin_ref_id := int(origin_any)
+		var counts: Dictionary = counts_by_origin[origin_any]
+		var ids: Array[int] = []
+		for id_any in counts.keys():
+			ids.append(int(id_any))
+		ids.sort_custom(func(a: int, b: int) -> bool:
+			var ca := int(counts.get(a, 0))
+			var cb := int(counts.get(b, 0))
+			if ca == cb:
+				return a < b
+			return ca > cb
+		)
+		var submap := {}
+		for i in range(mini(5, ids.size())):
+			submap[ids[i]] = palette_colors[i]
+		if ids.size() > 5:
+			submap["_other"] = view.palette.get("feature_text", view.palette.get("text_muted", view.palette["read"]))
+		out[origin_ref_id] = submap
+	return out
+
+func _effective_mate_contig_id(read: Dictionary, inferred_ids: Dictionary) -> int:
+	var mate_ref_id := int(read.get("mate_ref_id", -1))
+	if mate_ref_id >= 0:
+		return mate_ref_id
+	var key := "%s|%d|%d" % [str(read.get("name", "")), int(read.get("start", 0)), int(read.get("end", 0))]
+	return int(inferred_ids.get(key, -1))
+
+func _segment_id_for_bp(bp: int) -> int:
+	for seg_any in view.concat_segments:
+		var seg: Dictionary = seg_any
+		var start_bp := int(seg.get("start", 0))
+		var end_bp := int(seg.get("end", start_bp))
+		if bp >= start_bp and bp < end_bp:
+			return int(seg.get("id", -1))
+	return -1
+
+func _inferred_mate_contig_ids(reads_in: Array[Dictionary]) -> Dictionary:
+	if view.concat_segments.is_empty():
+		return {}
+	var groups := {}
+	for read in reads_in:
+		var name := str(read.get("name", ""))
+		if name.is_empty():
+			continue
+		var start_bp := int(read.get("start", 0))
+		var end_bp := int(read.get("end", start_bp))
+		var mid_bp := int(floor(0.5 * float(start_bp + end_bp)))
+		var ref_id := _segment_id_for_bp(mid_bp)
+		if ref_id < 0:
+			continue
+		if not groups.has(name):
+			groups[name] = []
+		var arr: Array = groups[name]
+		arr.append({
+			"key": "%s|%d|%d" % [name, start_bp, end_bp],
+			"ref_id": ref_id
+		})
+		groups[name] = arr
+	var out := {}
+	for name_any in groups.keys():
+		var entries: Array = groups[name_any]
+		if entries.size() < 2:
+			continue
+		for i in range(entries.size()):
+			var current: Dictionary = entries[i]
+			for j in range(entries.size()):
+				if i == j:
+					continue
+				var other: Dictionary = entries[j]
+				var other_ref_id := int(other.get("ref_id", -1))
+				if other_ref_id < 0 or other_ref_id == int(current.get("ref_id", -1)):
+					continue
+				out[str(current.get("key", ""))] = other_ref_id
+				break
+	return out
+
+func _read_color(read: Dictionary, mate_contig_colors: Dictionary, inferred_ids: Dictionary) -> Color:
+	var col: Color = view.palette["read"]
+	if not view._color_by_mate_contig:
+		return col
+	var origin_ref_id := _origin_contig_id(read)
+	if origin_ref_id < 0 or not mate_contig_colors.has(origin_ref_id):
+		return col
+	var mate_ref_id := _effective_mate_contig_id(read, inferred_ids)
+	if mate_ref_id < 0:
+		return col
+	var submap: Dictionary = mate_contig_colors[origin_ref_id]
+	if submap.has(mate_ref_id):
+		return submap[mate_ref_id]
+	if submap.has("_other"):
+		return submap["_other"]
+	return col
+
 
 func draw_read_tracks(area: Rect2) -> void:
 	if area.size.y <= 24.0:
@@ -61,6 +221,8 @@ func draw_read_tracks(area: Rect2) -> void:
 	var mate_lookup := {}
 	if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 		mate_lookup = build_mate_lookup()
+	var inferred_ids := _inferred_mate_contig_ids(view._laid_out_reads)
+	var mate_contig_colors := _mate_contig_colors(view._laid_out_reads)
 	var draw_snp_text := can_draw_read_snp_letters()
 	var snp_font := view.get_theme_default_font()
 	var snp_font_size := read_text_font_size()
@@ -82,10 +244,11 @@ func draw_read_tracks(area: Rect2) -> void:
 		var x0 := view.TRACK_LEFT_PAD + view._bp_to_x(read_start)
 		var x1 := view.TRACK_LEFT_PAD + view._bp_to_x(read_end)
 		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), row_h))
+		var read_color := _read_color(read, mate_contig_colors, inferred_ids)
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
-			draw_pair_connector(read, y)
-			draw_mate_block(read, y)
-		view.draw_rect(rect, view.palette["read"], true)
+			draw_pair_connector(read, y, read_color)
+			draw_mate_block(read, y, read_color)
+		view.draw_rect(rect, read_color, true)
 		var draw_selected := false
 		if track_id == view._selected_read_track_id and i == view._selected_read_index:
 			draw_selected = true
@@ -162,7 +325,7 @@ func read_y_for_area(read: Dictionary, content_top: float, content_bottom: float
 	return content_bottom - row_h - row * row_step + scroll_px
 
 
-func draw_pair_connector(read: Dictionary, y: float) -> void:
+func draw_pair_connector(read: Dictionary, y: float, line_color: Color) -> void:
 	var mate_start := int(read.get("mate_start", -1))
 	var mate_end := int(read.get("mate_end", -1))
 	if mate_start < 0 or mate_end <= mate_start:
@@ -172,7 +335,9 @@ func draw_pair_connector(read: Dictionary, y: float) -> void:
 	var x0 := view.TRACK_LEFT_PAD + view._bp_to_x(read_center)
 	var x1 := view.TRACK_LEFT_PAD + view._bp_to_x(mate_center)
 	var yc := y + view.current_read_row_h() * 0.5
-	view.draw_line(Vector2(x0, yc), Vector2(x1, yc), Color(0.24, 0.24, 0.24, 0.9), 1.0)
+	var draw_col := line_color
+	draw_col.a = maxf(draw_col.a, 0.9)
+	view.draw_line(Vector2(x0, yc), Vector2(x1, yc), draw_col, 1.0)
 
 
 func can_draw_read_snp_letters() -> bool:
@@ -221,11 +386,11 @@ func draw_indel_markers(read: Dictionary, y: float) -> void:
 		view.draw_line(Vector2(ix - cap_w * 0.5, y1), Vector2(ix + cap_w * 0.5, y1), col, cap_line_w)
 
 
-func draw_mate_block(read: Dictionary, y: float) -> void:
+func draw_mate_block(read: Dictionary, y: float, block_color: Color) -> void:
 	var mate_rect := mate_rect_for_read(read, y)
 	if mate_rect.size.x <= 0.0 or mate_rect.size.y <= 0.0:
 		return
-	view.draw_rect(mate_rect, view.palette["read"], true)
+	view.draw_rect(mate_rect, block_color, true)
 
 
 func mate_rect_for_read(read: Dictionary, y: float) -> Rect2:

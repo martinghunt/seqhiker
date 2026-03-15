@@ -70,13 +70,18 @@ func (e *Engine) GenerateTestData(rootDir string) ([]string, error) {
 	}
 
 	rng := rand.New(rand.NewSource(testDataSeed))
-	contigs := []struct {
+	contigs := make([]struct {
 		name string
 		seq  string
-	}{
-		{name: "ctgA", seq: randomDNA(rng, testContigLen)},
-		{name: "ctgB", seq: randomDNA(rng, testContigLen)},
-		{name: "ctgC", seq: randomDNA(rng, testContigLen)},
+	}, 0, 8)
+	for _, suffix := range []string{"A", "B", "C", "D", "E", "F", "G", "H"} {
+		contigs = append(contigs, struct {
+			name string
+			seq  string
+		}{
+			name: fmt.Sprintf("ctg%s", suffix),
+			seq:  randomDNA(rng, testContigLen),
+		})
 	}
 	contigByName := map[string]string{}
 	for _, contig := range contigs {
@@ -215,8 +220,6 @@ func writePairedEndTestBAMAndIndex(bamPath, baiPath string, contigs []struct {
 	}
 
 	ctgARef := refByName["ctgA"]
-	ctgBRef := refByName["ctgB"]
-	ctgCRef := refByName["ctgC"]
 	var specs []testReadSpec
 
 	// Approximate 0.9X coverage from same-contig paired reads:
@@ -256,62 +259,40 @@ func writePairedEndTestBAMAndIndex(bamPath, baiPath string, contigs []struct {
 		}
 	}
 
-	bridgeABStarts := []int{testContigLen - testPairReadLen, testContigLen - testPairReadLen - 180, testContigLen - testPairReadLen - 360}
-	for i, startA := range bridgeABStarts {
-		name := fmt.Sprintf("bridge_ctgA_ctgB_%d", i+1)
-		specs = append(specs, testReadSpec{
-			name:    name,
-			ref:     ctgARef,
-			start:   startA,
-			seq:     makePairSeq("ctgA", startA),
-			cigar:   []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testPairReadLen)},
-			flags:   sam.Paired | sam.Read1 | sam.MateReverse,
-			mapQ:    60,
-			mateRef: ctgBRef,
-			matePos: i * testPairReadLen,
-			tempLen: 0,
-		})
-		specs = append(specs, testReadSpec{
-			name:    name,
-			ref:     ctgBRef,
-			start:   i * testPairReadLen,
-			seq:     makePairSeq("ctgB", i*testPairReadLen),
-			cigar:   []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testPairReadLen)},
-			flags:   sam.Paired | sam.Read2 | sam.Reverse,
-			mapQ:    60,
-			mateRef: ctgARef,
-			matePos: startA,
-			tempLen: 0,
-		})
-	}
-
-	bridgeACStarts := []int{testContigLen - testPairReadLen - 90, testContigLen - testPairReadLen - 270, testContigLen - testPairReadLen - 450}
-	for i, startA := range bridgeACStarts {
-		name := fmt.Sprintf("bridge_ctgA_ctgC_%d", i+1)
-		specs = append(specs, testReadSpec{
-			name:    name,
-			ref:     ctgARef,
-			start:   startA,
-			seq:     makePairSeq("ctgA", startA),
-			cigar:   []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testPairReadLen)},
-			flags:   sam.Paired | sam.Read1 | sam.MateReverse,
-			mapQ:    60,
-			mateRef: ctgCRef,
-			matePos: i * testPairReadLen,
-			tempLen: 0,
-		})
-		specs = append(specs, testReadSpec{
-			name:    name,
-			ref:     ctgCRef,
-			start:   i * testPairReadLen,
-			seq:     makePairSeq("ctgC", i*testPairReadLen),
-			cigar:   []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testPairReadLen)},
-			flags:   sam.Paired | sam.Read2 | sam.Reverse,
-			mapQ:    60,
-			mateRef: ctgARef,
-			matePos: startA,
-			tempLen: 0,
-		})
+	bridgeOffsetsByPair := []int{0, 180, 360}
+	for contigIndex := 1; contigIndex < len(contigs); contigIndex++ {
+		targetName := contigs[contigIndex].name
+		targetRef := refByName[targetName]
+		phaseOffset := (contigIndex - 1) * 30
+		for pairIndex, pairOffset := range bridgeOffsetsByPair {
+			startA := testContigLen - testPairReadLen - phaseOffset - pairOffset
+			targetStart := pairIndex * testPairReadLen
+			name := fmt.Sprintf("bridge_ctgA_%s_%d", targetName, pairIndex+1)
+			specs = append(specs, testReadSpec{
+				name:    name,
+				ref:     ctgARef,
+				start:   startA,
+				seq:     makePairSeq("ctgA", startA),
+				cigar:   []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testPairReadLen)},
+				flags:   sam.Paired | sam.Read1 | sam.MateReverse,
+				mapQ:    60,
+				mateRef: targetRef,
+				matePos: targetStart,
+				tempLen: 0,
+			})
+			specs = append(specs, testReadSpec{
+				name:    name,
+				ref:     targetRef,
+				start:   targetStart,
+				seq:     makePairSeq(targetName, targetStart),
+				cigar:   []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testPairReadLen)},
+				flags:   sam.Paired | sam.Read2 | sam.Reverse,
+				mapQ:    60,
+				mateRef: ctgARef,
+				matePos: startA,
+				tempLen: 0,
+			})
+		}
 	}
 	return writeTestBAMFromSpecs(bamPath, baiPath, header, specs)
 }

@@ -156,7 +156,8 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 			"hide_improper_pair": false,
 			"hide_forward_strand": false,
 			"hide_mate_forward_strand": false,
-			"auto_expand_snp_text": true
+			"auto_expand_snp_text": true,
+			"color_by_mate_contig": false
 		})
 		host._has_bam_loaded = true
 		host.center_strand_scroll_pending = true

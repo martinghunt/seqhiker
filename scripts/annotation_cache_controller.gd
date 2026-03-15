@@ -160,7 +160,8 @@ func drain_tile_fetch_result() -> void:
 			bool(track.get("fragment_log", true)),
 			float(track.get("thickness", host.DEFAULT_READ_THICKNESS)),
 			int(track.get("max_rows", host.DEFAULT_READ_MAX_ROWS)),
-			bool(track.get("auto_expand_snp_text", true))
+			bool(track.get("auto_expand_snp_text", true)),
+			bool(track.get("color_by_mate_contig", false))
 		)
 		if host.center_strand_scroll_pending and int(track.get("view_mode", 0)) == 1 and (payload.get("reads", []) as Array).size() > 0:
 			host.genome_view.center_strand_scroll_for_track(track_id)

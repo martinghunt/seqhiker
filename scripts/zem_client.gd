@@ -456,7 +456,7 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 	var count := payload.decode_u32(9)
 	var off := 13
 	for i in range(count):
-		if off + 26 > payload.size():
+		if off + 38 > payload.size():
 			break
 		var start_bp := payload.decode_u32(off)
 		var end_bp := payload.decode_u32(off + 4)
@@ -466,8 +466,11 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 		var mate_start_u := payload.decode_u32(off + 12)
 		var mate_end_u := payload.decode_u32(off + 16)
 		var fragment_len := int(payload.decode_u32(off + 20))
-		var name_len := payload.decode_u16(off + 24)
-		off += 26
+		var mate_raw_start_u := payload.decode_u32(off + 24)
+		var mate_raw_end_u := payload.decode_u32(off + 28)
+		var mate_ref_id_u := payload.decode_u32(off + 32)
+		var name_len := payload.decode_u16(off + 36)
+		off += 38
 		if off + name_len > payload.size():
 			break
 		var read_name := _decode_wire_text(payload.slice(off, off + name_len))
@@ -507,6 +510,9 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 			"snp_bases": snp_bases,
 			"mate_start": -1 if mate_start_u == 0xFFFFFFFF else int(mate_start_u),
 			"mate_end": -1 if mate_end_u == 0xFFFFFFFF else int(mate_end_u),
+			"mate_raw_start": -1 if mate_raw_start_u == 0xFFFFFFFF else int(mate_raw_start_u),
+			"mate_raw_end": -1 if mate_raw_end_u == 0xFFFFFFFF else int(mate_raw_end_u),
+			"mate_ref_id": -1 if mate_ref_id_u == 0xFFFFFFFF else int(mate_ref_id_u),
 			"fragment_len": fragment_len,
 			"row": i % 12
 		})

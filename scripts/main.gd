@@ -1392,9 +1392,13 @@ func _on_track_settings_requested(track_id: String) -> void:
 		var auto_expand_snp_cb := CheckButton.new()
 		auto_expand_snp_cb.text = "Auto-expand to fit SNP letters"
 		auto_expand_snp_cb.button_pressed = bool(track_meta.get("auto_expand_snp_text", true))
+		var mate_contig_color_cb := CheckButton.new()
+		mate_contig_color_cb.text = "Color reads by mate contig"
+		mate_contig_color_cb.button_pressed = bool(track_meta.get("color_by_mate_contig", false))
 		_track_settings_box.add_child(thickness_label)
 		_track_settings_box.add_child(thickness_spin)
 		_track_settings_box.add_child(auto_expand_snp_cb)
+		_track_settings_box.add_child(mate_contig_color_cb)
 		_track_settings_box.add_child(max_rows_label)
 		_track_settings_box.add_child(max_rows_spin)
 		_track_settings_box.add_child(filter_title)
@@ -1500,6 +1504,15 @@ func _on_track_settings_requested(track_id: String) -> void:
 				var t: Dictionary = _bam_tracks[i]
 				if str(t.get("track_id", "")) == track_id:
 					t["auto_expand_snp_text"] = enabled
+					_bam_tracks[i] = t
+					break
+			_schedule_fetch()
+		)
+		mate_contig_color_cb.toggled.connect(func(enabled: bool) -> void:
+			for i in range(_bam_tracks.size()):
+				var t: Dictionary = _bam_tracks[i]
+				if str(t.get("track_id", "")) == track_id:
+					t["color_by_mate_contig"] = enabled
 					_bam_tracks[i] = t
 					break
 			_schedule_fetch()

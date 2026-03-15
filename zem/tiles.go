@@ -545,20 +545,27 @@ func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end in
 			continue
 		}
 		snps := recordSNPPositions(rec, start, end, includeSNPs, refSeq)
+		mateRefID := -1
+		if rec.MateRef != nil && (rec.Ref == nil || rec.MateRef.ID() != rec.Ref.ID()) {
+			mateRefID = rec.MateRef.ID()
+		}
 		bins[b] = append(bins[b], Alignment{
-			Start:       rec.Start(),
-			End:         rec.End(),
-			Name:        rec.Name,
-			MapQ:        rec.MapQ,
-			Flags:       uint16(rec.Flags),
-			Cigar:       rec.Cigar.String(),
-			SNPs:        snps,
-			SNPBases:    snpBasesFromPositions(rec, snps),
-			Reverse:     rec.Flags&sam.Reverse != 0,
-			MateStart:   rec.MatePos,
-			MateEnd:     estimateMateEnd(rec),
-			FragLen:     absInt(rec.TempLen),
-			MateSameRef: isLikelySameRefMate(rec),
+			Start:        rec.Start(),
+			End:          rec.End(),
+			Name:         rec.Name,
+			MapQ:         rec.MapQ,
+			Flags:        uint16(rec.Flags),
+			Cigar:        rec.Cigar.String(),
+			SNPs:         snps,
+			SNPBases:     snpBasesFromPositions(rec, snps),
+			Reverse:      rec.Flags&sam.Reverse != 0,
+			MateStart:    rec.MatePos,
+			MateEnd:      estimateMateEnd(rec),
+			MateRawStart: rec.MatePos,
+			MateRawEnd:   estimateMateEnd(rec),
+			MateRefID:    mateRefID,
+			FragLen:      absInt(rec.TempLen),
+			MateSameRef:  isLikelySameRefMate(rec),
 		})
 		binCounts[b]++
 		if binCounts[b] == capForBin {

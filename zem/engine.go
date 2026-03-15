@@ -36,19 +36,22 @@ type Feature struct {
 }
 
 type Alignment struct {
-	Start       int
-	End         int
-	Name        string
-	MapQ        uint8
-	Flags       uint16
-	Cigar       string
-	SNPs        []uint32
-	SNPBases    []byte
-	Reverse     bool
-	MateStart   int
-	MateEnd     int
-	FragLen     int
-	MateSameRef bool
+	Start        int
+	End          int
+	Name         string
+	MapQ         uint8
+	Flags        uint16
+	Cigar        string
+	SNPs         []uint32
+	SNPBases     []byte
+	Reverse      bool
+	MateStart    int
+	MateEnd      int
+	MateRawStart int
+	MateRawEnd   int
+	MateRefID    int
+	FragLen      int
+	MateSameRef  bool
 }
 
 type DNAExactHit struct {
@@ -658,8 +661,8 @@ func encodeAlignmentTile(start, end int, alns []Alignment) []byte {
 		cigarLen := min(len(aln.Cigar), 0xFFFF)
 		snpCount := min(min(len(aln.SNPs), len(aln.SNPBases)), 0xFFFF)
 		// Fixed per-record bytes:
-		// 26 header + 2 cigar_len + 2 snp_count + variable fields.
-		payloadLen += 30 + nameLen + cigarLen + 5*snpCount
+		// 38 header + 2 cigar_len + 2 snp_count + variable fields.
+		payloadLen += 42 + nameLen + cigarLen + 5*snpCount
 	}
 
 	buf := make([]byte, payloadLen)
@@ -680,17 +683,30 @@ func encodeAlignmentTile(start, end int, alns []Alignment) []byte {
 		binary.LittleEndian.PutUint16(buf[off+10:off+12], aln.Flags)
 		mateStart := uint32(0xFFFFFFFF)
 		mateEnd := uint32(0xFFFFFFFF)
+		mateRawStart := uint32(0xFFFFFFFF)
+		mateRawEnd := uint32(0xFFFFFFFF)
+		mateRefID := uint32(0xFFFFFFFF)
 		if aln.MateSameRef && aln.MateStart >= 0 && aln.MateEnd > aln.MateStart {
 			mateStart = uint32(aln.MateStart)
 			mateEnd = uint32(aln.MateEnd)
 		}
+		if aln.MateRawStart >= 0 && aln.MateRawEnd > aln.MateRawStart {
+			mateRawStart = uint32(aln.MateRawStart)
+			mateRawEnd = uint32(aln.MateRawEnd)
+		}
+		if aln.MateRefID >= 0 {
+			mateRefID = uint32(aln.MateRefID)
+		}
 		binary.LittleEndian.PutUint32(buf[off+12:off+16], mateStart)
 		binary.LittleEndian.PutUint32(buf[off+16:off+20], mateEnd)
 		binary.LittleEndian.PutUint32(buf[off+20:off+24], uint32(max(0, aln.FragLen)))
+		binary.LittleEndian.PutUint32(buf[off+24:off+28], mateRawStart)
+		binary.LittleEndian.PutUint32(buf[off+28:off+32], mateRawEnd)
+		binary.LittleEndian.PutUint32(buf[off+32:off+36], mateRefID)
 		nameLen := min(len(aln.Name), 0xFFFF)
-		binary.LittleEndian.PutUint16(buf[off+24:off+26], uint16(nameLen))
-		copy(buf[off+26:off+26+nameLen], aln.Name[:nameLen])
-		off += 26 + nameLen
+		binary.LittleEndian.PutUint16(buf[off+36:off+38], uint16(nameLen))
+		copy(buf[off+38:off+38+nameLen], aln.Name[:nameLen])
+		off += 38 + nameLen
 		cigarLen := min(len(aln.Cigar), 0xFFFF)
 		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(cigarLen))
 		copy(buf[off+2:off+2+cigarLen], aln.Cigar[:cigarLen])

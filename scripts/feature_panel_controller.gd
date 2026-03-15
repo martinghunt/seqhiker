@@ -77,12 +77,21 @@ func on_read_clicked(read: Dictionary) -> void:
 	var strand := "-" if bool(read.get("reverse", false)) else "+"
 	var mate_start := int(read.get("mate_start", -1))
 	var mate_end := int(read.get("mate_end", -1))
+	var mate_raw_start := int(read.get("mate_raw_start", -1))
+	var mate_raw_end := int(read.get("mate_raw_end", -1))
+	var mate_ref_id := int(read.get("mate_ref_id", -1))
 	var mate_text := "Mate: unavailable"
+	var read_range_text := _format_read_range(start_bp, end_bp)
 	if mate_start >= 0 and mate_end > mate_start:
-		mate_text = "Mate: %d - %d" % [mate_start, mate_end]
+		mate_text = "Mate: %s" % _format_read_range(mate_start, mate_end)
+	elif mate_ref_id >= 0 and mate_raw_start >= 0 and mate_raw_end > mate_raw_start:
+		var mate_chr_name := _chrom_name_for_id(mate_ref_id)
+		if mate_chr_name.is_empty():
+			mate_chr_name = "chr%d" % mate_ref_id
+		mate_text = "Mate: %s:%d - %d" % [mate_chr_name, mate_raw_start, mate_raw_end]
 	var frag_len := int(read.get("fragment_len", 0))
 	host.feature_name_label.text = "Read: %s" % read_name
-	host.feature_type_label.text = "Range: %d - %d (%d bp)" % [start_bp, end_bp, read_len]
+	host.feature_type_label.text = "Range: %s (%d bp)" % [read_range_text, read_len]
 	host.feature_range_label.text = "CIGAR: %s" % cigar
 	host.feature_strand_label.text = "Strand: %s | MAPQ: %d | Flags: %d" % [strand, mapq, flags]
 	host.feature_source_label.text = "%s | Fragment: %d bp" % [mate_text, frag_len]
@@ -103,6 +112,45 @@ func on_read_clicked(read: Dictionary) -> void:
 		host._read_mate_jump_button.visible = false
 	host._feature_panel_open = true
 	host._slide_feature_panel(true, true)
+
+func _chrom_name_for_id(chr_id: int) -> String:
+	for c_any in host._chromosomes:
+		var c: Dictionary = c_any
+		if int(c.get("id", -1)) == chr_id:
+			return str(c.get("name", ""))
+	return ""
+
+
+func _concat_segment_for_bp(bp: int) -> Dictionary:
+	for seg_any in host._concat_segments:
+		var seg: Dictionary = seg_any
+		var start_bp := int(seg.get("start", 0))
+		var end_bp := int(seg.get("end", start_bp))
+		if bp >= start_bp and bp < end_bp:
+			return seg
+	return {}
+
+
+func _format_read_range(start_bp: int, end_bp: int) -> String:
+	if host._seq_view_mode != host.SEQ_VIEW_CONCAT:
+		return "%d - %d" % [start_bp, end_bp]
+	if end_bp <= start_bp:
+		var point_seg := _concat_segment_for_bp(start_bp)
+		if point_seg.is_empty():
+			return "%d - %d" % [start_bp, end_bp]
+		var point_name := str(point_seg.get("name", ""))
+		var point_local := start_bp - int(point_seg.get("start", 0))
+		return "%s:%d" % [point_name, point_local]
+	var start_seg := _concat_segment_for_bp(start_bp)
+	var end_seg := _concat_segment_for_bp(end_bp - 1)
+	if start_seg.is_empty() or end_seg.is_empty():
+		return "%d - %d" % [start_bp, end_bp]
+	var start_name := str(start_seg.get("name", ""))
+	var start_local := start_bp - int(start_seg.get("start", 0))
+	var end_local := end_bp - int(end_seg.get("start", 0))
+	if start_name == str(end_seg.get("name", "")):
+		return "%s:%d - %d" % [start_name, start_local, end_local]
+	return "%s:%d - %s:%d" % [start_name, start_local, str(end_seg.get("name", "")), end_local]
 
 
 func on_read_selected(read: Dictionary) -> void:
