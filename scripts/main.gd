@@ -9,6 +9,7 @@ const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
 const GoPanelScene = preload("res://scenes/GoPanel.tscn")
+const ReadTrackSettingsPanelScene = preload("res://scenes/ReadTrackSettingsPanel.tscn")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const ZEM_BIN_SUBDIR := "bin"
 const ZEM_DEFAULT_PORT := 9000
@@ -150,7 +151,6 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var _track_visibility_map: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowMapTrack
 @onready var _bam_cov_cutoff_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffLabel
 @onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffSpin
-@onready var _genome_cache_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/GenomeCacheLabel
 @onready var _genome_cache_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/GenomeCacheSpin
 @onready var _genome_cache_clear_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ClearGenomeCacheButton
 @onready var _generate_test_data_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UseTestDataButton
@@ -264,6 +264,7 @@ var _depth_plot_height := DEFAULT_PLOT_HEIGHT
 var _chromosomes: Array[Dictionary] = []
 var _concat_segments: Array[Dictionary] = []
 var _track_settings_box: VBoxContainer
+var _read_track_settings_panel: VBoxContainer
 var _track_settings_open := false
 var _active_track_settings_id := ""
 var _debug_enabled := false
@@ -993,6 +994,36 @@ func _setup_track_settings_panel() -> void:
 	_track_settings_box = VBoxContainer.new()
 	_track_settings_box.visible = false
 	feature_content.add_child(_track_settings_box)
+	_read_track_settings_panel = ReadTrackSettingsPanelScene.instantiate() as VBoxContainer
+	if _read_track_settings_panel != null:
+		_read_track_settings_panel.visible = false
+		_track_settings_box.add_child(_read_track_settings_panel)
+		var read_view_option := _read_track_settings_panel.get_node("ReadViewOption") as OptionButton
+		if read_view_option != null and read_view_option.item_count == 0:
+			read_view_option.add_item("Stack", 0)
+			read_view_option.add_item("Strand Stack", 1)
+			read_view_option.add_item("Paired", 2)
+			read_view_option.add_item("Fragment Size", 3)
+		if read_view_option != null and not read_view_option.item_selected.is_connected(_on_active_read_track_view_selected):
+			read_view_option.item_selected.connect(_on_active_read_track_view_selected)
+		var frag_cb := _read_track_settings_panel.get_node("FragmentLogScale") as CheckButton
+		if frag_cb != null and not frag_cb.toggled.is_connected(_on_active_read_track_fragment_log_toggled):
+			frag_cb.toggled.connect(_on_active_read_track_fragment_log_toggled)
+		var thickness_spin := _read_track_settings_panel.get_node("ReadThicknessSpin") as SpinBox
+		if thickness_spin != null and not thickness_spin.value_changed.is_connected(_on_active_read_track_thickness_changed):
+			thickness_spin.value_changed.connect(_on_active_read_track_thickness_changed)
+		var auto_expand_snp_cb := _read_track_settings_panel.get_node("AutoExpandSNPText") as CheckButton
+		if auto_expand_snp_cb != null and not auto_expand_snp_cb.toggled.is_connected(_on_active_read_track_auto_expand_snp_toggled):
+			auto_expand_snp_cb.toggled.connect(_on_active_read_track_auto_expand_snp_toggled)
+		var mate_contig_color_cb := _read_track_settings_panel.get_node("MateContigColor") as CheckButton
+		if mate_contig_color_cb != null and not mate_contig_color_cb.toggled.is_connected(_on_active_read_track_mate_contig_color_toggled):
+			mate_contig_color_cb.toggled.connect(_on_active_read_track_mate_contig_color_toggled)
+		var max_rows_spin := _read_track_settings_panel.get_node("MaxRowsSpin") as SpinBox
+		if max_rows_spin != null and not max_rows_spin.value_changed.is_connected(_on_active_read_track_max_rows_changed):
+			max_rows_spin.value_changed.connect(_on_active_read_track_max_rows_changed)
+		var mapq_spin := _read_track_settings_panel.get_node("MapQSpin") as SpinBox
+		if mapq_spin != null and not mapq_spin.value_changed.is_connected(_on_active_read_track_min_mapq_changed):
+			mapq_spin.value_changed.connect(_on_active_read_track_min_mapq_changed)
 	_search_controller.setup(feature_content, {
 		"get_zem": Callable(self, "_search_get_zem"),
 		"get_chromosomes": Callable(self, "_search_get_chromosomes"),
@@ -1119,6 +1150,58 @@ func _update_window_min_height() -> void:
 	var w := get_window()
 	if w != null:
 		w.min_size.y = maxi(200, ceili(min_h))
+
+func _update_active_bam_track(mutator: Callable) -> void:
+	if not _active_track_settings_id.begins_with("reads:"):
+		return
+	for i in range(_bam_tracks.size()):
+		var t: Dictionary = _bam_tracks[i]
+		if str(t.get("track_id", "")) != _active_track_settings_id:
+			continue
+		mutator.call(t)
+		_bam_tracks[i] = t
+		_schedule_fetch()
+		return
+
+func _on_active_read_track_view_selected(index: int) -> void:
+	if _read_track_settings_panel == null:
+		return
+	var frag_cb := _read_track_settings_panel.get_node("FragmentLogScale") as CheckButton
+	if frag_cb != null:
+		frag_cb.visible = index == 3
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["view_mode"] = index
+	)
+
+func _on_active_read_track_fragment_log_toggled(enabled: bool) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["fragment_log"] = enabled
+	)
+
+func _on_active_read_track_thickness_changed(value: float) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["thickness"] = clampf(value, 2.0, 24.0)
+	)
+
+func _on_active_read_track_auto_expand_snp_toggled(enabled: bool) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["auto_expand_snp_text"] = enabled
+	)
+
+func _on_active_read_track_mate_contig_color_toggled(enabled: bool) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["color_by_mate_contig"] = enabled
+	)
+
+func _on_active_read_track_max_rows_changed(value: float) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["max_rows"] = maxi(0, int(round(value)))
+	)
+
+func _on_active_read_track_min_mapq_changed(value: float) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["min_mapq"] = clampi(int(round(value)), 0, 255)
+	)
 
 func _on_debug_toggled(enabled: bool) -> void:
 	_debug_enabled = enabled
@@ -1391,6 +1474,13 @@ func _on_track_settings_requested(track_id: String) -> void:
 	feature_name_label.visible = true
 	feature_name_label.text = ""
 	for child in _track_settings_box.get_children():
+		if child == _read_track_settings_panel:
+			child.visible = false
+			var dynamic_options := _read_track_settings_panel.get_node("DynamicOptions") as VBoxContainer
+			if dynamic_options != null:
+				for dynamic_child in dynamic_options.get_children():
+					dynamic_child.queue_free()
+			continue
 		child.queue_free()
 	_track_settings_box.visible = true
 	_track_settings_open = true
@@ -1398,69 +1488,38 @@ func _on_track_settings_requested(track_id: String) -> void:
 	if track_id.begins_with("reads:"):
 		var track_meta := _bam_track_for_id(track_id)
 		var bam_name := str(track_meta.get("label", track_meta.get("path", "BAM")))
-		var bam_label := Label.new()
-		bam_label.text = "BAM: %s" % bam_name
-		bam_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		bam_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_track_settings_box.add_child(bam_label)
-		var view_label := Label.new()
-		view_label.text = "Read View"
-		var view_option := OptionButton.new()
-		view_option.add_item("Stack", 0)
-		view_option.add_item("Strand Stack", 1)
-		view_option.add_item("Paired", 2)
-		view_option.add_item("Fragment Size", 3)
-		view_option.select(int(track_meta.get("view_mode", 0)))
-		_track_settings_box.add_child(view_label)
-		_track_settings_box.add_child(view_option)
-		var frag_cb := CheckBox.new()
-		frag_cb.text = "Log fragment Y scale"
-		frag_cb.button_pressed = bool(track_meta.get("fragment_log", true))
-		frag_cb.visible = view_option.selected == 3
-		_track_settings_box.add_child(frag_cb)
-		var thickness_label := Label.new()
-		thickness_label.text = "Read Thickness"
-		var thickness_spin := SpinBox.new()
-		thickness_spin.min_value = 2
-		thickness_spin.max_value = 24
-		thickness_spin.step = 1
-		thickness_spin.value = float(track_meta.get("thickness", DEFAULT_READ_THICKNESS))
-		var max_rows_label := Label.new()
-		max_rows_label.text = "Max Visible Rows (0 = unlimited)"
-		var max_rows_spin := SpinBox.new()
-		max_rows_spin.min_value = 0
-		max_rows_spin.max_value = 5000
-		max_rows_spin.step = 10
-		max_rows_spin.allow_greater = false
-		max_rows_spin.allow_lesser = false
-		max_rows_spin.value = float(int(track_meta.get("max_rows", DEFAULT_READ_MAX_ROWS)))
-		var filter_title := Label.new()
-		filter_title.text = "Filter Reads"
-		var mapq_label := Label.new()
-		mapq_label.text = "Minimum MAPQ"
-		var mapq_spin := SpinBox.new()
-		mapq_spin.min_value = 0
-		mapq_spin.max_value = 255
-		mapq_spin.step = 1
-		mapq_spin.allow_greater = false
-		mapq_spin.allow_lesser = false
-		mapq_spin.value = float(int(track_meta.get("min_mapq", DEFAULT_READ_MIN_MAPQ)))
+		var bam_label := _read_track_settings_panel.get_node("BAMLabel") as Label
+		var view_option := _read_track_settings_panel.get_node("ReadViewOption") as OptionButton
+		var frag_cb := _read_track_settings_panel.get_node("FragmentLogScale") as CheckButton
+		var thickness_spin := _read_track_settings_panel.get_node("ReadThicknessSpin") as SpinBox
+		var auto_expand_snp_cb := _read_track_settings_panel.get_node("AutoExpandSNPText") as CheckButton
+		var mate_contig_color_cb := _read_track_settings_panel.get_node("MateContigColor") as CheckButton
+		var max_rows_spin := _read_track_settings_panel.get_node("MaxRowsSpin") as SpinBox
+		var mapq_spin := _read_track_settings_panel.get_node("MapQSpin") as SpinBox
+		var dynamic_options := _read_track_settings_panel.get_node("DynamicOptions") as VBoxContainer
+		if _read_track_settings_panel != null:
+			_read_track_settings_panel.visible = true
+		if bam_label != null:
+			bam_label.text = "BAM: %s" % bam_name
+		if view_option != null:
+			view_option.select(int(track_meta.get("view_mode", 0)))
+		if frag_cb != null:
+			frag_cb.button_pressed = bool(track_meta.get("fragment_log", true))
+			frag_cb.visible = view_option != null and view_option.selected == 3
+		if thickness_spin != null:
+			thickness_spin.value = float(track_meta.get("thickness", DEFAULT_READ_THICKNESS))
+		if auto_expand_snp_cb != null:
+			auto_expand_snp_cb.button_pressed = bool(track_meta.get("auto_expand_snp_text", true))
+		if mate_contig_color_cb != null:
+			mate_contig_color_cb.button_pressed = bool(track_meta.get("color_by_mate_contig", false))
+		if max_rows_spin != null:
+			max_rows_spin.value = float(int(track_meta.get("max_rows", DEFAULT_READ_MAX_ROWS)))
+		if mapq_spin != null:
+			mapq_spin.value = float(int(track_meta.get("min_mapq", DEFAULT_READ_MIN_MAPQ)))
+		if dynamic_options != null:
+			for child in dynamic_options.get_children():
+				child.queue_free()
 		var hidden_flags := int(track_meta.get("hidden_flags", DEFAULT_READ_HIDDEN_FLAGS))
-		var auto_expand_snp_cb := CheckButton.new()
-		auto_expand_snp_cb.text = "Auto-expand to fit SNP letters"
-		auto_expand_snp_cb.button_pressed = bool(track_meta.get("auto_expand_snp_text", true))
-		var mate_contig_color_cb := CheckButton.new()
-		mate_contig_color_cb.text = "Color reads by mate contig"
-		mate_contig_color_cb.button_pressed = bool(track_meta.get("color_by_mate_contig", false))
-		_track_settings_box.add_child(thickness_label)
-		_track_settings_box.add_child(thickness_spin)
-		_track_settings_box.add_child(auto_expand_snp_cb)
-		_track_settings_box.add_child(mate_contig_color_cb)
-		_track_settings_box.add_child(max_rows_label)
-		_track_settings_box.add_child(max_rows_spin)
-		_track_settings_box.add_child(filter_title)
-		_track_settings_box.add_child(mapq_label)
-		_track_settings_box.add_child(mapq_spin)
 		for entry_any in READ_FILTER_FLAG_LABELS:
 			var entry: Dictionary = entry_any
 			var flag_bit := int(entry.get("bit", 0))
@@ -1482,7 +1541,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 					break
 				_schedule_fetch()
 			)
-			_track_settings_box.add_child(flag_cb)
+			dynamic_options.add_child(flag_cb)
 			if flag_bit == 2:
 				var improper_pair_cb := CheckBox.new()
 				improper_pair_cb.text = "Hide improper pair"
@@ -1497,7 +1556,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 						break
 					_schedule_fetch()
 				)
-				_track_settings_box.add_child(improper_pair_cb)
+				dynamic_options.add_child(improper_pair_cb)
 			elif flag_bit == 8:
 				var mate_forward_cb := CheckBox.new()
 				mate_forward_cb.text = "Hide mate forward strand"
@@ -1512,7 +1571,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 						break
 					_schedule_fetch()
 				)
-				_track_settings_box.add_child(mate_forward_cb)
+				dynamic_options.add_child(mate_forward_cb)
 			elif flag_bit == 16:
 				var forward_cb := CheckBox.new()
 				forward_cb.text = "Hide forward strand"
@@ -1527,71 +1586,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 						break
 					_schedule_fetch()
 				)
-				_track_settings_box.add_child(forward_cb)
-		view_option.item_selected.connect(func(index: int) -> void:
-			frag_cb.visible = index == 3
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["view_mode"] = index
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		frag_cb.toggled.connect(func(enabled: bool) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["fragment_log"] = enabled
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		thickness_spin.value_changed.connect(func(value: float) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["thickness"] = clampf(value, 2.0, 24.0)
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		auto_expand_snp_cb.toggled.connect(func(enabled: bool) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["auto_expand_snp_text"] = enabled
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		mate_contig_color_cb.toggled.connect(func(enabled: bool) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["color_by_mate_contig"] = enabled
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		max_rows_spin.value_changed.connect(func(value: float) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["max_rows"] = maxi(0, int(round(value)))
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		mapq_spin.value_changed.connect(func(value: float) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["min_mapq"] = clampi(int(round(value)), 0, 255)
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
+				dynamic_options.add_child(forward_cb)
 	elif track_id == "aa":
 		var region_cb := CheckButton.new()
 		region_cb.text = "Show full-length region annotations"

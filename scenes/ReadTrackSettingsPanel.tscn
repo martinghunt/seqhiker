@@ -1,0 +1,67 @@
+[gd_scene format=3 uid="uid://bd1eagna580iv"]
+
+[node name="ReadTrackSettingsPanel" type="VBoxContainer"]
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="BAMLabel" type="Label" parent="."]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "BAM:"
+autowrap_mode = 2
+
+[node name="ReadViewLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Read View"
+
+[node name="ReadViewOption" type="OptionButton" parent="."]
+layout_mode = 2
+
+[node name="FragmentLogScale" type="CheckButton" parent="."]
+layout_mode = 2
+text = "Log fragment Y scale"
+
+[node name="ReadThicknessLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Read Thickness"
+
+[node name="ReadThicknessSpin" type="SpinBox" parent="."]
+layout_mode = 2
+min_value = 2.0
+max_value = 24.0
+value = 8.0
+
+[node name="AutoExpandSNPText" type="CheckButton" parent="."]
+layout_mode = 2
+text = "Auto-expand to fit SNP letters"
+
+[node name="MateContigColor" type="CheckButton" parent="."]
+layout_mode = 2
+text = "Color reads by mate contig"
+
+[node name="MaxRowsLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Max Visible Rows (0 = unlimited)"
+
+[node name="MaxRowsSpin" type="SpinBox" parent="."]
+layout_mode = 2
+max_value = 5000.0
+step = 10.0
+value = 500.0
+
+[node name="FilterTitle" type="Label" parent="."]
+layout_mode = 2
+text = "Filter Reads"
+
+[node name="MapQLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Minimum MAPQ"
+
+[node name="MapQSpin" type="SpinBox" parent="."]
+layout_mode = 2
+max_value = 255.0
+
+[node name="DynamicOptions" type="VBoxContainer" parent="."]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
