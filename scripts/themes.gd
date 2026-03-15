@@ -373,11 +373,11 @@ const THEMES := {
 const THEME_ORDER := [
 	"Slate",
 	"Light",
-	"Monochrome Light",
 	"Dark",
-	"Monochrome Dark",
 	"Solarized Light",
 	"Solarized Dark",
+	"Monochrome Light",
+	"Monochrome Dark",
 	"Forest",
 	"Classic"
 ]
