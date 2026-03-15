@@ -1430,12 +1430,8 @@ func _draw_genome_track(area: Rect2) -> void:
 		_draw_ticks(y, line_y)
 	else:
 		_draw_concat_genome_axis(y, line_y)
-	if is_track_visible(TRACK_ID_AA):
-		_draw_genome_feature_tracks(area, line_y)
-		_draw_nucleotide_letters(y, line_y)
-	else:
-		_draw_nucleotide_letters(y, line_y)
-		_draw_genome_feature_tracks(area, line_y)
+	_draw_genome_feature_tracks(area, line_y)
+	_draw_nucleotide_letters(y, line_y)
 
 func _draw_map_track(area: Rect2) -> void:
 	if area.size.y <= 24.0:
