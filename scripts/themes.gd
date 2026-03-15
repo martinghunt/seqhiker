@@ -27,7 +27,7 @@ const THEMES := {
 		"map_view_outline": Color8(243, 178, 177),
 		"region_select_fill": Color8(236, 103, 101),
 		"region_select_outline": Color8(236, 103, 101),
-		"genome": Color("0000ff"),
+		"genome": Color("000000"),
 		"read": Color8(25, 7, 244),
 		"gc_plot": Color("000000"),
 		"depth_plot": Color("000000"),
