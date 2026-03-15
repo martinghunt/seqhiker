@@ -213,7 +213,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 						if not strand_resp.get("ok", false):
 							return {"ok": false, "error": "Strand coverage query failed: %s" % strand_resp.get("error", "error")}
 						track_strand_cov.append(strand_resp.get("coverage", {}))
-				read_payload_by_track[track_id] = _prepare_track_payload(track, _build_prepared_reads(track, track_reads), track_cov, track_strand_cov, query_start, query_end, visible_start, visible_end, last_bp_per_px)
+				read_payload_by_track[track_id] = _prepare_track_payload(track, _build_prepared_reads(track, track_reads, seq_view_mode), track_cov, track_strand_cov, query_start, query_end, visible_start, visible_end, last_bp_per_px)
 		if show_gc_plot:
 			var tile_width_plot := 1024 << zoom
 			var tile_start_plot := int(floor(float(query_start) / float(tile_width_plot)))
@@ -313,7 +313,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 							if not strand_resp.get("ok", false):
 								return {"ok": false, "error": "Strand coverage query failed: %s" % strand_resp.get("error", "error")}
 							track_strand_cov.append(_shift_strand_coverage_coords(strand_resp.get("coverage", {}), offset_strand))
-				read_payload_by_track[track_id] = _prepare_track_payload(track, _build_prepared_reads(track, track_reads), track_cov, track_strand_cov, query_start, query_end, visible_start, visible_end, last_bp_per_px)
+				read_payload_by_track[track_id] = _prepare_track_payload(track, _build_prepared_reads(track, track_reads, seq_view_mode), track_cov, track_strand_cov, query_start, query_end, visible_start, visible_end, last_bp_per_px)
 		if show_gc_plot:
 			for ov_any in overlaps:
 				var ov: Dictionary = ov_any as Dictionary
@@ -532,12 +532,13 @@ func _build_fragment_summary(reads_in: Array[Dictionary], view_start: int, view_
 		"p75": p75
 	}
 
-func _build_prepared_reads(track: Dictionary, track_reads: Array[Dictionary]) -> Array[Dictionary]:
+func _build_prepared_reads(track: Dictionary, track_reads: Array[Dictionary], seq_view_mode: int) -> Array[Dictionary]:
 	var min_mapq := int(track.get("min_mapq", 0))
 	var hidden_flags := int(track.get("hidden_flags", 0))
 	var hide_improper_pair := bool(track.get("hide_improper_pair", false))
 	var hide_forward_strand := bool(track.get("hide_forward_strand", false))
 	var hide_mate_forward_strand := bool(track.get("hide_mate_forward_strand", false))
+	var concat_fragment_view := seq_view_mode == SEQ_VIEW_CONCAT and int(track.get("view_mode", 0)) == 3
 	var prepared_reads: Array[Dictionary] = []
 	for read_any in _dedupe_reads(track_reads):
 		if typeof(read_any) != TYPE_DICTIONARY:
@@ -553,6 +554,13 @@ func _build_prepared_reads(track: Dictionary, track_reads: Array[Dictionary]) ->
 			continue
 		if hide_mate_forward_strand and (int(read.get("flags", 0)) & 32) == 0:
 			continue
+		if concat_fragment_view and (int(read.get("flags", 0)) & 1) != 0:
+			var mate_start := int(read.get("mate_start", -1))
+			var mate_end := int(read.get("mate_end", -1))
+			if mate_start < 0 or mate_end <= mate_start:
+				var read_start := int(read.get("start", 0))
+				var read_end := int(read.get("end", read_start))
+				read["fragment_len"] = maxi(1, read_end - read_start)
 		_read_layout_helper.attach_indel_markers(read)
 		prepared_reads.append(read)
 	return prepared_reads

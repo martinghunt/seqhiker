@@ -146,6 +146,7 @@ var _selected_feature_key := ""
 var _selected_read_index := -1
 var _selected_read_track_id := ""
 var _selected_read_pair_name := ""
+var _selected_read_flags := 0
 var _selected_read_pair_a_start := -1
 var _selected_read_pair_a_end := -1
 var _selected_read_pair_b_start := -1
@@ -1326,6 +1327,7 @@ func set_selected_read(read: Dictionary, read_index: int, track_id: String, togg
 	_selected_read_index = read_index
 	_selected_read_track_id = track_id
 	_selected_read_pair_name = str(read.get("name", ""))
+	_selected_read_flags = int(read.get("flags", 0))
 	var a_start := int(read.get("start", 0))
 	var a_end := int(read.get("end", a_start))
 	var b_start := int(read.get("mate_start", -1))
@@ -1346,6 +1348,7 @@ func clear_selected_read() -> void:
 	_selected_read_index = -1
 	_selected_read_track_id = ""
 	_selected_read_pair_name = ""
+	_selected_read_flags = 0
 	_selected_read_pair_a_start = -1
 	_selected_read_pair_a_end = -1
 	_selected_read_pair_b_start = -1

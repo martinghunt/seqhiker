@@ -92,7 +92,9 @@ func draw_read_tracks(area: Rect2) -> void:
 		elif track_id == view._selected_read_track_id and not view._selected_read_pair_name.is_empty():
 			var rname := str(read.get("name", ""))
 			if rname == view._selected_read_pair_name:
-				if read_start == view._selected_read_pair_a_start and read_end == view._selected_read_pair_a_end:
+				if (view._selected_read_flags & 1) != 0:
+					draw_selected = true
+				elif read_start == view._selected_read_pair_a_start and read_end == view._selected_read_pair_a_end:
 					draw_selected = true
 				elif read_start == view._selected_read_pair_b_start and read_end == view._selected_read_pair_b_end:
 					draw_selected = true
