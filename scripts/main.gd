@@ -268,6 +268,7 @@ var _genome_cache_label: Label
 var _genome_cache_spin: SpinBox
 var _genome_cache_clear_button: Button
 var _generate_test_data_button: Button
+var _open_user_data_dir_button: Button
 var _generate_test_data_thread: Thread
 var _generate_test_data_in_progress := false
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
@@ -864,6 +865,11 @@ func _setup_debug_controls() -> void:
 	_generate_test_data_button.size_flags_horizontal = Control.SIZE_FILL
 	_generate_test_data_button.pressed.connect(_start_generate_test_data)
 	settings_content.add_child(_generate_test_data_button)
+	_open_user_data_dir_button = Button.new()
+	_open_user_data_dir_button.text = "Open user data directory"
+	_open_user_data_dir_button.size_flags_horizontal = Control.SIZE_FILL
+	_open_user_data_dir_button.pressed.connect(_open_user_data_dir)
+	settings_content.add_child(_open_user_data_dir_button)
 	_debug_toggle = CheckButton.new()
 	_debug_toggle.text = "Debug"
 	_debug_toggle.button_pressed = _debug_enabled
@@ -914,6 +920,15 @@ func _generated_test_data_dir() -> String:
 func _set_generate_test_data_controls_enabled(enabled: bool) -> void:
 	if _generate_test_data_button != null:
 		_generate_test_data_button.disabled = not enabled
+
+func _open_user_data_dir() -> void:
+	var user_dir := ProjectSettings.globalize_path("user://")
+	if user_dir.strip_edges() == "":
+		_set_status("Could not resolve user data directory.", true)
+		return
+	var err := OS.shell_open(user_dir)
+	if err != OK:
+		_set_status("Could not open user data directory.", true)
 
 func _start_generate_test_data() -> void:
 	if _generate_test_data_in_progress:

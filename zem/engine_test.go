@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/biogo/hts/sam"
 )
 
 func TestParseGFF3EmbeddedFASTA(t *testing.T) {
@@ -365,6 +367,55 @@ func TestLoadBAMFixtureReadTileIncludesProperPair(t *testing.T) {
 		if aln.FragLen != 345 {
 			t.Fatalf("unexpected fragment length: %+v", aln)
 		}
+	}
+}
+
+func TestMateFieldsForRecordHidesUnmappedMate(t *testing.T) {
+	ref, err := sam.NewReference("chr1", "", "", 1000, nil, nil)
+	if err != nil {
+		t.Fatalf("NewReference returned error: %v", err)
+	}
+	rec := &sam.Record{
+		Name:  "read1",
+		Ref:   ref,
+		Cigar: sam.Cigar{sam.NewCigarOp(sam.CigarMatch, 50)},
+		Seq:   sam.NewSeq([]byte(strings.Repeat("A", 50))),
+	}
+	rec.Flags = sam.Paired | sam.MateUnmapped
+	rec.MatePos = 123
+	rec.MateRef = ref
+
+	mateStart, mateEnd, mateRawStart, mateRawEnd, mateRefID := mateFieldsForRecord(rec)
+	if mateStart != -1 || mateEnd != -1 || mateRawStart != -1 || mateRawEnd != -1 || mateRefID != -1 {
+		t.Fatalf("expected unmapped mate fields to be hidden, got start=%d end=%d rawStart=%d rawEnd=%d refID=%d", mateStart, mateEnd, mateRawStart, mateRawEnd, mateRefID)
+	}
+}
+
+func TestMateFieldsForRecordKeepsMappedCrossContigMate(t *testing.T) {
+	ref, err := sam.NewReference("chr1", "", "", 1000, nil, nil)
+	if err != nil {
+		t.Fatalf("NewReference returned error: %v", err)
+	}
+	mateRef, err := sam.NewReference("chr2", "", "", 1000, nil, nil)
+	if err != nil {
+		t.Fatalf("NewReference returned error: %v", err)
+	}
+	rec := &sam.Record{
+		Name:  "read1",
+		Ref:   ref,
+		Cigar: sam.Cigar{sam.NewCigarOp(sam.CigarMatch, 50)},
+		Seq:   sam.NewSeq([]byte(strings.Repeat("A", 50))),
+	}
+	rec.Flags = sam.Paired
+	rec.MatePos = 123
+	rec.MateRef = mateRef
+
+	mateStart, mateEnd, mateRawStart, mateRawEnd, mateRefID := mateFieldsForRecord(rec)
+	if mateStart != 123 || mateEnd != 173 || mateRawStart != 123 || mateRawEnd != 173 {
+		t.Fatalf("unexpected mapped mate coordinates: start=%d end=%d rawStart=%d rawEnd=%d", mateStart, mateEnd, mateRawStart, mateRawEnd)
+	}
+	if mateRefID != mateRef.ID() {
+		t.Fatalf("unexpected mate ref id: got %d want %d", mateRefID, mateRef.ID())
 	}
 }
 

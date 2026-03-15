@@ -259,6 +259,33 @@ func writePairedEndTestBAMAndIndex(bamPath, baiPath string, contigs []struct {
 		}
 	}
 
+	// One mapped read at the start of ctgA whose mate is flagged unmapped,
+	// but still carries mate coordinates as seen in real BAMs.
+	specs = append(specs, testReadSpec{
+		name:    "ctgA_mate_unmapped_1",
+		ref:     ctgARef,
+		start:   0,
+		seq:     makePairSeq("ctgA", 0),
+		cigar:   []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testPairReadLen)},
+		flags:   sam.Paired | sam.Read1 | sam.MateUnmapped,
+		mapQ:    60,
+		mateRef: ctgARef,
+		matePos: testPairReadLen + pairGap,
+		tempLen: 0,
+	})
+	specs = append(specs, testReadSpec{
+		name:    "ctgA_mate_unmapped_1",
+		ref:     ctgARef,
+		start:   testPairReadLen + pairGap,
+		seq:     makePairSeq("ctgA", testPairReadLen+pairGap),
+		cigar:   nil,
+		flags:   sam.Paired | sam.Read2 | sam.Unmapped,
+		mapQ:    0,
+		mateRef: ctgARef,
+		matePos: 0,
+		tempLen: 0,
+	})
+
 	bridgeOffsetsByPair := []int{0, 180, 360}
 	for contigIndex := 1; contigIndex < len(contigs); contigIndex++ {
 		targetName := contigs[contigIndex].name

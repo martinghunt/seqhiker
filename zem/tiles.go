@@ -16,6 +16,25 @@ type windowRange struct {
 	end   int
 }
 
+func mateFieldsForRecord(rec *sam.Record) (mateStart, mateEnd, mateRawStart, mateRawEnd, mateRefID int) {
+	mateStart = -1
+	mateEnd = -1
+	mateRawStart = -1
+	mateRawEnd = -1
+	mateRefID = -1
+	if rec == nil || rec.Flags&sam.MateUnmapped != 0 || rec.MatePos < 0 {
+		return
+	}
+	mateStart = rec.MatePos
+	mateEnd = estimateMateEnd(rec)
+	mateRawStart = rec.MatePos
+	mateRawEnd = mateEnd
+	if rec.MateRef != nil && (rec.Ref == nil || rec.MateRef.ID() != rec.Ref.ID()) {
+		mateRefID = rec.MateRef.ID()
+	}
+	return
+}
+
 func (e *Engine) GetTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
 	window := tileWindow(zoom, tileIndex)
 	if zoom > e.maxReadZoom {
@@ -357,7 +376,7 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 		seen := make(map[string]struct{})
 		for it.Next() {
 			rec := it.Record()
-			if rec == nil || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
+			if rec == nil || rec.Flags&sam.Unmapped != 0 || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
 				continue
 			}
 			key := recordDedupKey(rec)
@@ -417,7 +436,7 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 		seen := make(map[string]struct{})
 		for it.Next() {
 			rec := it.Record()
-			if rec == nil || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
+			if rec == nil || rec.Flags&sam.Unmapped != 0 || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
 				continue
 			}
 			key := recordDedupKey(rec)
@@ -516,7 +535,7 @@ func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end in
 			break
 		}
 		rec := it.Record()
-		if rec == nil || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
+		if rec == nil || rec.Flags&sam.Unmapped != 0 || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
 			continue
 		}
 		key := recordDedupKey(rec)
@@ -545,10 +564,7 @@ func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end in
 			continue
 		}
 		snps := recordSNPPositions(rec, start, end, includeSNPs, refSeq)
-		mateRefID := -1
-		if rec.MateRef != nil && (rec.Ref == nil || rec.MateRef.ID() != rec.Ref.ID()) {
-			mateRefID = rec.MateRef.ID()
-		}
+		mateStart, mateEnd, mateRawStart, mateRawEnd, mateRefID := mateFieldsForRecord(rec)
 		bins[b] = append(bins[b], Alignment{
 			Start:        rec.Start(),
 			End:          rec.End(),
@@ -559,10 +575,10 @@ func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end in
 			SNPs:         snps,
 			SNPBases:     snpBasesFromPositions(rec, snps),
 			Reverse:      rec.Flags&sam.Reverse != 0,
-			MateStart:    rec.MatePos,
-			MateEnd:      estimateMateEnd(rec),
-			MateRawStart: rec.MatePos,
-			MateRawEnd:   estimateMateEnd(rec),
+			MateStart:    mateStart,
+			MateEnd:      mateEnd,
+			MateRawStart: mateRawStart,
+			MateRawEnd:   mateRawEnd,
 			MateRefID:    mateRefID,
 			FragLen:      absInt(rec.TempLen),
 			MateSameRef:  isLikelySameRefMate(rec),
