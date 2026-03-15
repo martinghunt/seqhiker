@@ -978,9 +978,9 @@ func _draw_region_selection(track_rects: Dictionary) -> void:
 	var x0 := clampf(_bp_to_screen_edge(bp0), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
 	var x1 := clampf(_bp_to_screen_edge(bp1), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
 	var w := maxf(1.0, x1 - x0)
-	var fill: Color = palette.get("genome", Color(0.25, 0.45, 0.75))
+	var fill: Color = palette.get("region_select_fill", palette.get("genome", Color(0.25, 0.45, 0.75)))
 	fill.a = 0.28
-	var border: Color = palette["text"]
+	var border: Color = palette.get("region_select_outline", palette["text"])
 	border.a = 0.55
 	var selection_spans := _region_selection_spans(track_rects)
 	for span_any in selection_spans:
@@ -1452,8 +1452,8 @@ func _draw_map_track(area: Rect2) -> void:
 	var seq_top := seq_center_y - MAP_SEQUENCE_H * 0.5
 	var seq_font := get_theme_default_font()
 	var seq_font_size := _font_size_small
-	var base_seq_color: Color = palette["bg"]
-	var alt_seq_color: Color = palette.get("aa_alt_bg", base_seq_color)
+	var base_seq_color: Color = palette.get("map_contig", palette["bg"])
+	var alt_seq_color: Color = palette.get("map_contig_alt", palette.get("aa_alt_bg", base_seq_color))
 	if concat_segments.is_empty():
 		var seq_rect := Rect2(axis_left, seq_top, axis_right - axis_left, MAP_SEQUENCE_H)
 		draw_rect(seq_rect, base_seq_color, true)
@@ -1490,10 +1490,10 @@ func _draw_map_track(area: Rect2) -> void:
 			var label_y := _text_baseline_for_center(seq_rect.get_center().y, seq_font, seq_font_size)
 			draw_string(seq_font, Vector2(seq_rect.position.x + 5.0, label_y), label, HORIZONTAL_ALIGNMENT_LEFT, seq_rect.size.x - 10.0, seq_font_size, palette["text"])
 	if has_loaded_genome:
-		var fill: Color = palette.get("genome", Color(0.25, 0.45, 0.75))
+		var fill: Color = palette.get("map_view_fill", palette.get("genome", Color(0.25, 0.45, 0.75)))
 		fill.a = 0.5
 		draw_rect(viewport_rect, fill, true)
-		draw_rect(viewport_rect, palette["text"], false, 1.5)
+		draw_rect(viewport_rect, palette.get("map_view_outline", palette["text"]), false, 1.5)
 
 func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 	var axis_left := TRACK_LEFT_PAD
