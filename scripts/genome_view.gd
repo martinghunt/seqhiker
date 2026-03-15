@@ -1786,6 +1786,9 @@ func _gui_input(event: InputEvent) -> void:
 					if mb.double_click:
 						emit_signal("read_activated", read_hit["read"])
 					accept_event()
+					return
+			clear_selected_read()
+			accept_event()
 			return
 		if in_aa:
 			for hit in _feature_hitboxes:
