@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"net"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 )
 
@@ -247,6 +249,29 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 
 	case MsgGetVersion:
 		return MsgGetVersion, ackPayload(ZemVersion), nil
+
+	case MsgGenerateTestData:
+		rootDir, err := decodePathPayload(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		files, err := engine.GenerateTestData(rootDir)
+		if err != nil {
+			return 0, nil, err
+		}
+		for _, path := range files {
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext == ".bam" {
+				if _, err := engine.LoadBAM(path, 0); err != nil {
+					return 0, nil, err
+				}
+				continue
+			}
+			if err := engine.LoadGenome(path); err != nil {
+				return 0, nil, err
+			}
+		}
+		return MsgGenerateTestData, encodeStringList(files), nil
 
 	default:
 		return 0, nil, fmt.Errorf("unknown message type %d", msgType)

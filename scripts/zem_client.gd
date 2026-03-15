@@ -20,6 +20,7 @@ const MSG_SEARCH_DNA_EXACT := 16
 const MSG_GET_STRAND_COVERAGE_TILE := 17
 const MSG_DOWNLOAD_GENOME := 18
 const MSG_GET_VERSION := 19
+const MSG_GENERATE_TEST_DATA := 20
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -290,6 +291,19 @@ func get_server_version() -> Dictionary:
 	if not resp.get("ok", false):
 		return resp
 	resp["version"] = _decode_ack_message(resp.get("payload", PackedByteArray()))
+	return resp
+
+func generate_test_data(root_dir: String) -> Dictionary:
+	var root_bytes := root_dir.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(2 + root_bytes.size())
+	payload.encode_u16(0, root_bytes.size())
+	for i in range(root_bytes.size()):
+		payload[2 + i] = root_bytes[i]
+	var resp := _send_request(MSG_GENERATE_TEST_DATA, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["files"] = _parse_string_list(resp.get("payload", PackedByteArray()))
 	return resp
 
 func connection_info() -> Dictionary:

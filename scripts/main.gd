@@ -262,6 +262,9 @@ var _genome_cache_max_mb := GENOME_CACHE_MAX_MB_DEFAULT
 var _genome_cache_label: Label
 var _genome_cache_spin: SpinBox
 var _genome_cache_clear_button: Button
+var _generate_test_data_button: Button
+var _generate_test_data_thread: Thread
+var _generate_test_data_in_progress := false
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
 var _annotation_counts_by_chr := {}
 var _dbg_ann_tile_requests := 0
@@ -790,6 +793,11 @@ func _setup_debug_controls() -> void:
 	_genome_cache_clear_button.size_flags_horizontal = Control.SIZE_FILL
 	_genome_cache_clear_button.pressed.connect(_clear_genome_cache)
 	settings_content.add_child(_genome_cache_clear_button)
+	_generate_test_data_button = Button.new()
+	_generate_test_data_button.text = "Use test data"
+	_generate_test_data_button.size_flags_horizontal = Control.SIZE_FILL
+	_generate_test_data_button.pressed.connect(_start_generate_test_data)
+	settings_content.add_child(_generate_test_data_button)
 	_debug_toggle = CheckButton.new()
 	_debug_toggle.text = "Debug"
 	_debug_toggle.button_pressed = _debug_enabled
@@ -833,6 +841,63 @@ func _clear_genome_cache() -> void:
 		_set_status("Failed to clear genome cache.", true)
 		return
 	_set_status("Genome cache cleared.")
+
+func _generated_test_data_dir() -> String:
+	return OS.get_user_data_dir().path_join("generated_test_data")
+
+func _set_generate_test_data_controls_enabled(enabled: bool) -> void:
+	if _generate_test_data_button != null:
+		_generate_test_data_button.disabled = not enabled
+
+func _start_generate_test_data() -> void:
+	if _generate_test_data_in_progress:
+		return
+	if not _session_loader.ensure_server_connected():
+		return
+	var out_dir := _generated_test_data_dir()
+	var mk_err := DirAccess.make_dir_recursive_absolute(out_dir)
+	if mk_err != OK and not DirAccess.dir_exists_absolute(out_dir):
+		_set_status("Could not create generated test data directory.", true)
+		return
+	var conn: Dictionary = _zem.connection_info()
+	_generate_test_data_thread = Thread.new()
+	var err := _generate_test_data_thread.start(
+		Callable(self, "_generate_test_data_thread_main").bind(
+			str(conn.get("host", "127.0.0.1")),
+			int(conn.get("port", ZEM_DEFAULT_PORT)),
+			out_dir
+		)
+	)
+	if err != OK:
+		_generate_test_data_thread = null
+		_set_status("Could not start test-data thread: %s" % error_string(err), true)
+		return
+	_generate_test_data_in_progress = true
+	_set_generate_test_data_controls_enabled(false)
+	_set_status("Generating built-in test data...")
+
+func _generate_test_data_thread_main(host_ip: String, port: int, out_dir: String) -> Dictionary:
+	var client = ZemClientScript.new()
+	if not client.connect_to_server(host_ip, port, 2000):
+		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
+	return client.generate_test_data(out_dir)
+
+func _finish_generate_test_data(result_any: Variant) -> void:
+	_generate_test_data_in_progress = false
+	_set_generate_test_data_controls_enabled(true)
+	var result: Dictionary = result_any if result_any is Dictionary else {}
+	if result.is_empty() or not result.get("ok", false):
+		_set_status("Generate test data failed: %s" % result.get("error", "error"), true)
+		return
+	var files: PackedStringArray = result.get("files", PackedStringArray())
+	if files.is_empty():
+		_set_status("Generate test data failed: no files returned.", true)
+		return
+	var load_resp: Dictionary = _session_loader.load_server_paths(files)
+	if not load_resp.get("ok", false):
+		_set_status("Generate test data load failed: %s" % load_resp.get("error", "error"), true)
+		return
+	_set_status("Generated and loaded test data.")
 
 func _delete_dir_contents_absolute(dir_path: String) -> bool:
 	var dir := DirAccess.open(dir_path)
@@ -2103,6 +2168,9 @@ func _exit_tree() -> void:
 	if _download_thread != null and _download_thread.is_started():
 		_download_thread.wait_to_finish()
 		_download_thread = null
+	if _generate_test_data_thread != null and _generate_test_data_thread.is_started():
+		_generate_test_data_thread.wait_to_finish()
+		_generate_test_data_thread = null
 	if _local_zem_manager != null:
 		_local_zem_manager.shutdown_on_exit()
 
@@ -2531,6 +2599,10 @@ func _process(delta: float) -> void:
 		var download_result: Variant = _download_thread.wait_to_finish()
 		_download_thread = null
 		_finish_download_genome(download_result)
+	if _generate_test_data_thread != null and _generate_test_data_thread.is_started() and not _generate_test_data_thread.is_alive():
+		var generate_result: Variant = _generate_test_data_thread.wait_to_finish()
+		_generate_test_data_thread = null
+		_finish_generate_test_data(generate_result)
 	if not _auto_play_enabled:
 		return
 	if _current_chr_len <= 0:

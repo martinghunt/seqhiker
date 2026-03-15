@@ -556,6 +556,45 @@ func TestDispatchGetVersion(t *testing.T) {
 	}
 }
 
+func TestGenerateTestData(t *testing.T) {
+	e := NewEngine()
+	root := t.TempDir()
+	files, err := e.GenerateTestData(root)
+	if err != nil {
+		t.Fatalf("GenerateTestData returned error: %v", err)
+	}
+	if len(files) != 4 {
+		t.Fatalf("unexpected generated file count: got %d, want 4", len(files))
+	}
+	for _, path := range files {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("generated file missing: %s (%v)", path, err)
+		}
+	}
+	if _, err := os.Stat(files[2] + ".bai"); err != nil {
+		t.Fatalf("generated single-end BAM index missing: %v", err)
+	}
+	if _, err := os.Stat(files[3] + ".bai"); err != nil {
+		t.Fatalf("generated paired-end BAM index missing: %v", err)
+	}
+	if err := e.LoadGenome(files[0]); err != nil {
+		t.Fatalf("loading generated FASTA failed: %v", err)
+	}
+	if err := e.LoadGenome(files[1]); err != nil {
+		t.Fatalf("loading generated GFF failed: %v", err)
+	}
+	if _, err := e.LoadBAM(files[2], 0); err != nil {
+		t.Fatalf("loading generated single-end BAM failed: %v", err)
+	}
+	if _, err := e.LoadBAM(files[3], 0); err != nil {
+		t.Fatalf("loading generated paired-end BAM failed: %v", err)
+	}
+	chroms := e.ListChromosomes()
+	if len(chroms) != 3 {
+		t.Fatalf("unexpected chromosome count after generated test data load: got %d, want 3", len(chroms))
+	}
+}
+
 func decodeDNAHitsForTest(payload []byte) (bool, []DNAExactHit) {
 	if len(payload) < 3 {
 		return false, nil
