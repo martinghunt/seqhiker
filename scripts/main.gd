@@ -383,7 +383,7 @@ func _setup_theme_selector() -> void:
 	for theme_name in _themes_lib.theme_names():
 		theme_option.add_item(theme_name)
 	for i in range(theme_option.item_count):
-		if theme_option.get_item_text(i) == "Light":
+		if theme_option.get_item_text(i) == "Slate":
 			theme_option.select(i)
 			break
 

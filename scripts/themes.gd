@@ -184,11 +184,25 @@ const THEMES := {
 	}
 }
 
+const THEME_ORDER := [
+	"Slate",
+	"Light",
+	"Dark",
+	"Solarized Light",
+	"Solarized Dark",
+	"Forest"
+]
+
 func theme_names() -> PackedStringArray:
 	var names := PackedStringArray()
+	for key in THEME_ORDER:
+		if THEMES.has(key):
+			names.append(key)
 	for key in THEMES.keys():
-		names.append(str(key))
-	names.sort()
+		var theme_name := str(key)
+		if names.has(theme_name):
+			continue
+		names.append(theme_name)
 	return names
 
 func has_theme(theme_name: String) -> bool:
@@ -197,7 +211,7 @@ func has_theme(theme_name: String) -> bool:
 func palette(theme_name: String) -> Dictionary:
 	var resolved := _resolve_theme_name(theme_name)
 	if not THEMES.has(resolved):
-		resolved = "Light"
+		resolved = "Slate"
 	return (THEMES[resolved] as Dictionary).duplicate(true)
 
 func genome_palette(theme_name: String) -> Dictionary:
