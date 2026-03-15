@@ -9,6 +9,7 @@ const THEMES := {
 		"grid": Color("d0d0d0"),
 		"border": Color("d0d0d0"),
 		"text": Color("111111"),
+		"scrollbar_outline": Color("5a5a5a"),
 		"text_muted": Color("4a4a4a"),
 		"text_inverse": Color("ffffff"),
 		"button_bg": Color("efefef"),
@@ -38,6 +39,7 @@ const THEMES := {
 		"grid": Color("b8d1ad"),
 		"border": Color("b8d1ad"),
 		"text": Color("20301f"),
+		"scrollbar_outline": Color("566653"),
 		"text_muted": Color("41513f"),
 		"text_inverse": Color("ffffff"),
 		"button_bg": Color("dcebd5"),
@@ -67,6 +69,7 @@ const THEMES := {
 		"grid": Color("b6c3cf"),
 		"border": Color("b6c3cf"),
 		"text": Color("1f2933"),
+		"scrollbar_outline": Color("5f6d79"),
 		"text_muted": Color("4d5a67"),
 		"text_inverse": Color("ffffff"),
 		"button_bg": Color("dde6ee"),
@@ -96,6 +99,7 @@ const THEMES := {
 		"grid": Color("3a434f"),
 		"border": Color("3a434f"),
 		"text": Color("e6edf3"),
+		"scrollbar_outline": Color("9fb0bc"),
 		"text_muted": Color("aab6c2"),
 		"text_inverse": Color("111111"),
 		"button_bg": Color("2f3742"),
@@ -125,6 +129,7 @@ const THEMES := {
 		"grid": Color("93a1a1"),
 		"border": Color("93a1a1"),
 		"text": Color("657b83"),
+		"scrollbar_outline": Color("8f9ea2"),
 		"text_muted": Color("93a1a1"),
 		"text_inverse": Color("fdf6e3"),
 		"button_bg": Color("eee8d5"),
@@ -154,6 +159,7 @@ const THEMES := {
 		"grid": Color("586e75"),
 		"border": Color("586e75"),
 		"text": Color("839496"),
+		"scrollbar_outline": Color("839193"),
 		"text_muted": Color("657b83"),
 		"text_inverse": Color("002b36"),
 		"button_bg": Color("073642"),
@@ -478,7 +484,9 @@ func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	theme.set_constant("grabber_size", "VSlider", grabber_size)
 
 	var sb_scroll := StyleBoxFlat.new()
-	sb_scroll.bg_color = p["panel_alt"]
+	sb_scroll.bg_color = p["field_bg"]
+	sb_scroll.border_color = p["border"]
+	sb_scroll.set_border_width_all(1)
 	sb_scroll.set_corner_radius_all(5)
 	sb_scroll.content_margin_left = 2
 	sb_scroll.content_margin_right = 2
@@ -486,16 +494,18 @@ func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	sb_scroll.content_margin_bottom = 2
 
 	var sb_grabber := StyleBoxFlat.new()
-	sb_grabber.bg_color = p["button_bg"]
-	sb_grabber.border_color = p["field_border"]
-	sb_grabber.set_border_width_all(1)
+	sb_grabber.bg_color = p["button_hover"]
+	sb_grabber.border_color = p.get("scrollbar_outline", p["text"])
+	sb_grabber.set_border_width_all(2)
 	sb_grabber.set_corner_radius_all(5)
 
 	var sb_grabber_h := sb_grabber.duplicate()
-	sb_grabber_h.bg_color = p["button_hover"]
+	sb_grabber_h.bg_color = p["button_pressed"]
+	sb_grabber_h.border_color = p.get("scrollbar_outline", p["text"])
 
 	var sb_grabber_p := sb_grabber.duplicate()
-	sb_grabber_p.bg_color = p["button_pressed"]
+	sb_grabber_p.bg_color = p["accent"]
+	sb_grabber_p.border_color = p.get("scrollbar_outline", p["text"])
 
 	theme.set_stylebox("scroll", "VScrollBar", sb_scroll)
 	theme.set_stylebox("scroll_focus", "VScrollBar", sb_scroll)
