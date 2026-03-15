@@ -886,6 +886,7 @@ func _animate_zoom(from_start: float, to_start: float, from_bp_per_px: float, to
 func _set_zoom_progress(t: float) -> void:
 	bp_per_px = clampf(lerpf(_zoom_from_bp_per_px, _zoom_to_bp_per_px, t), min_bp_per_px, _max_allowed_bp_per_px())
 	view_start_bp = _clamp_start(lerpf(_zoom_from_start_bp, _zoom_to_start_bp, t))
+	_layout_all_read_scrollbars()
 	queue_redraw()
 	_emit_viewport_changed()
 
