@@ -530,5 +530,51 @@ max_value = 5e+08
 step = 1e+06
 value = 1.5e+07
 
+[node name="GenomeCacheLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+text = "Genome Cache Max (MB)"
+
+[node name="GenomeCacheSpin" type="SpinBox" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+min_value = 1.0
+max_value = 100000.0
+step = 10.0
+value = 51.0
+
+[node name="ClearGenomeCacheButton" type="Button" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Clear Genome Cache"
+
+[node name="UseTestDataButton" type="Button" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Use test data"
+
+[node name="OpenUserDataDirButton" type="Button" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Open user data directory"
+
+[node name="DebugToggle" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+text = "Debug"
+
+[node name="DebugStatsLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 2
+fit_content = true
+scroll_active = false
+selection_enabled = true
+
+[node name="DebugLoadedFilesLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+autowrap_mode = 3
+
 [node name="FeaturePanel" parent="Root/ContentMargin/ViewportLayer" instance=ExtResource("3_30wbj")]
 layout_mode = 1

@@ -150,6 +150,14 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var _track_visibility_map: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowMapTrack
 @onready var _bam_cov_cutoff_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffLabel
 @onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffSpin
+@onready var _genome_cache_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/GenomeCacheLabel
+@onready var _genome_cache_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/GenomeCacheSpin
+@onready var _genome_cache_clear_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ClearGenomeCacheButton
+@onready var _generate_test_data_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UseTestDataButton
+@onready var _open_user_data_dir_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/OpenUserDataDirButton
+@onready var _debug_toggle: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/DebugToggle
+@onready var _debug_stats_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/DebugStatsLabel
+@onready var _debug_loaded_files_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/DebugLoadedFilesLabel
 @onready var close_settings_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader/CloseSettingsButton
 
 var _settings_open := false
@@ -259,16 +267,8 @@ var _track_settings_box: VBoxContainer
 var _track_settings_open := false
 var _active_track_settings_id := ""
 var _debug_enabled := false
-var _debug_toggle: CheckButton
-var _debug_stats_label: RichTextLabel
-var _debug_loaded_files_label: Label
 var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
 var _genome_cache_max_mb := GENOME_CACHE_MAX_MB_DEFAULT
-var _genome_cache_label: Label
-var _genome_cache_spin: SpinBox
-var _genome_cache_clear_button: Button
-var _generate_test_data_button: Button
-var _open_user_data_dir_button: Button
 var _generate_test_data_thread: Thread
 var _generate_test_data_in_progress := false
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
@@ -843,53 +843,29 @@ func _setup_debug_controls() -> void:
 	_bam_cov_cutoff_spin.allow_lesser = false
 	if not _bam_cov_cutoff_spin.value_changed.is_connected(_on_bam_cov_cutoff_changed):
 		_bam_cov_cutoff_spin.value_changed.connect(_on_bam_cov_cutoff_changed)
-	_genome_cache_label = Label.new()
-	_genome_cache_label.text = "Genome Cache Max (MB)"
-	settings_content.add_child(_genome_cache_label)
-	_genome_cache_spin = SpinBox.new()
 	_genome_cache_spin.min_value = 1
 	_genome_cache_spin.max_value = 100000
 	_genome_cache_spin.step = 10
 	_genome_cache_spin.value = _genome_cache_max_mb
 	_genome_cache_spin.allow_greater = false
 	_genome_cache_spin.allow_lesser = false
-	_genome_cache_spin.value_changed.connect(_on_genome_cache_max_changed)
-	settings_content.add_child(_genome_cache_spin)
-	_genome_cache_clear_button = Button.new()
-	_genome_cache_clear_button.text = "Clear Genome Cache"
-	_genome_cache_clear_button.size_flags_horizontal = Control.SIZE_FILL
-	_genome_cache_clear_button.pressed.connect(_clear_genome_cache)
-	settings_content.add_child(_genome_cache_clear_button)
-	_generate_test_data_button = Button.new()
-	_generate_test_data_button.text = "Use test data"
-	_generate_test_data_button.size_flags_horizontal = Control.SIZE_FILL
-	_generate_test_data_button.pressed.connect(_start_generate_test_data)
-	settings_content.add_child(_generate_test_data_button)
-	_open_user_data_dir_button = Button.new()
-	_open_user_data_dir_button.text = "Open user data directory"
-	_open_user_data_dir_button.size_flags_horizontal = Control.SIZE_FILL
-	_open_user_data_dir_button.pressed.connect(_open_user_data_dir)
-	settings_content.add_child(_open_user_data_dir_button)
-	_debug_toggle = CheckButton.new()
-	_debug_toggle.text = "Debug"
+	if not _genome_cache_spin.value_changed.is_connected(_on_genome_cache_max_changed):
+		_genome_cache_spin.value_changed.connect(_on_genome_cache_max_changed)
+	if not _genome_cache_clear_button.pressed.is_connected(_clear_genome_cache):
+		_genome_cache_clear_button.pressed.connect(_clear_genome_cache)
+	if not _generate_test_data_button.pressed.is_connected(_start_generate_test_data):
+		_generate_test_data_button.pressed.connect(_start_generate_test_data)
+	if not _open_user_data_dir_button.pressed.is_connected(_open_user_data_dir):
+		_open_user_data_dir_button.pressed.connect(_open_user_data_dir)
 	_debug_toggle.button_pressed = _debug_enabled
-	_debug_toggle.toggled.connect(_on_debug_toggled)
-	settings_content.add_child(_debug_toggle)
-	_debug_stats_label = RichTextLabel.new()
+	if not _debug_toggle.toggled.is_connected(_on_debug_toggled):
+		_debug_toggle.toggled.connect(_on_debug_toggled)
 	_debug_stats_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
-	_debug_stats_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_debug_stats_label.fit_content = true
-	_debug_stats_label.scroll_active = false
-	_debug_stats_label.selection_enabled = true
 	_debug_stats_label.visible = _debug_enabled
 	_debug_stats_label.text = ""
-	settings_content.add_child(_debug_stats_label)
-	_debug_loaded_files_label = Label.new()
 	_debug_loaded_files_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
-	_debug_loaded_files_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_debug_loaded_files_label.visible = _debug_enabled
 	_debug_loaded_files_label.text = ""
-	settings_content.add_child(_debug_loaded_files_label)
 	_update_loaded_files_debug_label()
 
 func _on_bam_cov_cutoff_changed(value: float) -> void:
