@@ -423,8 +423,8 @@ func _set_checkbox_styles(theme: Theme, p: Dictionary) -> void:
 func _set_check_button_styles(theme: Theme, p: Dictionary) -> void:
 	var toggle_w := 40
 	var toggle_h := 22
-	var off_icon := _make_toggle_icon(toggle_w, toggle_h, p["panel_alt"], p["field_border"], p["button_bg"], false)
-	var on_icon := _make_toggle_icon(toggle_w, toggle_h, p["panel_alt"], p["field_border"], p["accent"], true)
+	var off_icon := _make_toggle_icon(toggle_w, toggle_h, p["button_hover"], p["field_border"], p["button_bg"], false)
+	var on_icon := _make_toggle_icon(toggle_w, toggle_h, p["button_hover"], p["field_border"], p["accent"], true)
 	theme.set_icon("off", "CheckButton", off_icon)
 	theme.set_icon("off_disabled", "CheckButton", off_icon)
 	theme.set_icon("on", "CheckButton", on_icon)
@@ -469,7 +469,9 @@ func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	theme.set_icon("grabber_disabled", "Slider", grabber)
 
 	var track := StyleBoxFlat.new()
-	track.bg_color = p["panel_alt"]
+	track.bg_color = p["button_hover"]
+	track.border_color = p["button_hover"]
+	track.set_border_width_all(1)
 	track.set_corner_radius_all(4)
 	track.content_margin_top = 4
 	track.content_margin_bottom = 4
