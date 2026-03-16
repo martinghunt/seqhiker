@@ -486,18 +486,30 @@ func _pan_view_by_fraction(fraction: float) -> void:
 	var max_start := maxf(0.0, float(_current_chr_len) - span)
 	var target_start := clampf(genome_view.view_start_bp + span * fraction, 0.0, max_start)
 	var target_end := int(minf(float(_current_chr_len), target_start + span))
+	var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
+	var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
+	var need_reference: bool = bool(genome_view.needs_reference_data(show_aa, show_genome))
+	var zoom := _compute_tile_zoom(current_bp_per_px)
+	var mode := 0 if (_has_bam_loaded and _any_visible_read_track() and current_bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
+	var annotations_ready := _is_viewport_cached(int(target_start), target_end, zoom, mode, need_reference, _scope_cache_key())
+	var reads_ready := true
 	if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px):
 		_annotation_cache_controller.prefetch_detailed_read_target(int(target_start), target_end, current_bp_per_px)
-		if _annotation_cache_controller.detailed_read_target_ready(int(target_start), target_end, current_bp_per_px):
-			_pending_pan_active = false
+		reads_ready = _annotation_cache_controller.detailed_read_target_ready(int(target_start), target_end, current_bp_per_px)
+	if not annotations_ready:
+		_annotation_cache_controller.prefetch_visible_target(int(target_start), target_end, current_bp_per_px)
+	if reads_ready and annotations_ready:
+		_pending_pan_active = false
+		if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px):
 			_annotation_cache_controller.apply_detailed_read_span(int(minf(genome_view.view_start_bp, target_start)), int(maxf(_last_end, target_end)), current_bp_per_px)
-			genome_view.pan_to_start(target_start, 0.35)
-		else:
-			_pending_pan_target_start = target_start
-			_pending_pan_target_end = target_end
-			_pending_pan_bp_per_px = current_bp_per_px
-			_pending_pan_duration = 0.35
-			_pending_pan_active = true
+		genome_view.pan_to_start(target_start, 0.35)
+		return
+	if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px) or not annotations_ready:
+		_pending_pan_target_start = target_start
+		_pending_pan_target_end = target_end
+		_pending_pan_bp_per_px = current_bp_per_px
+		_pending_pan_duration = 0.35
+		_pending_pan_active = true
 		return
 	genome_view.pan_by_fraction(fraction)
 
@@ -2726,10 +2738,21 @@ func _close_feature_panel() -> void:
 
 func _process(delta: float) -> void:
 	_drain_tile_fetch_result()
-	if _pending_pan_active and _annotation_cache_controller.detailed_read_target_ready(int(_pending_pan_target_start), _pending_pan_target_end, _pending_pan_bp_per_px):
-		_pending_pan_active = false
-		_annotation_cache_controller.apply_detailed_read_span(int(minf(genome_view.view_start_bp, _pending_pan_target_start)), int(maxf(_last_end, _pending_pan_target_end)), _pending_pan_bp_per_px)
-		genome_view.pan_to_start(_pending_pan_target_start, _pending_pan_duration)
+	if _pending_pan_active:
+		var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
+		var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
+		var need_reference: bool = bool(genome_view.needs_reference_data(show_aa, show_genome))
+		var zoom := _compute_tile_zoom(_pending_pan_bp_per_px)
+		var mode := 0 if (_has_bam_loaded and _any_visible_read_track() and _pending_pan_bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
+		var annotations_ready := _is_viewport_cached(int(_pending_pan_target_start), _pending_pan_target_end, zoom, mode, need_reference, _scope_cache_key())
+		var reads_ready := true
+		if _annotation_cache_controller.detailed_read_strips_enabled(_pending_pan_bp_per_px):
+			reads_ready = _annotation_cache_controller.detailed_read_target_ready(int(_pending_pan_target_start), _pending_pan_target_end, _pending_pan_bp_per_px)
+		if reads_ready and annotations_ready:
+			_pending_pan_active = false
+			if _annotation_cache_controller.detailed_read_strips_enabled(_pending_pan_bp_per_px):
+				_annotation_cache_controller.apply_detailed_read_span(int(minf(genome_view.view_start_bp, _pending_pan_target_start)), int(maxf(_last_end, _pending_pan_target_end)), _pending_pan_bp_per_px)
+			genome_view.pan_to_start(_pending_pan_target_start, _pending_pan_duration)
 	if _download_thread != null and _download_thread.is_started() and not _download_thread.is_alive():
 		var download_result: Variant = _download_thread.wait_to_finish()
 		_download_thread = null

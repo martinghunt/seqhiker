@@ -126,6 +126,72 @@ func refresh_visible_data() -> void:
 	})
 
 
+func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> void:
+	if host._current_chr_len <= 0:
+		return
+	var show_reads: bool = host._any_visible_read_track()
+	var fetch_reads_in_window := show_reads and not detailed_read_strips_enabled(bp_per_px)
+	var show_aa: bool = bool(host.genome_view.is_track_visible(host.TRACK_AA))
+	var show_gc_plot: bool = bool(host.genome_view.is_track_visible(host.TRACK_GC_PLOT))
+	var show_depth_plot: bool = bool(host.genome_view.is_track_visible(host.TRACK_DEPTH_PLOT))
+	var show_genome: bool = bool(host.genome_view.is_track_visible(host.TRACK_GENOME))
+	var need_annotations: bool = show_aa or show_genome
+	var need_reference: bool = bool(host.genome_view.needs_reference_data(show_aa, show_genome))
+	var span: int = maxi(1, end_bp - start_bp)
+	var query_start := maxi(0, int(floor(float(start_bp) - float(span) * NORMAL_LEFT_SPAN_MULT)))
+	var query_end := mini(host._current_chr_len, int(ceil(float(end_bp) + float(span) * NORMAL_RIGHT_SPAN_MULT)))
+	var overlaps: Array[Dictionary] = []
+	var visible_track_ids := {}
+	for t_any in host._bam_tracks:
+		var track_vis: Dictionary = t_any
+		var track_vis_id := str(track_vis.get("track_id", ""))
+		visible_track_ids[track_vis_id] = host.genome_view.is_track_visible(track_vis_id)
+	if host._seq_view_mode != host.SEQ_VIEW_SINGLE:
+		overlaps = host._segments_overlapping(query_start, query_end)
+	host.tile_fetch_serial += 1
+	var serial: int = int(host.tile_fetch_serial)
+	host.pending_tile_apply = {
+		"serial": serial,
+		"query_start": query_start,
+		"query_end": query_end,
+		"need_reference": need_reference,
+		"ref_start": query_start,
+		"ref_sequence": "",
+		"zoom": host._compute_tile_zoom(bp_per_px),
+		"mode": 0 if (host._has_bam_loaded and host._any_visible_read_track() and bp_per_px <= host.READ_RENDER_MAX_BP_PER_PX) else 1,
+		"scope_key": host._scope_cache_key(),
+		"fetch_reads": fetch_reads_in_window
+	}
+	host._tile_controller.request_tiles({
+		"serial": serial,
+		"request_kind": "visible",
+		"high_priority": true,
+		"host": "127.0.0.1",
+		"port": host.ZEM_DEFAULT_PORT,
+		"generation": host._tile_cache_generation,
+		"scope_key": host._scope_cache_key(),
+		"need_reference": need_reference,
+		"visible_start": start_bp,
+		"visible_end": end_bp,
+		"query_start": query_start,
+		"query_end": query_end,
+		"last_bp_per_px": bp_per_px,
+		"show_reads": fetch_reads_in_window,
+		"show_annotations": need_annotations,
+		"show_gc_plot": show_gc_plot,
+		"show_depth_plot": show_depth_plot,
+		"has_bam_loaded": host._has_bam_loaded,
+		"seq_view_mode": host._seq_view_mode,
+		"current_chr_id": host._current_chr_id,
+		"bam_tracks": host._bam_tracks,
+		"overlaps": overlaps,
+		"visible_track_ids": visible_track_ids,
+		"gc_window_bp": host._gc_window_bp,
+		"annotation_cap_total": annotation_pixel_budget(),
+		"annotation_min_len_bp": annotation_min_feature_len_bp()
+	})
+
+
 func update_detailed_read_strips(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	if not detailed_read_strips_enabled(bp_per_px):
 		_reset_read_strips()
