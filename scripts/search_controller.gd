@@ -303,7 +303,7 @@ func _populate_search_results() -> void:
 			strand_tag = " (%s)" % str(hit.get("strand", ""))
 		var text := "%s:%d-%d  %s" % [
 			str(hit.get("chr_name", "chr")),
-			int(hit.get("start", 0)),
+			int(hit.get("start", 0)) + 1,
 			int(hit.get("end", 0)),
 			"%s%s" % [str(hit.get("label", "match")), strand_tag]
 		]

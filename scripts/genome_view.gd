@@ -2175,16 +2175,19 @@ func _format_bp(value: int) -> String:
 	return "%d" % value
 
 func _format_axis_bp(value: int, step: int) -> String:
+	var display_value := maxi(1, value + 1)
 	if step < 1000:
-		return _format_int_with_commas(value) if _axis_coords_with_commas else str(value)
+		return _format_int_with_commas(display_value) if _axis_coords_with_commas else str(display_value)
+	if value == 0:
+		return "1"
 	if step < 1000000:
-		var kb := float(value) / 1000.0
+		var kb := float(display_value) / 1000.0
 		if step < 10000:
 			return "%.2f kb" % kb
 		if step < 100000:
 			return "%.1f kb" % kb
 		return "%.0f kb" % kb
-	var mb := float(value) / 1000000.0
+	var mb := float(display_value) / 1000000.0
 	if step < 10000000:
 		return "%.2f Mb" % mb
 	if step < 100000000:

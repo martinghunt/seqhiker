@@ -19,7 +19,10 @@ func on_feature_clicked(feature: Dictionary) -> void:
 	host.feature_name_label.visible = true
 	host.feature_name_label.text = "Name: %s" % str(feature.get("name", "-"))
 	host.feature_type_label.text = "Type: %s" % str(feature.get("type", "-"))
-	host.feature_range_label.text = "Range: %d - %d" % [int(feature.get("start", 0)), int(feature.get("end", 0))]
+	host.feature_range_label.text = "Range: %d - %d" % [
+		_display_range_start_bp(int(feature.get("start", 0))),
+		_display_range_end_bp(int(feature.get("end", 0)))
+	]
 	host.feature_strand_label.text = "Strand: %s" % str(feature.get("strand", "."))
 	var feature_id := str(feature.get("id", "")).strip_edges()
 	if feature_id.is_empty():
@@ -34,8 +37,8 @@ func on_feature_clicked(feature: Dictionary) -> void:
 		var cds_name := str(paired_cds.get("name", "-"))
 		seq_text += "\n\nCDS\nName: %s\nRange: %d - %d\nStrand: %s\nSource: %s" % [
 			cds_name,
-			int(paired_cds.get("start", 0)),
-			int(paired_cds.get("end", 0)),
+			_display_range_start_bp(int(paired_cds.get("start", 0))),
+			_display_range_end_bp(int(paired_cds.get("end", 0))),
 			str(paired_cds.get("strand", ".")),
 			cds_source
 		]
@@ -88,7 +91,11 @@ func on_read_clicked(read: Dictionary) -> void:
 		var mate_chr_name := _chrom_name_for_id(mate_ref_id)
 		if mate_chr_name.is_empty():
 			mate_chr_name = "chr%d" % mate_ref_id
-		mate_text = "Mate: %s:%d - %d" % [mate_chr_name, mate_raw_start, mate_raw_end]
+		mate_text = "Mate: %s:%d - %d" % [
+			mate_chr_name,
+			_display_range_start_bp(mate_raw_start),
+			_display_range_end_bp(mate_raw_end)
+		]
 	var frag_len := int(read.get("fragment_len", 0))
 	host.feature_name_label.text = "Read: %s" % read_name
 	host.feature_type_label.text = "Range: %s (%d bp)" % [read_range_text, read_len]
@@ -125,24 +132,41 @@ func _concat_segment_for_bp(bp: int) -> Dictionary:
 
 func _format_read_range(start_bp: int, end_bp: int) -> String:
 	if host._seq_view_mode != host.SEQ_VIEW_CONCAT:
-		return "%d - %d" % [start_bp, end_bp]
+		return "%d - %d" % [_display_range_start_bp(start_bp), _display_range_end_bp(end_bp)]
 	if end_bp <= start_bp:
 		var point_seg := _concat_segment_for_bp(start_bp)
 		if point_seg.is_empty():
-			return "%d - %d" % [start_bp, end_bp]
+			return "%d - %d" % [_display_range_start_bp(start_bp), _display_range_end_bp(end_bp)]
 		var point_name := str(point_seg.get("name", ""))
 		var point_local := start_bp - int(point_seg.get("start", 0))
-		return "%s:%d" % [point_name, point_local]
+		return "%s:%d" % [point_name, _display_point_bp(point_local)]
 	var start_seg := _concat_segment_for_bp(start_bp)
 	var end_seg := _concat_segment_for_bp(end_bp - 1)
 	if start_seg.is_empty() or end_seg.is_empty():
-		return "%d - %d" % [start_bp, end_bp]
+		return "%d - %d" % [_display_range_start_bp(start_bp), _display_range_end_bp(end_bp)]
 	var start_name := str(start_seg.get("name", ""))
 	var start_local := start_bp - int(start_seg.get("start", 0))
 	var end_local := end_bp - int(end_seg.get("start", 0))
 	if start_name == str(end_seg.get("name", "")):
-		return "%s:%d - %d" % [start_name, start_local, end_local]
-	return "%s:%d - %s:%d" % [start_name, start_local, str(end_seg.get("name", "")), end_local]
+		return "%s:%d - %d" % [start_name, _display_range_start_bp(start_local), _display_range_end_bp(end_local)]
+	return "%s:%d - %s:%d" % [
+		start_name,
+		_display_range_start_bp(start_local),
+		str(end_seg.get("name", "")),
+		_display_range_end_bp(end_local)
+	]
+
+
+func _display_point_bp(bp: int) -> int:
+	return bp + 1
+
+
+func _display_range_start_bp(start_bp: int) -> int:
+	return start_bp + 1
+
+
+func _display_range_end_bp(end_bp: int) -> int:
+	return end_bp
 
 
 func _ensure_mate_jump_button() -> void:

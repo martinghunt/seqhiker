@@ -625,33 +625,47 @@ func _format_viewport_label(start_bp: int, end_bp: int, _bp_per_px: float) -> St
 	var coord_end := end_bp
 	var span_bp := maxi(0, end_bp - start_bp)
 	var span_text := "visible"
+	var coord_end_inclusive := false
 	if _selection_active:
 		coord_start = _selection_start
 		coord_end = _selection_end
 		span_bp = maxi(0, _selection_end - _selection_start + 1)
 		span_text = "selected"
+		coord_end_inclusive = true
 	if _seq_view_mode != SEQ_VIEW_CONCAT:
-		return "%s:%d - %d bp  |  %d bp %s" % [_current_chr_name, coord_start, coord_end, span_bp, span_text]
-	var overlaps := _segments_overlapping(coord_start, coord_end)
+		return "%s:%d - %d bp  |  %d bp %s" % [
+			_current_chr_name,
+			_display_range_start_bp(coord_start),
+			_display_range_end_bp(coord_end, coord_end_inclusive),
+			span_bp,
+			span_text
+		]
+	var overlap_end := coord_end + 1 if coord_end_inclusive else coord_end
+	var overlaps := _segments_overlapping(coord_start, overlap_end)
 	if overlaps.is_empty():
-		return "concat:%d - %d bp  |  %d bp %s" % [coord_start, coord_end, span_bp, span_text]
+		return "concat:%d - %d bp  |  %d bp %s" % [
+			_display_range_start_bp(coord_start),
+			_display_range_end_bp(coord_end, coord_end_inclusive),
+			span_bp,
+			span_text
+		]
 	if overlaps.size() == 1:
 		var seg := overlaps[0]
 		return "%s:%d - %d bp  |  %d bp %s" % [
 			str(seg.get("name", "chr")),
-			int(seg.get("local_start", 0)),
-			int(seg.get("local_end", 0)),
+			_display_range_start_bp(int(seg.get("local_start", 0))),
+			_display_range_end_bp(int(seg.get("local_end", 0))),
 			span_bp, span_text
 		]
 	var first := overlaps[0]
 	var last := overlaps[overlaps.size() - 1]
 	var prefix := "%s:%d-%d | %s:%d-%d" % [
 		str(first.get("name", "chr")),
-		int(first.get("local_start", 0)),
-		int(first.get("local_end", 0)),
+		_display_range_start_bp(int(first.get("local_start", 0))),
+		_display_range_end_bp(int(first.get("local_end", 0))),
 		str(last.get("name", "chr")),
-		int(last.get("local_start", 0)),
-		int(last.get("local_end", 0))
+		_display_range_start_bp(int(last.get("local_start", 0))),
+		_display_range_end_bp(int(last.get("local_end", 0)))
 	]
 	if overlaps.size() > 2:
 		prefix += " (+%d)" % (overlaps.size() - 2)
@@ -2007,6 +2021,15 @@ func _set_go_status(message: String, is_error: bool = false) -> void:
 	if is_error:
 		_set_status(message, true)
 
+func _display_point_bp(bp: int) -> int:
+	return bp + 1
+
+func _display_range_start_bp(start_bp: int) -> int:
+	return start_bp + 1
+
+func _display_range_end_bp(end_bp: int, is_inclusive: bool = false) -> int:
+	return end_bp + 1 if is_inclusive else end_bp
+
 func _parse_go_bp(text: String) -> int:
 	var clean := text.strip_edges().replace(",", "").replace(" ", "")
 	if clean.is_empty():
@@ -2014,7 +2037,7 @@ func _parse_go_bp(text: String) -> int:
 	if not clean.is_valid_int():
 		return -1
 	var value := int(clean)
-	if value < 0:
+	if value < 1:
 		return -1
 	return value
 
@@ -2036,20 +2059,20 @@ func _apply_go_request() -> void:
 	if chr_len <= 0:
 		_set_go_status("Chromosome length unavailable.", true)
 		return
-	var start_bp := _parse_go_bp(_go_start_edit.text)
-	if start_bp < 0:
+	var start_display := _parse_go_bp(_go_start_edit.text)
+	if start_display < 1:
 		_set_go_status("Enter a valid start position.", true)
 		return
-	var end_bp := _parse_go_bp(_go_end_edit.text) if _go_end_edit != null else -1
-	if start_bp > chr_len:
+	var end_display := _parse_go_bp(_go_end_edit.text) if _go_end_edit != null else -1
+	if start_display > chr_len:
 		_set_go_status("Start position beyond chromosome length.", true)
 		return
-	if end_bp >= 0 and end_bp < start_bp:
-		var swap := start_bp
-		start_bp = end_bp
-		end_bp = swap
-	if end_bp > chr_len:
-		end_bp = chr_len
+	if end_display >= 0 and end_display < start_display:
+		var swap := start_display
+		start_display = end_display
+		end_display = swap
+	if end_display > chr_len:
+		end_display = chr_len
 	if _seq_view_mode != SEQ_VIEW_SINGLE:
 		_seq_view_option.select(SEQ_VIEW_SINGLE)
 		_on_seq_view_selected(SEQ_VIEW_SINGLE)
@@ -2060,16 +2083,19 @@ func _apply_go_request() -> void:
 			break
 	var width_px := maxf(1.0, genome_view.size.x)
 	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
-	if end_bp >= 0:
+	if end_display >= 0:
+		var start_bp := start_display - 1
+		var end_bp := end_display
 		var span_bp := maxi(1, end_bp - start_bp)
 		var bp_per_px := clampf(float(span_bp) / width_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
 		_navigate_to_view(float(start_bp), bp_per_px)
 		genome_view.clear_region_selection()
-		_set_go_status("%s:%d-%d" % [chr_name, start_bp, end_bp])
+		_set_go_status("%s:%d-%d" % [chr_name, start_display, end_display])
 	else:
-		_navigate_to_centered_range(start_bp, start_bp + 1, current_bp_per_px)
+		var point_bp := start_display - 1
+		_navigate_to_centered_range(point_bp, point_bp + 1, current_bp_per_px)
 		genome_view.clear_region_selection()
-		_set_go_status("%s:%d" % [chr_name, start_bp])
+		_set_go_status("%s:%d" % [chr_name, start_display])
 	_close_feature_panel()
 
 func _search_get_zem() -> RefCounted:
