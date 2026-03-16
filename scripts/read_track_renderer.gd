@@ -7,6 +7,31 @@ var view: GenomeView = null
 func configure(next_view: GenomeView) -> void:
 	view = next_view
 
+
+func _viewport_start_bp_at(render_start_bp: float, render_bp_per_px: float) -> float:
+	if render_bp_per_px > 0.0:
+		return render_start_bp
+	return view.view_start_bp
+
+
+func _viewport_end_bp_at(render_start_bp: float, render_bp_per_px: float, render_width_px: float = -1.0) -> float:
+	var start_bp := _viewport_start_bp_at(render_start_bp, render_bp_per_px)
+	var bp_per_px_value := render_bp_per_px if render_bp_per_px > 0.0 else view.bp_per_px
+	var width_px := render_width_px
+	if width_px <= 0.0:
+		width_px = maxf(1.0, view.size.x - view.TRACK_LEFT_PAD - view.TRACK_RIGHT_PAD)
+	return start_bp + width_px * bp_per_px_value
+
+
+func _bp_to_x_at(bp: float, render_start_bp: float, render_bp_per_px: float) -> float:
+	var start_bp := _viewport_start_bp_at(render_start_bp, render_bp_per_px)
+	var bp_per_px_value := render_bp_per_px if render_bp_per_px > 0.0 else view.bp_per_px
+	return (bp - start_bp) / bp_per_px_value
+
+
+func _bp_to_screen_center_at(bp: float, render_start_bp: float, render_bp_per_px: float) -> float:
+	return view.TRACK_LEFT_PAD + _bp_to_x_at(bp + 0.5, render_start_bp, render_bp_per_px)
+
 func _color_distance(a: Color, b: Color) -> float:
 	var dr := a.r - b.r
 	var dg := a.g - b.g
@@ -198,6 +223,8 @@ func draw_read_tracks(area: Rect2) -> void:
 				draw_stack_summary(area)
 		return
 	draw_coverage_tiles(area, false)
+	if view.is_motion_read_layer_active():
+		return
 
 	var content_top := area.position.y + 30.0
 	var content_bottom := area.position.y + area.size.y - 4.0
@@ -223,13 +250,18 @@ func draw_read_tracks(area: Rect2) -> void:
 		mate_lookup = build_mate_lookup()
 	var inferred_ids := _inferred_mate_contig_ids(view._laid_out_reads)
 	var mate_contig_colors := _mate_contig_colors(view._laid_out_reads)
-	var draw_snp_text := can_draw_read_snp_letters()
+	var pan_animating := view._pan_tween != null and view._pan_tween.is_running()
+	var draw_snp_text := can_draw_read_snp_letters() and not pan_animating
 	var snp_font := view.sequence_letter_font()
-	var snp_font_size := read_text_font_size()
+	var snp_font_size := maxi(8, read_text_font_size() - 1)
+	var visible_end_bp := int(view._viewport_end_bp())
+	var can_break_by_start := view._read_view_mode != view.READ_VIEW_STRAND
 	for i in range(view._laid_out_reads.size()):
 		var read: Dictionary = view._laid_out_reads[i]
 		var read_start: int = read["start"]
 		var read_end: int = read["end"]
+		if can_break_by_start and read_start > visible_end_bp:
+			break
 		if read_end < int(view.view_start_bp) or read_start > int(view._viewport_end_bp()):
 			continue
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
@@ -306,7 +338,104 @@ func draw_read_tracks(area: Rect2) -> void:
 					var tx := sx - tw * 0.5
 					var ty := view._text_baseline_for_center(y + row_h * 0.5, snp_font, snp_font_size)
 					view.draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
-			draw_indel_markers(read, y)
+			if not pan_animating:
+				draw_indel_markers(read, y)
+
+
+func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: float, render_bp_per_px: float, render_end_bp: float, track_id: String) -> void:
+	if area.size.y <= 24.0:
+		return
+	var visible_start := int(_viewport_start_bp_at(render_start_bp, render_bp_per_px))
+	var visible_end_bp := int(render_end_bp)
+	var content_top := area.position.y + 30.0
+	var content_bottom := area.position.y + area.size.y - 4.0
+	var row_h := view.current_read_row_h()
+	var row_step := view.current_read_row_step()
+	var scroll_px := 0.0
+	if view._read_view_mode == view.READ_VIEW_FRAGMENT:
+		scroll_px = view._reads_scrollbar.value * row_step
+	elif view._read_view_mode == view.READ_VIEW_STRAND:
+		scroll_px = -view._reads_scrollbar.value * row_step
+	else:
+		var max_offset := maxf(0.0, view._reads_scrollbar.max_value - view._reads_scrollbar.page)
+		var effective_offset := maxf(0.0, max_offset - view._reads_scrollbar.value)
+		scroll_px = effective_offset * row_step
+	var strand_split_y := 0.0
+	if view._read_view_mode == view.READ_VIEW_STRAND:
+		strand_split_y = view._strand_split_y_for_area(area, view._reads_scrollbar.value)
+		if strand_split_y >= content_top and strand_split_y <= content_bottom:
+			target.draw_line(Vector2(0.0, strand_split_y), Vector2(view.size.x, strand_split_y), Color(0, 0, 0, 0.9), view.STRAND_SPLIT_LINE_WIDTH)
+	var drawn_pairs: Dictionary = {}
+	var inferred_ids := _inferred_mate_contig_ids(view._laid_out_reads)
+	var mate_contig_colors := _mate_contig_colors(view._laid_out_reads)
+	var snp_font := view.sequence_letter_font()
+	var snp_font_size := read_text_font_size()
+	var draw_snp_text := view.can_draw_read_snp_letters_for_row_h(view.current_read_row_h())
+	var can_break_by_start := view._read_view_mode != view.READ_VIEW_STRAND
+	var render_screen_right := view.TRACK_LEFT_PAD + maxf(0.0, (render_end_bp - render_start_bp) / render_bp_per_px)
+	for i in range(view._laid_out_reads.size()):
+		var read: Dictionary = view._laid_out_reads[i]
+		var read_start: int = read["start"]
+		var read_end: int = read["end"]
+		if can_break_by_start and read_start > visible_end_bp:
+			break
+		if read_end < visible_start or read_start > visible_end_bp:
+			continue
+		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
+			var pair_key := pair_render_key(read)
+			if not pair_key.is_empty():
+				if drawn_pairs.has(pair_key):
+					continue
+				drawn_pairs[pair_key] = true
+		var y := read_y_for_area(read, content_top, content_bottom, scroll_px, strand_split_y)
+		if y + row_h < content_top or y > area.position.y + area.size.y - 4.0:
+			continue
+		var x0 := view.TRACK_LEFT_PAD + _bp_to_x_at(read_start, render_start_bp, render_bp_per_px)
+		var x1 := view.TRACK_LEFT_PAD + _bp_to_x_at(read_end, render_start_bp, render_bp_per_px)
+		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), row_h))
+		var read_color := _read_color(read, mate_contig_colors, inferred_ids)
+		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
+			_draw_pair_connector_to(target, read, y, read_color, render_start_bp, render_bp_per_px)
+			_draw_mate_block_to(target, read, y, read_color, render_start_bp, render_bp_per_px)
+		target.draw_rect(rect, read_color, true)
+		var draw_selected := false
+		if track_id == view._selected_read_track_id and i == view._selected_read_index:
+			draw_selected = true
+		elif track_id == view._selected_read_track_id and not view._selected_read_pair_name.is_empty():
+			var rname := str(read.get("name", ""))
+			if rname == view._selected_read_pair_name:
+				if (view._selected_read_flags & 1) != 0:
+					draw_selected = true
+				elif read_start == view._selected_read_pair_a_start and read_end == view._selected_read_pair_a_end:
+					draw_selected = true
+				elif read_start == view._selected_read_pair_b_start and read_end == view._selected_read_pair_b_end:
+					draw_selected = true
+		if draw_selected:
+			var border_col: Color = view.palette.get("text", view._axis_text_color())
+			target.draw_rect(rect.grow(1.5), border_col, false, 2.0)
+		if view.bp_per_px <= view.SNP_MARK_MAX_BP_PER_PX:
+			var snps: PackedInt32Array = read.get("snps", PackedInt32Array())
+			var snp_bases: PackedByteArray = read.get("snp_bases", PackedByteArray())
+			for j in range(snps.size()):
+				var snp_bp := int(snps[j])
+				if snp_bp < visible_start or snp_bp > visible_end_bp:
+					continue
+				var sx := _bp_to_screen_center_at(float(snp_bp), render_start_bp, render_bp_per_px)
+				if sx < view.TRACK_LEFT_PAD or sx > render_screen_right:
+					continue
+				var snp_w := maxf(1.0, 1.0 / render_bp_per_px)
+				var base_text := ""
+				if draw_snp_text and j < snp_bases.size():
+					var b := char(int(snp_bases[j]))
+					base_text = "N" if b.is_empty() else b
+					var base_w := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x + 1.0
+					snp_w = maxf(snp_w, base_w)
+				target.draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, row_h), view.palette.get("snp", Color(0.86, 0.14, 0.14)), true)
+				if not base_text.is_empty():
+					var tw := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x
+					var tx := sx - tw * 0.5
+					var ty := view._text_baseline_for_center(y + row_h * 0.5, snp_font, snp_font_size)
+					target.draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
 
 
 func read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:
@@ -338,6 +467,21 @@ func draw_pair_connector(read: Dictionary, y: float, line_color: Color) -> void:
 	var draw_col := line_color
 	draw_col.a = maxf(draw_col.a, 0.9)
 	view.draw_line(Vector2(x0, yc), Vector2(x1, yc), draw_col, 1.0)
+
+
+func _draw_pair_connector_to(target: CanvasItem, read: Dictionary, y: float, line_color: Color, render_start_bp: float, render_bp_per_px: float) -> void:
+	var mate_start := int(read.get("mate_start", -1))
+	var mate_end := int(read.get("mate_end", -1))
+	if mate_start < 0 or mate_end <= mate_start:
+		return
+	var read_center := float(read.get("start", 0) + read.get("end", 0)) * 0.5
+	var mate_center := float(mate_start + mate_end) * 0.5
+	var x0 := view.TRACK_LEFT_PAD + _bp_to_x_at(read_center, render_start_bp, render_bp_per_px)
+	var x1 := view.TRACK_LEFT_PAD + _bp_to_x_at(mate_center, render_start_bp, render_bp_per_px)
+	var yc := y + view.current_read_row_h() * 0.5
+	var draw_col := line_color
+	draw_col.a = maxf(draw_col.a, 0.9)
+	target.draw_line(Vector2(x0, yc), Vector2(x1, yc), draw_col, 1.0)
 
 
 func can_draw_read_snp_letters() -> bool:
@@ -386,11 +530,58 @@ func draw_indel_markers(read: Dictionary, y: float) -> void:
 		view.draw_line(Vector2(ix - cap_w * 0.5, y1), Vector2(ix + cap_w * 0.5, y1), col, cap_line_w)
 
 
+func _draw_indel_markers_to(target: CanvasItem, read: Dictionary, y: float, render_start_bp: float, render_bp_per_px: float, render_end_bp: float = -1.0) -> void:
+	var row_h := view.current_read_row_h()
+	var mid_y := y + row_h * 0.5
+	var half_h := maxf(1.0, row_h * 0.5)
+	var trim_h := maxf(0.0, (row_h - half_h) * 0.5)
+	var visible_start := int(_viewport_start_bp_at(render_start_bp, render_bp_per_px))
+	var visible_end := int(render_end_bp if render_end_bp > 0.0 else _viewport_end_bp_at(render_start_bp, render_bp_per_px))
+	var del_starts: PackedInt32Array = read.get("del_starts", PackedInt32Array())
+	var del_ends: PackedInt32Array = read.get("del_ends", PackedInt32Array())
+	var del_count := mini(del_starts.size(), del_ends.size())
+	for i in range(del_count):
+		var ds := int(del_starts[i])
+		var de := int(del_ends[i])
+		if de <= ds:
+			continue
+		if de < visible_start or ds > visible_end:
+			continue
+		var dx0 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(ds), render_start_bp, render_bp_per_px)
+		var dx1 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(de), render_start_bp, render_bp_per_px)
+		if trim_h > 0.0 and dx1 > dx0:
+			target.draw_rect(Rect2(dx0, y, dx1 - dx0, trim_h), view.palette["bg"], true)
+			target.draw_rect(Rect2(dx0, y + row_h - trim_h, dx1 - dx0, trim_h), view.palette["bg"], true)
+		target.draw_line(Vector2(dx0, mid_y), Vector2(dx1, mid_y), Color(0.08, 0.08, 0.08, 0.95), 1.0)
+	var ins_positions: PackedInt32Array = read.get("ins_positions", PackedInt32Array())
+	for pos in ins_positions:
+		var ip := int(pos)
+		if ip < visible_start or ip > visible_end:
+			continue
+		var ix := view.TRACK_LEFT_PAD + _bp_to_x_at(float(ip), render_start_bp, render_bp_per_px)
+		var y0 := y + 1.0
+		var y1 := y + row_h - 1.0
+		var cap_w := maxf(4.0, row_h * 0.7)
+		var cap_line_w := maxf(1.0, row_h * 0.15)
+		var stem_line_w := maxf(1.0, row_h * 0.3)
+		var col := Color(0.05, 0.05, 0.05, 0.98)
+		target.draw_line(Vector2(ix, y0), Vector2(ix, y1), col, stem_line_w)
+		target.draw_line(Vector2(ix - cap_w * 0.5, y0), Vector2(ix + cap_w * 0.5, y0), col, cap_line_w)
+		target.draw_line(Vector2(ix - cap_w * 0.5, y1), Vector2(ix + cap_w * 0.5, y1), col, cap_line_w)
+
+
 func draw_mate_block(read: Dictionary, y: float, block_color: Color) -> void:
 	var mate_rect := mate_rect_for_read(read, y)
 	if mate_rect.size.x <= 0.0 or mate_rect.size.y <= 0.0:
 		return
 	view.draw_rect(mate_rect, block_color, true)
+
+
+func _draw_mate_block_to(target: CanvasItem, read: Dictionary, y: float, block_color: Color, render_start_bp: float, render_bp_per_px: float) -> void:
+	var mate_rect := _mate_rect_for_read_at(read, y, render_start_bp, render_bp_per_px)
+	if mate_rect.size.x <= 0.0 or mate_rect.size.y <= 0.0:
+		return
+	target.draw_rect(mate_rect, block_color, true)
 
 
 func mate_rect_for_read(read: Dictionary, y: float) -> Rect2:
@@ -402,6 +593,20 @@ func mate_rect_for_read(read: Dictionary, y: float) -> Rect2:
 		return Rect2()
 	var mx0 := view.TRACK_LEFT_PAD + view._bp_to_x(mate_start)
 	var mx1 := view.TRACK_LEFT_PAD + view._bp_to_x(mate_end)
+	return Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), view.current_read_row_h()))
+
+
+func _mate_rect_for_read_at(read: Dictionary, y: float, render_start_bp: float, render_bp_per_px: float) -> Rect2:
+	var mate_start := int(read.get("mate_start", -1))
+	var mate_end := int(read.get("mate_end", -1))
+	var visible_start := int(_viewport_start_bp_at(render_start_bp, render_bp_per_px))
+	var visible_end := int(_viewport_end_bp_at(render_start_bp, render_bp_per_px))
+	if mate_start < 0 or mate_end <= mate_start:
+		return Rect2()
+	if mate_end < visible_start or mate_start > visible_end:
+		return Rect2()
+	var mx0 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(mate_start), render_start_bp, render_bp_per_px)
+	var mx1 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(mate_end), render_start_bp, render_bp_per_px)
 	return Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), view.current_read_row_h()))
 
 

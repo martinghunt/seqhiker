@@ -8,6 +8,7 @@ const TRACK_ROW_SCENE := preload("res://scenes/Track.tscn")
 const ReadLayoutHelperScript = preload("res://scripts/read_layout_helper.gd")
 const ReadTrackRendererScript = preload("res://scripts/read_track_renderer.gd")
 const AnnotationRendererScript = preload("res://scripts/annotation_renderer.gd")
+const MotionReadLayerScript = preload("res://scripts/motion_read_layer.gd")
 const DETAILED_READ_MAX_BP_PER_PX := 48.0
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
@@ -139,6 +140,11 @@ var palette: Dictionary = {
 
 var _pan_tween: Tween
 var _zoom_tween: Tween
+var _motion_read_layer: Control = null
+var _motion_read_layer_active := false
+var _motion_read_layer_start_bp := 0.0
+var _motion_read_layer_end_bp := 0.0
+var _motion_read_layer_bp_per_px := 1.0
 var _zoom_from_bp_per_px := 8.0
 var _zoom_to_bp_per_px := 8.0
 var _zoom_from_start_bp := 0.0
@@ -160,6 +166,7 @@ var _vertical_swipe_zoom_enabled := true
 var _mouse_wheel_zoom_sensitivity := 1.0
 var _invert_mouse_wheel_zoom := false
 var _mouse_wheel_pan_sensitivity := 1.0
+var _pan_zoom_animation_speed := 1.0
 var _reads_scrollbar: VScrollBar
 var _laid_out_reads: Array[Dictionary] = []
 var _read_layout_helper := ReadLayoutHelperScript.new()
@@ -169,6 +176,7 @@ var _read_row_count := 0
 var _strand_forward_rows := 0
 var _strand_reverse_rows := 0
 var _strand_split_lock_y := -1.0
+var _last_layout_bp_per_px := -1.0
 var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
@@ -239,6 +247,10 @@ func _ready() -> void:
 	_read_renderer.configure(self)
 	_annotation_renderer = AnnotationRendererScript.new()
 	_annotation_renderer.configure(self)
+	_motion_read_layer = MotionReadLayerScript.new()
+	_motion_read_layer.configure(self)
+	_motion_read_layer.visible = false
+	add_child(_motion_read_layer)
 	_sync_track_rows()
 	_read_track_states[TRACK_ID_READS] = {
 		"reads": reads,
@@ -438,7 +450,7 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	var prev_view_mode := _read_view_mode
 	var next_view_mode := clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
 	var preferred_rows := {}
-	if prev_view_mode == next_view_mode:
+	if prev_view_mode == next_view_mode and absf(_last_layout_bp_per_px - bp_per_px) < 0.000001:
 		preferred_rows = _read_layout_helper.preferred_row_map(_laid_out_reads, _read_view_mode, int(view_start_bp), int(_viewport_end_bp()))
 	var current_summary_only := bp_per_px > DETAILED_READ_MAX_BP_PER_PX and bp_per_px <= READ_RENDER_MAX_BP_PER_PX
 	var should_center_paired_from_summary := _was_summary_only and not current_summary_only and next_view_mode == READ_VIEW_PAIRED
@@ -484,6 +496,7 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	if should_center_strand:
 		center_strand_scroll()
 	_was_summary_only = current_summary_only
+	_last_layout_bp_per_px = bp_per_px
 	_persist_active_read_track()
 	queue_redraw()
 
@@ -616,6 +629,9 @@ func set_invert_mouse_wheel_zoom(enabled: bool) -> void:
 
 func set_mouse_wheel_pan_sensitivity(value: float) -> void:
 	_mouse_wheel_pan_sensitivity = clampf(value, 0.5, 20.0)
+
+func set_pan_zoom_animation_speed(speed: float) -> void:
+	_pan_zoom_animation_speed = clampf(speed, 1.0, 3.0)
 
 func set_base_font_size(base_size: int) -> void:
 	_font_size_medium = clampi(base_size, 9, 24)
@@ -851,6 +867,7 @@ func set_view_state(start_bp: float, bp_per_px_value: float) -> void:
 		_pan_tween.kill()
 	if _zoom_tween and _zoom_tween.is_running():
 		_zoom_tween.kill()
+	_end_motion_read_layer()
 	bp_per_px = clampf(bp_per_px_value, min_bp_per_px, _max_allowed_bp_per_px())
 	view_start_bp = _clamp_start(start_bp)
 	_layout_all_read_scrollbars()
@@ -862,6 +879,7 @@ func jump_to_start() -> void:
 		_pan_tween.kill()
 	if _zoom_tween and _zoom_tween.is_running():
 		_zoom_tween.kill()
+	_end_motion_read_layer()
 	view_start_bp = 0.0
 	_layout_all_read_scrollbars()
 	queue_redraw()
@@ -872,6 +890,7 @@ func jump_to_end() -> void:
 		_pan_tween.kill()
 	if _zoom_tween and _zoom_tween.is_running():
 		_zoom_tween.kill()
+	_end_motion_read_layer()
 	view_start_bp = _clamp_start(float(chromosome_length))
 	_layout_all_read_scrollbars()
 	queue_redraw()
@@ -884,6 +903,9 @@ func pan_by_fraction(fraction: float, duration: float = 0.35) -> void:
 	var span := plot_w * bp_per_px
 	var target := _clamp_start(view_start_bp + span * fraction)
 	_pan_to(target, duration)
+
+func pan_to_start(target_start: float, duration: float = 0.35) -> void:
+	_pan_to(_clamp_start(target_start), duration)
 
 func zoom_by(factor: float, duration: float = 0.22) -> void:
 	zoom_by_at_x(factor, TRACK_LEFT_PAD + _plot_width() * 0.5, duration)
@@ -910,19 +932,37 @@ func load_files(paths: PackedStringArray) -> void:
 func _pan_to(target_start: float, duration: float) -> void:
 	if _pan_tween and _pan_tween.is_running():
 		_pan_tween.kill()
+	_end_motion_read_layer()
+	var actual_duration := _effective_animation_duration(duration)
+	if actual_duration <= 0.0:
+		view_start_bp = _clamp_start(target_start)
+		queue_redraw()
+		_emit_viewport_changed()
+		return
+	_begin_motion_read_layer(target_start)
 	_pan_tween = create_tween()
 	_pan_tween.set_trans(Tween.TRANS_CUBIC)
 	_pan_tween.set_ease(Tween.EASE_OUT)
-	_pan_tween.tween_method(_set_view_start_animated, view_start_bp, target_start, duration)
+	_pan_tween.tween_method(_set_view_start_animated, view_start_bp, target_start, actual_duration)
+	_pan_tween.finished.connect(_on_pan_finished, CONNECT_ONE_SHOT)
 
 func _set_view_start_animated(next_start: float) -> void:
 	view_start_bp = _clamp_start(next_start)
+	_update_motion_read_layer_offset()
 	queue_redraw()
-	_emit_viewport_changed()
 
 func _animate_zoom(from_start: float, to_start: float, from_bp_per_px: float, to_bp_per_px: float, duration: float) -> void:
 	if _zoom_tween and _zoom_tween.is_running():
 		_zoom_tween.kill()
+	_end_motion_read_layer()
+	var actual_duration := _effective_animation_duration(duration)
+	if actual_duration <= 0.0:
+		bp_per_px = clampf(to_bp_per_px, min_bp_per_px, _max_allowed_bp_per_px())
+		view_start_bp = _clamp_start(to_start)
+		_layout_all_read_scrollbars()
+		queue_redraw()
+		_emit_viewport_changed()
+		return
 	_zoom_from_start_bp = from_start
 	_zoom_to_start_bp = to_start
 	_zoom_from_bp_per_px = from_bp_per_px
@@ -930,7 +970,7 @@ func _animate_zoom(from_start: float, to_start: float, from_bp_per_px: float, to
 	_zoom_tween = create_tween()
 	_zoom_tween.set_trans(Tween.TRANS_CUBIC)
 	_zoom_tween.set_ease(Tween.EASE_OUT)
-	_zoom_tween.tween_method(_set_zoom_progress, 0.0, 1.0, duration)
+	_zoom_tween.tween_method(_set_zoom_progress, 0.0, 1.0, actual_duration)
 	_zoom_tween.finished.connect(_on_zoom_finished, CONNECT_ONE_SHOT)
 
 func _set_zoom_progress(t: float) -> void:
@@ -942,6 +982,19 @@ func _set_zoom_progress(t: float) -> void:
 
 func _on_zoom_finished() -> void:
 	_emit_viewport_changed()
+
+
+func _on_pan_finished() -> void:
+	_end_motion_read_layer()
+	_emit_viewport_changed()
+
+
+func _effective_animation_duration(base_duration: float) -> float:
+	if base_duration <= 0.0:
+		return 0.0
+	if _pan_zoom_animation_speed >= 3.0:
+		return 0.0
+	return base_duration / clampf(_pan_zoom_animation_speed, 1.0, 2.0)
 
 func _max_allowed_bp_per_px() -> float:
 	var plot_w := _plot_width()
@@ -1073,6 +1126,52 @@ func _track_index_for_y(y: float) -> int:
 
 func _draw_read_tracks(area: Rect2) -> void:
 	_read_renderer.draw_read_tracks(area)
+
+
+func is_motion_read_layer_active() -> bool:
+	return _motion_read_layer_active and _motion_read_layer != null and _motion_read_layer.visible
+
+
+func _has_visible_read_tracks() -> bool:
+	for track_id_any in _track_order:
+		var track_id := str(track_id_any)
+		if _is_read_track(track_id) and is_track_visible(track_id):
+			return true
+	return false
+
+
+func _begin_motion_read_layer(target_start: float) -> void:
+	if _motion_read_layer == null:
+		return
+	if not _has_visible_read_tracks():
+		return
+	if bp_per_px > DETAILED_READ_MAX_BP_PER_PX:
+		return
+	var current_start := view_start_bp
+	var render_start := minf(current_start, target_start)
+	var plot_span := _plot_width() * bp_per_px
+	var target_end := minf(float(chromosome_length), target_start + plot_span)
+	var render_end := maxf(_viewport_end_bp(), target_end)
+	var content_width_px := TRACK_LEFT_PAD + ((render_end - render_start) / bp_per_px) + TRACK_RIGHT_PAD
+	_motion_read_layer_start_bp = render_start
+	_motion_read_layer_end_bp = render_end
+	_motion_read_layer_bp_per_px = bp_per_px
+	_motion_read_layer.activate(render_start, render_end, bp_per_px, content_width_px)
+	_motion_read_layer_active = true
+	_update_motion_read_layer_offset()
+
+
+func _update_motion_read_layer_offset() -> void:
+	if not is_motion_read_layer_active():
+		return
+	var offset_px := maxf(0.0, (view_start_bp - _motion_read_layer_start_bp) / _motion_read_layer_bp_per_px)
+	_motion_read_layer.set_offset_px(offset_px)
+
+
+func _end_motion_read_layer() -> void:
+	_motion_read_layer_active = false
+	if _motion_read_layer != null:
+		_motion_read_layer.deactivate()
 
 func _read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:
 	return _read_renderer.read_y_for_area(read, content_top, content_bottom, scroll_px, strand_split_y)
@@ -2320,7 +2419,9 @@ func _region_selection_spans(track_rects: Dictionary) -> Array[Rect2]:
 	return spans
 
 func _layout_reads() -> void:
-	var preferred_rows := _read_layout_helper.preferred_row_map(_laid_out_reads, _read_view_mode, int(view_start_bp), int(_viewport_end_bp()))
+	var preferred_rows := {}
+	if absf(_last_layout_bp_per_px - bp_per_px) < 0.000001:
+		preferred_rows = _read_layout_helper.preferred_row_map(_laid_out_reads, _read_view_mode, int(view_start_bp), int(_viewport_end_bp()))
 	var layout := _read_layout_helper.build_layout(
 		reads,
 		_read_view_mode,
@@ -2334,6 +2435,7 @@ func _layout_reads() -> void:
 	_read_row_count = int(layout.get("read_row_count", 0))
 	_strand_forward_rows = int(layout.get("strand_forward_rows", 0))
 	_strand_reverse_rows = int(layout.get("strand_reverse_rows", 0))
+	_last_layout_bp_per_px = bp_per_px
 
 func _ensure_read_track_state(track_id: String) -> void:
 	if not _is_read_track(track_id):

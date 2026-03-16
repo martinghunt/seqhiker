@@ -512,6 +512,18 @@ value = 0.3
 layout_mode = 2
 text = "0.30"
 
+[node name="AnimatePanZoomLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+text = "Pan/Zoom Animation Speed"
+
+[node name="AnimatePanZoomSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 3.0
+step = 0.05
+value = 1.5
+
 [node name="BAMCoverageCutoffLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 tooltip_text = "If the genome is shorter than this

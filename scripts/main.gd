@@ -137,6 +137,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var pan_step_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepRow/PanStepValue
 @onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedSlider
 @onready var play_speed_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedValue
+@onready var animate_pan_zoom_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/AnimatePanZoomSlider
 @onready var theme_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ThemeOption
 @onready var ui_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UIFontOption
 @onready var sequence_letter_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/SequenceLetterFontOption
@@ -238,6 +239,11 @@ var _sequence_letter_font_name := "Anonymous Pro"
 var _track_dragging := false
 var _track_drag_index := -1
 var _track_drop_index := -1
+var _pending_pan_target_start := -1.0
+var _pending_pan_target_end := -1
+var _pending_pan_bp_per_px := -1.0
+var _pending_pan_duration := 0.35
+var _pending_pan_active := false
 var _seq_view_label: Label
 var _seq_view_option: OptionButton
 var _seq_option_label: Label
@@ -430,9 +436,9 @@ func _setup_font_size_control() -> void:
 func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
 	close_settings_button.pressed.connect(_close_settings)
-	pan_left_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(-_pan_step_percent / 100.0))
+	pan_left_button.pressed.connect(func() -> void: _pan_view_by_fraction(-_pan_step_percent / 100.0))
 	jump_start_button.pressed.connect(func() -> void: genome_view.jump_to_start())
-	pan_right_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(_pan_step_percent / 100.0))
+	pan_right_button.pressed.connect(func() -> void: _pan_view_by_fraction(_pan_step_percent / 100.0))
 	jump_end_button.pressed.connect(func() -> void: genome_view.jump_to_end())
 	zoom_in_button.pressed.connect(func() -> void: genome_view.zoom_by(0.78))
 	zoom_out_button.pressed.connect(func() -> void: genome_view.zoom_by(1.28))
@@ -461,6 +467,7 @@ func _connect_ui() -> void:
 	mouse_wheel_pan_slider.value_changed.connect(_on_mouse_wheel_pan_changed)
 	pan_step_slider.value_changed.connect(_on_pan_step_changed)
 	play_speed_slider.value_changed.connect(_on_play_speed_changed)
+	animate_pan_zoom_slider.value_changed.connect(_on_animate_pan_zoom_speed_changed)
 	theme_option.item_selected.connect(_on_theme_selected)
 	ui_font_option.item_selected.connect(_on_ui_font_selected)
 	sequence_letter_font_option.item_selected.connect(_on_sequence_letter_font_selected)
@@ -471,6 +478,28 @@ func _connect_ui() -> void:
 	_seq_view_option.item_selected.connect(_on_seq_view_selected)
 	_seq_option.item_selected.connect(_on_seq_selected)
 	_concat_gap_spin.value_changed.connect(_on_concat_gap_changed)
+
+func _pan_view_by_fraction(fraction: float) -> void:
+	var plot_w := maxf(1.0, genome_view.size.x - genome_view.TRACK_LEFT_PAD - genome_view.TRACK_RIGHT_PAD)
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	var span := plot_w * current_bp_per_px
+	var max_start := maxf(0.0, float(_current_chr_len) - span)
+	var target_start := clampf(genome_view.view_start_bp + span * fraction, 0.0, max_start)
+	var target_end := int(minf(float(_current_chr_len), target_start + span))
+	if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px):
+		_annotation_cache_controller.prefetch_detailed_read_target(int(target_start), target_end, current_bp_per_px)
+		if _annotation_cache_controller.detailed_read_target_ready(int(target_start), target_end, current_bp_per_px):
+			_pending_pan_active = false
+			_annotation_cache_controller.apply_detailed_read_span(int(minf(genome_view.view_start_bp, target_start)), int(maxf(_last_end, target_end)), current_bp_per_px)
+			genome_view.pan_to_start(target_start, 0.35)
+		else:
+			_pending_pan_target_start = target_start
+			_pending_pan_target_end = target_end
+			_pending_pan_bp_per_px = current_bp_per_px
+			_pending_pan_duration = 0.35
+			_pending_pan_active = true
+		return
+	genome_view.pan_by_fraction(fraction)
 
 func _disable_button_focus() -> void:
 	var controls := [
@@ -495,7 +524,8 @@ func _disable_button_focus() -> void:
 		mouse_wheel_zoom_slider,
 		mouse_wheel_pan_slider,
 		pan_step_slider,
-		play_speed_slider
+		play_speed_slider,
+		animate_pan_zoom_slider
 	]
 	for c in controls:
 		if c != null:
@@ -553,10 +583,11 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 			_schedule_fetch()
 		return
 	if _current_chr_len > 0:
+		_annotation_cache_controller.update_detailed_read_strips(start_bp, end_bp, bp_per_px)
 		var zoom := _compute_tile_zoom(bp_per_px)
 		var mode := 0 if (_has_bam_loaded and _any_visible_read_track() and bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
 		var needs_fetch := not _is_viewport_cached(start_bp, end_bp, zoom, mode, need_reference, _scope_cache_key())
-		if _is_near_cache_edge(start_bp, end_bp):
+		if _auto_play_enabled and _is_near_cache_edge(start_bp, end_bp):
 			needs_fetch = true
 		if needs_fetch:
 			_schedule_fetch()
@@ -714,6 +745,12 @@ func _on_pan_step_changed(value: float) -> void:
 
 func _on_play_speed_changed(value: float) -> void:
 	play_speed_value.text = "%.2f" % value
+
+func _on_animate_pan_zoom_speed_changed(value: float) -> void:
+	var speed := clampf(value, 1.0, 3.0)
+	if animate_pan_zoom_slider != null and absf(animate_pan_zoom_slider.value - speed) > 0.0001:
+		animate_pan_zoom_slider.value = speed
+	genome_view.set_pan_zoom_animation_speed(speed)
 
 func _on_font_size_drag_ended(_value_changed: bool) -> void:
 	_on_font_size_changed(_font_size_slider.value)
@@ -2563,6 +2600,21 @@ func _load_or_init_config() -> void:
 			sequence_letter_font_option.select(i)
 			break
 	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
+	var default_anim_speed := 1.5
+	if cfg.has_section_key("ui", "animate_pan_zoom_speed"):
+		default_anim_speed = float(cfg.get_value("ui", "animate_pan_zoom_speed", 1.0))
+		if default_anim_speed <= 0.0:
+			default_anim_speed = 3.0
+		elif default_anim_speed < 1.0:
+			default_anim_speed = 1.0
+		elif default_anim_speed > 3.0:
+			default_anim_speed = 3.0
+	elif cfg.has_section_key("ui", "animate_pan_zoom"):
+		default_anim_speed = 1.5 if bool(cfg.get_value("ui", "animate_pan_zoom", true)) else 0.0
+		if default_anim_speed <= 0.0:
+			default_anim_speed = 3.0
+	animate_pan_zoom_slider.value = clampf(default_anim_speed, 1.0, 3.0)
+	_on_animate_pan_zoom_speed_changed(animate_pan_zoom_slider.value)
 
 	var theme_name := str(cfg.get_value("ui", "theme", theme_option.get_item_text(theme_option.selected)))
 	_select_theme_option(theme_name)
@@ -2620,6 +2672,7 @@ func _save_config() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("ui", "scale", ui_scale_slider.value)
 	cfg.set_value("ui", "play_speed_widths_per_sec", play_speed_slider.value)
+	cfg.set_value("ui", "animate_pan_zoom_speed", animate_pan_zoom_slider.value)
 	cfg.set_value("ui", "theme", theme_option.get_item_text(theme_option.selected))
 	cfg.set_value("ui", "font_name", _ui_font_name)
 	cfg.set_value("ui", "font_size", _ui_font_size)
@@ -2673,6 +2726,10 @@ func _close_feature_panel() -> void:
 
 func _process(delta: float) -> void:
 	_drain_tile_fetch_result()
+	if _pending_pan_active and _annotation_cache_controller.detailed_read_target_ready(int(_pending_pan_target_start), _pending_pan_target_end, _pending_pan_bp_per_px):
+		_pending_pan_active = false
+		_annotation_cache_controller.apply_detailed_read_span(int(minf(genome_view.view_start_bp, _pending_pan_target_start)), int(maxf(_last_end, _pending_pan_target_end)), _pending_pan_bp_per_px)
+		genome_view.pan_to_start(_pending_pan_target_start, _pending_pan_duration)
 	if _download_thread != null and _download_thread.is_started() and not _download_thread.is_alive():
 		var download_result: Variant = _download_thread.wait_to_finish()
 		_download_thread = null

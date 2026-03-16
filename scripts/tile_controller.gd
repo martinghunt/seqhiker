@@ -27,9 +27,8 @@ var _thread: Thread
 var _mutex := Mutex.new()
 var _semaphore := Semaphore.new()
 var _stop_requested := false
-var _pending_request: Dictionary = {}
-var _result_pending := false
-var _latest_result: Dictionary = {}
+var _pending_requests: Array[Dictionary] = []
+var _result_queue: Array[Dictionary] = []
 
 func configure(compute_tile_zoom_cb: Callable) -> void:
 	_compute_tile_zoom_cb = compute_tile_zoom_cb
@@ -37,9 +36,8 @@ func configure(compute_tile_zoom_cb: Callable) -> void:
 func reset() -> void:
 	_mutex.lock()
 	_active_generation = -1
-	_pending_request = {}
-	_latest_result = {}
-	_result_pending = false
+	_pending_requests.clear()
+	_result_queue.clear()
 	_mutex.unlock()
 
 func shutdown() -> void:
@@ -57,16 +55,19 @@ func request_tiles(request: Dictionary) -> void:
 		_thread = Thread.new()
 		_thread.start(Callable(self, "_worker_main"))
 	_mutex.lock()
-	_pending_request = request.duplicate(true)
+	var req := request.duplicate(true)
+	if bool(req.get("high_priority", false)):
+		_pending_requests.push_front(req)
+	else:
+		_pending_requests.append(req)
 	_mutex.unlock()
 	_semaphore.post()
 
 func poll_result() -> Dictionary:
 	var result: Dictionary = {}
 	_mutex.lock()
-	if _result_pending:
-		result = _latest_result
-		_result_pending = false
+	if not _result_queue.is_empty():
+		result = _result_queue.pop_front()
 	_mutex.unlock()
 	return result
 
@@ -79,15 +80,14 @@ func _worker_main() -> void:
 		if _stop_requested:
 			_mutex.unlock()
 			break
-		request = _pending_request.duplicate(true)
+		if not _pending_requests.is_empty():
+			request = _pending_requests.pop_front()
 		_mutex.unlock()
 		if request.is_empty():
 			continue
 		var result := _fetch_visible_tiles_sync(zem, request)
 		_mutex.lock()
-		if int(request.get("serial", -1)) == int(_pending_request.get("serial", -2)):
-			_latest_result = result
-			_result_pending = true
+		_result_queue.append(result)
 		_mutex.unlock()
 	zem.disconnect_from_server()
 
@@ -380,6 +380,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	return {
 		"ok": true,
 		"serial": int(request.get("serial", -1)),
+		"request_kind": str(request.get("request_kind", "visible")),
 		"read_payload_by_track": read_payload_by_track,
 		"annotation_features": annotation_features,
 		"annotation_stats": annotation_stats,
