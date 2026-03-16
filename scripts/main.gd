@@ -173,7 +173,6 @@ var _fetch_in_progress := false
 var _fetch_pending := false
 var tile_fetch_serial := 0
 var _tile_cache_generation := 0
-var pending_tile_apply: Dictionary = {}
 
 var _zem: RefCounted
 var _tile_controller: RefCounted
@@ -2826,7 +2825,7 @@ func _format_read_flags(flags: int) -> String:
 func _close_feature_panel() -> void:
 	_feature_panel_controller.close_feature_panel()
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	_drain_tile_fetch_result()
 	if _pending_pan_active:
 		var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))

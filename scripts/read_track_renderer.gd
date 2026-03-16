@@ -41,6 +41,7 @@ func _color_distance(a: Color, b: Color) -> float:
 
 func _distinct_mate_palette() -> Array[Color]:
 	var read_col: Color = view.palette["read"]
+	var monochrome_base := read_col.s < 0.08
 	var candidates: Array[Color] = [
 		view.palette.get("aa_reverse", read_col.darkened(0.35)),
 		view.palette.get("aa_forward", read_col.lightened(0.35)),
@@ -61,10 +62,19 @@ func _distinct_mate_palette() -> Array[Color]:
 			out.append(cand)
 	while out.size() < 5:
 		var idx := out.size()
-		var derived := read_col
-		derived.h = fposmod(read_col.h + 0.16 * float(idx + 1), 1.0)
-		derived.s = min(1.0, max(read_col.s, 0.55))
-		derived.v = min(1.0, max(read_col.v, 0.75))
+		var derived: Color
+		if monochrome_base:
+			var step := 0.10 + 0.06 * float(idx)
+			if idx % 2 == 0:
+				derived = read_col.lightened(step)
+			else:
+				derived = read_col.darkened(step)
+			derived.s = 0.0
+		else:
+			derived = read_col
+			derived.h = fposmod(read_col.h + 0.16 * float(idx + 1), 1.0)
+			derived.s = min(1.0, max(read_col.s, 0.55))
+			derived.v = min(1.0, max(read_col.v, 0.75))
 		out.append(derived)
 	return out
 

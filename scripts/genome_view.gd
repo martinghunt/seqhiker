@@ -897,28 +897,6 @@ func set_view_state(start_bp: float, bp_per_px_value: float) -> void:
 	queue_redraw()
 	_emit_viewport_changed()
 
-func jump_to_start() -> void:
-	if _pan_tween and _pan_tween.is_running():
-		_pan_tween.kill()
-	if _zoom_tween and _zoom_tween.is_running():
-		_zoom_tween.kill()
-	_end_motion_read_layer()
-	view_start_bp = 0.0
-	_layout_all_read_scrollbars()
-	queue_redraw()
-	_emit_viewport_changed()
-
-func jump_to_end() -> void:
-	if _pan_tween and _pan_tween.is_running():
-		_pan_tween.kill()
-	if _zoom_tween and _zoom_tween.is_running():
-		_zoom_tween.kill()
-	_end_motion_read_layer()
-	view_start_bp = _clamp_start(float(chromosome_length))
-	_layout_all_read_scrollbars()
-	queue_redraw()
-	_emit_viewport_changed()
-
 func pan_by_fraction(fraction: float, duration: float = 0.35) -> void:
 	var plot_w := _plot_width()
 	if plot_w <= 0:
@@ -2149,21 +2127,6 @@ func clear_region_selection() -> void:
 	_region_select_has_selection = false
 	emit_signal("region_selection_changed", false, 0, 0)
 	queue_redraw()
-
-func auto_scroll_bp(delta_bp: float) -> bool:
-	if _plot_width() <= 0:
-		return true
-	if is_zero_approx(delta_bp):
-		return false
-	var prev_start := view_start_bp
-	var next_start := _clamp_start(view_start_bp + delta_bp)
-	var moved := absf(next_start - prev_start) > 1e-9
-	var reached_boundary := not moved
-	view_start_bp = next_start
-	_update_motion_read_layer_offset()
-	queue_redraw()
-	_emit_viewport_changed()
-	return reached_boundary
 
 func get_visible_span_bp() -> float:
 	return _plot_width() * bp_per_px

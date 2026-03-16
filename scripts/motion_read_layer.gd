@@ -29,7 +29,7 @@ func configure(next_view: GenomeView) -> void:
 	texture = _viewport.get_texture()
 
 
-func activate(next_start_bp: float, next_end_bp: float, next_bp_per_px: float, content_width_px: float, show_layer: bool = true) -> void:
+func activate(next_start_bp: float, next_end_bp: float, next_bp_per_px: float, content_width_px: float, show_motion_layer: bool = true) -> void:
 	render_start_bp = next_start_bp
 	render_end_bp = next_end_bp
 	render_bp_per_px = next_bp_per_px
@@ -40,7 +40,7 @@ func activate(next_start_bp: float, next_end_bp: float, next_bp_per_px: float, c
 		_viewport.size = viewport_size
 		_canvas.set_render_state(render_start_bp, render_end_bp, render_bp_per_px, Vector2(viewport_size))
 		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
-	visible = show_layer
+	visible = show_motion_layer
 
 
 func show_layer() -> void:
