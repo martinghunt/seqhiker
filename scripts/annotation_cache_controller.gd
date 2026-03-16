@@ -9,6 +9,8 @@ var _strip_generation := -1
 var _strip_left_pending := false
 var _strip_right_pending := false
 var _strip_pending_requests: Dictionary = {}
+var _visible_pending_requests: Dictionary = {}
+var _latest_visible_serial := -1
 
 const NORMAL_LEFT_SPAN_MULT := 1.0
 const NORMAL_RIGHT_SPAN_MULT := 1.0
@@ -84,7 +86,7 @@ func refresh_visible_data() -> void:
 		host.genome_view.set_reference_slice(query_start, "")
 	host.tile_fetch_serial += 1
 	var serial: int = int(host.tile_fetch_serial)
-	host.pending_tile_apply = {
+	var visible_req := {
 		"serial": serial,
 		"query_start": query_start,
 		"query_end": query_end,
@@ -96,6 +98,8 @@ func refresh_visible_data() -> void:
 		"scope_key": host._scope_cache_key(),
 		"fetch_reads": fetch_reads_in_window
 	}
+	_visible_pending_requests[serial] = visible_req
+	_latest_visible_serial = serial
 	host._tile_controller.request_tiles({
 		"serial": serial,
 		"request_kind": "visible",
@@ -150,7 +154,7 @@ func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> vo
 		overlaps = host._segments_overlapping(query_start, query_end)
 	host.tile_fetch_serial += 1
 	var serial: int = int(host.tile_fetch_serial)
-	host.pending_tile_apply = {
+	var visible_req := {
 		"serial": serial,
 		"query_start": query_start,
 		"query_end": query_end,
@@ -162,6 +166,8 @@ func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> vo
 		"scope_key": host._scope_cache_key(),
 		"fetch_reads": fetch_reads_in_window
 	}
+	_visible_pending_requests[serial] = visible_req
+	_latest_visible_serial = serial
 	host._tile_controller.request_tiles({
 		"serial": serial,
 		"request_kind": "visible",
@@ -199,7 +205,9 @@ func update_detailed_read_strips(start_bp: int, end_bp: int, bp_per_px: float) -
 	_ensure_read_strip_scope(bp_per_px)
 	var covered := _strip_covered_range()
 	if covered.x <= start_bp and covered.y >= end_bp:
-		_apply_read_strip_viewport(start_bp, end_bp)
+		var skip_apply: bool = bool(host._auto_play_enabled and host.genome_view.is_motion_read_layer_active())
+		if not skip_apply:
+			_apply_read_strip_viewport(start_bp, end_bp)
 	_request_missing_read_strips(start_bp, end_bp, bp_per_px)
 
 
@@ -208,6 +216,25 @@ func prefetch_detailed_read_target(start_bp: int, end_bp: int, bp_per_px: float)
 		return
 	_ensure_read_strip_scope(bp_per_px)
 	_request_missing_read_strips(start_bp, end_bp, bp_per_px)
+
+
+func cancel_visible_requests() -> void:
+	_visible_pending_requests.clear()
+	_latest_visible_serial = -1
+
+
+func cancel_all_requests() -> void:
+	cancel_visible_requests()
+	_strip_pending_requests.clear()
+	_strip_left_pending = false
+	_strip_right_pending = false
+	_reset_read_strips()
+	host._fetch_in_progress = false
+	host._fetch_pending = false
+	if host._fetch_timer != null:
+		host._fetch_timer.stop()
+	if host._tile_controller != null:
+		host._tile_controller.cancel_requests()
 
 
 func detailed_read_target_ready(start_bp: int, end_bp: int, bp_per_px: float) -> bool:
@@ -257,12 +284,19 @@ func drain_tile_fetch_result() -> void:
 		if host._fetch_pending:
 			host._fetch_timer.start()
 		return
-	if serial != int(host.pending_tile_apply.get("serial", -2)):
+	var visible_req: Dictionary = _visible_pending_requests.get(serial, {})
+	if visible_req.is_empty():
 		host._fetch_in_progress = false
 		if host._fetch_pending:
 			host._fetch_timer.start()
 		return
-	_apply_visible_tile_result(tile_resp)
+	_visible_pending_requests.erase(serial)
+	if serial != _latest_visible_serial:
+		host._fetch_in_progress = false
+		if host._fetch_pending:
+			host._fetch_timer.start()
+		return
+	_apply_visible_tile_result(tile_resp, visible_req)
 	host._fetch_in_progress = false
 	if host._fetch_pending:
 		host._fetch_timer.start()
@@ -490,15 +524,15 @@ func _dedupe_reads(reads_in: Array[Dictionary]) -> Array[Dictionary]:
 	return out
 
 
-func _apply_visible_tile_result(tile_resp: Dictionary) -> void:
+func _apply_visible_tile_result(tile_resp: Dictionary, visible_req: Dictionary) -> void:
 	var read_payload_by_track = tile_resp.get("read_payload_by_track", {})
 	var annotation_features_raw: Array = tile_resp.get("annotation_features", [])
 	var annotation_stats: Dictionary = tile_resp.get("annotation_stats", {})
 	var all_gc_plot_tiles: Array = tile_resp.get("gc_plot_tiles", [])
 	var all_depth_plot_tiles: Array = tile_resp.get("depth_plot_tiles", [])
 	var all_depth_plot_series: Array = tile_resp.get("depth_plot_series", [])
-	var result_ref_start := int(tile_resp.get("ref_start", int(host.pending_tile_apply.get("ref_start", -1))))
-	var result_ref_sequence := str(tile_resp.get("ref_sequence", host.pending_tile_apply.get("ref_sequence", "")))
+	var result_ref_start := int(tile_resp.get("ref_start", int(visible_req.get("ref_start", -1))))
+	var result_ref_sequence := str(tile_resp.get("ref_sequence", visible_req.get("ref_sequence", "")))
 	host.genome_view.set_reference_slice(result_ref_start, result_ref_sequence)
 	var annotation_features: Array[Dictionary] = []
 	for feat_any in annotation_features_raw:
@@ -519,7 +553,7 @@ func _apply_visible_tile_result(tile_resp: Dictionary) -> void:
 	for series_any in all_depth_plot_series:
 		if typeof(series_any) == TYPE_DICTIONARY:
 			depth_plot_series_typed.append(series_any)
-	if bool(host.pending_tile_apply.get("fetch_reads", true)):
+	if bool(visible_req.get("fetch_reads", true)):
 		for t_any in host._bam_tracks:
 			var track: Dictionary = t_any
 			var track_id := str(track.get("track_id", ""))
@@ -544,11 +578,11 @@ func _apply_visible_tile_result(tile_resp: Dictionary) -> void:
 		series["color"] = host._depth_plot_color_for_track(str(series.get("track_id", "")))
 		depth_plot_series_typed[i] = series
 	host.genome_view.set_depth_plot_series(depth_plot_series_typed)
-	host._cache_start = int(host.pending_tile_apply.get("query_start", -1))
-	host._cache_end = int(host.pending_tile_apply.get("query_end", -1))
+	host._cache_start = int(visible_req.get("query_start", -1))
+	host._cache_end = int(visible_req.get("query_end", -1))
 	host._cache_zoom = host._compute_tile_zoom(host._last_bp_per_px)
 	host._cache_mode = 0 if (host._has_bam_loaded and host._any_visible_read_track() and host._last_bp_per_px <= host.READ_RENDER_MAX_BP_PER_PX) else 1
-	host._cache_need_reference = bool(host.pending_tile_apply.get("need_reference", false))
+	host._cache_need_reference = bool(visible_req.get("need_reference", false))
 	host._cache_scope_key = host._scope_cache_key()
 	host._dbg_ann_tile_requests = int(annotation_stats.get("tile_requests", 0))
 	host._dbg_ann_tile_cache_hits = int(annotation_stats.get("tile_cache_hits", 0))
@@ -576,3 +610,5 @@ func _reset_read_strips() -> void:
 	_strip_left_pending = false
 	_strip_right_pending = false
 	_strip_pending_requests.clear()
+	_visible_pending_requests.clear()
+	_latest_visible_serial = -1

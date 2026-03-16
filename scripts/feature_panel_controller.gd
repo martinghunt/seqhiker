@@ -206,15 +206,9 @@ func jump_to_mate(start_bp: int, end_bp: int, mate_ref_id: int = -1) -> void:
 func _jump_to_range(start_bp: int, end_bp: int) -> void:
 	if host._current_chr_len <= 0:
 		return
-	var width_px := maxf(1.0, host.genome_view.size.x)
 	var current_bp_per_px := clampf(host._last_bp_per_px, host.genome_view.min_bp_per_px, host.genome_view.max_bp_per_px)
-	var view_span_bp := int(ceil(current_bp_per_px * width_px))
-	var center_bp := 0.5 * float(start_bp + end_bp)
-	var target_start := maxi(0, int(floor(center_bp - 0.5 * float(view_span_bp))))
-	host.genome_view.set_view_state(float(target_start), current_bp_per_px)
+	host._navigate_to_centered_range(start_bp, end_bp, current_bp_per_px)
 	host.genome_view.clear_region_selection()
-	host._invalidate_viewport_cache()
-	host._schedule_fetch()
 
 
 func _concat_segment_for_chr_id(chr_id: int) -> Dictionary:

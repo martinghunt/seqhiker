@@ -396,7 +396,7 @@ func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: fl
 		var read_color := _read_color(read, mate_contig_colors, inferred_ids)
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 			_draw_pair_connector_to(target, read, y, read_color, render_start_bp, render_bp_per_px)
-			_draw_mate_block_to(target, read, y, read_color, render_start_bp, render_bp_per_px)
+			_draw_mate_block_to(target, read, y, read_color, render_start_bp, render_bp_per_px, render_end_bp)
 		target.draw_rect(rect, read_color, true)
 		var draw_selected := false
 		if track_id == view._selected_read_track_id and i == view._selected_read_index:
@@ -436,6 +436,7 @@ func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: fl
 					var tx := sx - tw * 0.5
 					var ty := view._text_baseline_for_center(y + row_h * 0.5, snp_font, snp_font_size)
 					target.draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
+			_draw_indel_markers_to(target, read, y, render_start_bp, render_bp_per_px, render_end_bp)
 
 
 func read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:
@@ -577,8 +578,8 @@ func draw_mate_block(read: Dictionary, y: float, block_color: Color) -> void:
 	view.draw_rect(mate_rect, block_color, true)
 
 
-func _draw_mate_block_to(target: CanvasItem, read: Dictionary, y: float, block_color: Color, render_start_bp: float, render_bp_per_px: float) -> void:
-	var mate_rect := _mate_rect_for_read_at(read, y, render_start_bp, render_bp_per_px)
+func _draw_mate_block_to(target: CanvasItem, read: Dictionary, y: float, block_color: Color, render_start_bp: float, render_bp_per_px: float, render_end_bp: float = -1.0) -> void:
+	var mate_rect := _mate_rect_for_read_at(read, y, render_start_bp, render_bp_per_px, render_end_bp)
 	if mate_rect.size.x <= 0.0 or mate_rect.size.y <= 0.0:
 		return
 	target.draw_rect(mate_rect, block_color, true)
@@ -596,11 +597,11 @@ func mate_rect_for_read(read: Dictionary, y: float) -> Rect2:
 	return Rect2(Vector2(mx0, y), Vector2(maxf(2.0, mx1 - mx0), view.current_read_row_h()))
 
 
-func _mate_rect_for_read_at(read: Dictionary, y: float, render_start_bp: float, render_bp_per_px: float) -> Rect2:
+func _mate_rect_for_read_at(read: Dictionary, y: float, render_start_bp: float, render_bp_per_px: float, render_end_bp: float = -1.0) -> Rect2:
 	var mate_start := int(read.get("mate_start", -1))
 	var mate_end := int(read.get("mate_end", -1))
 	var visible_start := int(_viewport_start_bp_at(render_start_bp, render_bp_per_px))
-	var visible_end := int(_viewport_end_bp_at(render_start_bp, render_bp_per_px))
+	var visible_end := int(render_end_bp if render_end_bp > 0.0 else _viewport_end_bp_at(render_start_bp, render_bp_per_px))
 	if mate_start < 0 or mate_end <= mate_start:
 		return Rect2()
 	if mate_end < visible_start or mate_start > visible_end:

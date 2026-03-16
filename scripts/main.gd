@@ -222,6 +222,7 @@ var _theme_error_color: Color = Color("8b0000")
 var _themes_lib: RefCounted
 var _auto_play_enabled := false
 var _auto_play_direction := 1.0
+var _auto_play_tween_active := false
 var _read_view_label: Label
 var _read_view_option: OptionButton
 var _fragment_log_checkbox: CheckBox
@@ -244,6 +245,7 @@ var _pending_pan_target_end := -1
 var _pending_pan_bp_per_px := -1.0
 var _pending_pan_duration := 0.35
 var _pending_pan_active := false
+var _pending_pan_linear := false
 var _seq_view_label: Label
 var _seq_view_option: OptionButton
 var _seq_option_label: Label
@@ -437,9 +439,9 @@ func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
 	close_settings_button.pressed.connect(_close_settings)
 	pan_left_button.pressed.connect(func() -> void: _pan_view_by_fraction(-_pan_step_percent / 100.0))
-	jump_start_button.pressed.connect(func() -> void: genome_view.jump_to_start())
+	jump_start_button.pressed.connect(func() -> void: _navigate_to_boundary(false))
 	pan_right_button.pressed.connect(func() -> void: _pan_view_by_fraction(_pan_step_percent / 100.0))
-	jump_end_button.pressed.connect(func() -> void: genome_view.jump_to_end())
+	jump_end_button.pressed.connect(func() -> void: _navigate_to_boundary(true))
 	zoom_in_button.pressed.connect(func() -> void: genome_view.zoom_by(0.78))
 	zoom_out_button.pressed.connect(func() -> void: genome_view.zoom_by(1.28))
 	play_button.pressed.connect(_start_auto_play)
@@ -449,6 +451,7 @@ func _connect_ui() -> void:
 	go_button.pressed.connect(_toggle_go_panel)
 	download_button.pressed.connect(_toggle_download_panel)
 	genome_view.viewport_changed.connect(_on_viewport_changed)
+	genome_view.map_jump_requested.connect(_on_map_jump_requested)
 	genome_view.feature_clicked.connect(_on_feature_selected)
 	genome_view.feature_activated.connect(_on_feature_clicked)
 	genome_view.read_clicked.connect(_on_read_selected)
@@ -479,7 +482,7 @@ func _connect_ui() -> void:
 	_seq_option.item_selected.connect(_on_seq_selected)
 	_concat_gap_spin.value_changed.connect(_on_concat_gap_changed)
 
-func _pan_view_by_fraction(fraction: float) -> void:
+func _pan_view_by_fraction(fraction: float, duration: float = 0.35, linear: bool = false) -> void:
 	var plot_w := maxf(1.0, genome_view.size.x - genome_view.TRACK_LEFT_PAD - genome_view.TRACK_RIGHT_PAD)
 	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
 	var span := plot_w * current_bp_per_px
@@ -498,20 +501,32 @@ func _pan_view_by_fraction(fraction: float) -> void:
 		reads_ready = _annotation_cache_controller.detailed_read_target_ready(int(target_start), target_end, current_bp_per_px)
 	if not annotations_ready:
 		_annotation_cache_controller.prefetch_visible_target(int(target_start), target_end, current_bp_per_px)
+	if linear and _auto_play_enabled:
+		var next_target_start := clampf(target_start + span * fraction, 0.0, max_start)
+		var next_target_end := int(minf(float(_current_chr_len), next_target_start + span))
+		if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px):
+			_annotation_cache_controller.prefetch_detailed_read_target(int(next_target_start), next_target_end, current_bp_per_px)
+		var next_annotations_ready := _is_viewport_cached(int(next_target_start), next_target_end, zoom, mode, need_reference, _scope_cache_key())
+		if not next_annotations_ready:
+			_annotation_cache_controller.prefetch_visible_target(int(next_target_start), next_target_end, current_bp_per_px)
 	if reads_ready and annotations_ready:
 		_pending_pan_active = false
 		if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px):
 			_annotation_cache_controller.apply_detailed_read_span(int(minf(genome_view.view_start_bp, target_start)), int(maxf(_last_end, target_end)), current_bp_per_px)
-		genome_view.pan_to_start(target_start, 0.35)
+		if linear:
+			genome_view.pan_to_start_linear(target_start, duration)
+		else:
+			genome_view.pan_to_start(target_start, duration)
 		return
 	if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px) or not annotations_ready:
 		_pending_pan_target_start = target_start
 		_pending_pan_target_end = target_end
 		_pending_pan_bp_per_px = current_bp_per_px
-		_pending_pan_duration = 0.35
+		_pending_pan_duration = duration
+		_pending_pan_linear = linear
 		_pending_pan_active = true
 		return
-	genome_view.pan_by_fraction(fraction)
+	genome_view.pan_by_fraction(fraction, duration)
 
 func _disable_button_focus() -> void:
 	var controls := [
@@ -779,6 +794,7 @@ func _start_auto_play() -> void:
 		return
 	_auto_play_enabled = true
 	_auto_play_direction = 1.0
+	_auto_play_tween_active = false
 
 func _start_auto_play_left() -> void:
 	if _current_chr_len <= 0:
@@ -786,9 +802,85 @@ func _start_auto_play_left() -> void:
 		return
 	_auto_play_enabled = true
 	_auto_play_direction = -1.0
+	_auto_play_tween_active = false
 
 func _stop_auto_play() -> void:
 	_auto_play_enabled = false
+	_auto_play_tween_active = false
+	genome_view.end_motion_read_layer()
+	_apply_settled_detailed_reads_if_needed()
+
+
+func _cancel_motion_navigation() -> void:
+	_auto_play_enabled = false
+	_auto_play_tween_active = false
+	_pending_pan_active = false
+	genome_view.end_motion_read_layer()
+	_annotation_cache_controller.cancel_all_requests()
+
+
+func _navigate_to_view(target_start: float, target_bp_per_px: float) -> void:
+	_cancel_motion_navigation()
+	genome_view.set_view_state(target_start, target_bp_per_px)
+	_invalidate_viewport_cache()
+	_schedule_fetch()
+
+
+func _navigate_to_centered_range(start_bp: int, end_bp: int, target_bp_per_px: float) -> void:
+	var width_px := maxf(1.0, genome_view.size.x)
+	var view_span_bp := int(ceil(target_bp_per_px * width_px))
+	var center_bp := 0.5 * float(start_bp + end_bp)
+	var target_start := maxi(0, int(floor(center_bp - 0.5 * float(view_span_bp))))
+	_navigate_to_view(float(target_start), target_bp_per_px)
+
+
+func _navigate_to_boundary(at_end: bool) -> void:
+	if _current_chr_len <= 0:
+		return
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	var target_start := float(_current_chr_len) if at_end else 0.0
+	_navigate_to_view(target_start, current_bp_per_px)
+
+
+func _start_next_auto_play_segment() -> void:
+	if not _auto_play_enabled or _current_chr_len <= 0:
+		return
+	if _auto_play_tween_active:
+		return
+	var target_fraction := 0.75 * _auto_play_direction
+	var duration := 0.75 / maxf(0.05, play_speed_slider.value)
+	_auto_play_tween_active = true
+	_pan_view_by_fraction(target_fraction, duration, true)
+
+
+func _prepare_auto_play_motion() -> void:
+	if _current_chr_len <= 0:
+		return
+	var bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	if not _annotation_cache_controller.detailed_read_strips_enabled(bp_per_px):
+		genome_view.end_motion_read_layer()
+		return
+	var visible_span := maxi(1, _last_end - _last_start)
+	var render_start := _last_start
+	var render_end := _last_end
+	if _auto_play_direction >= 0.0:
+		render_start = maxi(0, _last_start - int(round(float(visible_span) * 0.75)))
+		render_end = mini(_current_chr_len, _last_end + int(round(float(visible_span) * 3.0)))
+	else:
+		render_start = maxi(0, _last_start - int(round(float(visible_span) * 3.0)))
+		render_end = mini(_current_chr_len, _last_end + int(round(float(visible_span) * 0.75)))
+	var refresh_margin_bp := float(visible_span)
+	if genome_view.motion_read_layer_has_autoplay_margin(float(_last_start), float(_last_end), _auto_play_direction, refresh_margin_bp):
+		return
+	_annotation_cache_controller.prefetch_detailed_read_target(render_start, render_end, bp_per_px)
+	if _annotation_cache_controller.detailed_read_target_ready(render_start, render_end, bp_per_px):
+		_annotation_cache_controller.apply_detailed_read_span(render_start, render_end, bp_per_px)
+		genome_view.begin_motion_read_layer_for_range(float(render_start), float(render_end))
+
+
+func _apply_settled_detailed_reads_if_needed() -> void:
+	if _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
+		_annotation_cache_controller.apply_detailed_read_span(_last_start, _last_end, _last_bp_per_px)
 
 func _on_theme_selected(index: int) -> void:
 	_apply_classic_font_defaults_for_theme(theme_option.get_item_text(index))
@@ -1209,6 +1301,8 @@ func _update_active_bam_track(mutator: Callable) -> void:
 			continue
 		mutator.call(t)
 		_bam_tracks[i] = t
+		if _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
+			_annotation_cache_controller.apply_detailed_read_span(_last_start, _last_end, _last_bp_per_px)
 		_schedule_fetch()
 		return
 
@@ -1867,12 +1961,8 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 			_seq_option.select(i)
 			_on_seq_selected(i)
 			break
-	var width_px := maxf(1.0, genome_view.size.x)
 	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
-	var view_span_bp := int(ceil(current_bp_per_px * width_px))
-	var center_bp := 0.5 * float(start_bp + end_bp)
-	var target_start := maxi(0, int(floor(center_bp - 0.5 * float(view_span_bp))))
-	genome_view.set_view_state(float(target_start), current_bp_per_px)
+	_navigate_to_centered_range(start_bp, end_bp, current_bp_per_px)
 	if hit_kind == "dna":
 		_pending_annotation_highlight = {}
 		genome_view.clear_selected_feature()
@@ -1880,8 +1970,12 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	else:
 		_pending_annotation_highlight = hit.duplicate(true)
 		genome_view.clear_region_selection()
-	_invalidate_viewport_cache()
-	_schedule_fetch()
+
+
+func _on_map_jump_requested(bp_center: float) -> void:
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	var target_start := maxi(0, int(floor(bp_center - genome_view.get_visible_span_bp() * 0.5)))
+	_navigate_to_view(float(target_start), current_bp_per_px)
 
 func _refresh_go_chromosomes() -> void:
 	if _go_chr_option == null:
@@ -1970,17 +2064,13 @@ func _apply_go_request() -> void:
 	if end_bp >= 0:
 		var span_bp := maxi(1, end_bp - start_bp)
 		var bp_per_px := clampf(float(span_bp) / width_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
-		genome_view.set_view_state(float(start_bp), bp_per_px)
+		_navigate_to_view(float(start_bp), bp_per_px)
 		genome_view.clear_region_selection()
 		_set_go_status("%s:%d-%d" % [chr_name, start_bp, end_bp])
 	else:
-		var view_span_bp := int(ceil(current_bp_per_px * width_px))
-		var target_start := maxi(0, int(floor(float(start_bp) - 0.5 * float(view_span_bp))))
-		genome_view.set_view_state(float(target_start), current_bp_per_px)
+		_navigate_to_centered_range(start_bp, start_bp + 1, current_bp_per_px)
 		genome_view.clear_region_selection()
 		_set_go_status("%s:%d" % [chr_name, start_bp])
-	_invalidate_viewport_cache()
-	_schedule_fetch()
 	_close_feature_panel()
 
 func _search_get_zem() -> RefCounted:
@@ -2752,7 +2842,14 @@ func _process(delta: float) -> void:
 			_pending_pan_active = false
 			if _annotation_cache_controller.detailed_read_strips_enabled(_pending_pan_bp_per_px):
 				_annotation_cache_controller.apply_detailed_read_span(int(minf(genome_view.view_start_bp, _pending_pan_target_start)), int(maxf(_last_end, _pending_pan_target_end)), _pending_pan_bp_per_px)
-			genome_view.pan_to_start(_pending_pan_target_start, _pending_pan_duration)
+			if _pending_pan_linear:
+				genome_view.pan_to_start_linear(_pending_pan_target_start, _pending_pan_duration)
+			else:
+				genome_view.pan_to_start(_pending_pan_target_start, _pending_pan_duration)
+			if _auto_play_enabled:
+				_auto_play_tween_active = false
+	elif _auto_play_enabled and _auto_play_tween_active and not genome_view.is_pan_animating():
+		_auto_play_tween_active = false
 	if _download_thread != null and _download_thread.is_started() and not _download_thread.is_alive():
 		var download_result: Variant = _download_thread.wait_to_finish()
 		_download_thread = null
@@ -2765,15 +2862,21 @@ func _process(delta: float) -> void:
 		return
 	if _current_chr_len <= 0:
 		_auto_play_enabled = false
+		_auto_play_tween_active = false
+		genome_view.end_motion_read_layer()
+		_apply_settled_detailed_reads_if_needed()
 		return
-	var bp_delta: float = play_speed_slider.value * genome_view.get_visible_span_bp() * delta * _auto_play_direction
-	var reached_end: bool = genome_view.auto_scroll_bp(bp_delta)
-	if reached_end:
+	if (_auto_play_direction > 0.0 and _last_end >= _current_chr_len) or (_auto_play_direction < 0.0 and _last_start <= 0):
 		_auto_play_enabled = false
+		_auto_play_tween_active = false
+		genome_view.end_motion_read_layer()
+		_apply_settled_detailed_reads_if_needed()
 		if _auto_play_direction < 0.0:
 			_set_status("Reached start of sequence. Autoplay stopped.")
 		else:
 			_set_status("Reached end of sequence. Autoplay stopped.")
+		return
+	_start_next_auto_play_segment()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("seqhiker_close_right_panel"):

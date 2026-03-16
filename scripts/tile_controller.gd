@@ -40,6 +40,13 @@ func reset() -> void:
 	_result_queue.clear()
 	_mutex.unlock()
 
+
+func cancel_requests() -> void:
+	_mutex.lock()
+	_pending_requests.clear()
+	_result_queue.clear()
+	_mutex.unlock()
+
 func shutdown() -> void:
 	if _thread == null:
 		return

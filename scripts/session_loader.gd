@@ -48,6 +48,8 @@ func _load_paths(files: PackedStringArray) -> Dictionary:
 	refresh_sequence_loaded_state()
 	refresh_chromosomes(dropped_sequence)
 	host._refresh_visible_data()
+	if host._annotation_cache_controller.detailed_read_strips_enabled(host._last_bp_per_px):
+		host._annotation_cache_controller.update_detailed_read_strips(host._last_start, host._last_end, host._last_bp_per_px)
 	return {"ok": true}
 
 
