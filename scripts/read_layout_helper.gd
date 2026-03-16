@@ -40,7 +40,7 @@ func attach_indel_markers(read: Dictionary) -> void:
 	read["del_ends"] = del_ends
 	read["ins_positions"] = ins_positions
 
-func build_layout(reads_in: Array[Dictionary], view_mode: int, fragment_log: bool, row_limit: int, view_start: int, view_end: int) -> Dictionary:
+func build_layout(reads_in: Array[Dictionary], view_mode: int, fragment_log: bool, row_limit: int, view_start: int, view_end: int, preferred_rows: Dictionary = {}) -> Dictionary:
 	var laid_out_reads: Array[Dictionary] = []
 	var strand_forward_rows := 0
 	var strand_reverse_rows := 0
@@ -88,8 +88,8 @@ func build_layout(reads_in: Array[Dictionary], view_mode: int, fragment_log: boo
 		if total_limit > 0:
 			forward_limit = int(ceil(float(total_limit) * 0.5))
 			reverse_limit = total_limit - forward_limit
-		var forward_layout := _pack_reads_into_rows(forward_reads, false, forward_limit, view_start, view_end)
-		var reverse_layout := _pack_reads_into_rows(reverse_reads, false, reverse_limit, view_start, view_end)
+		var forward_layout := _pack_reads_into_rows(forward_reads, false, forward_limit, view_start, view_end, preferred_rows)
+		var reverse_layout := _pack_reads_into_rows(reverse_reads, false, reverse_limit, view_start, view_end, preferred_rows)
 		laid_out_reads.append_array(forward_layout.get("laid_out_reads", []))
 		laid_out_reads.append_array(reverse_layout.get("laid_out_reads", []))
 		strand_forward_rows = int(forward_layout.get("row_count", 0))
@@ -101,7 +101,7 @@ func build_layout(reads_in: Array[Dictionary], view_mode: int, fragment_log: boo
 			"strand_forward_rows": strand_forward_rows,
 			"strand_reverse_rows": strand_reverse_rows
 		}
-	var packed := _pack_reads_into_rows(reads_in, view_mode == READ_VIEW_PAIRED, row_limit, view_start, view_end)
+	var packed := _pack_reads_into_rows(reads_in, view_mode == READ_VIEW_PAIRED, row_limit, view_start, view_end, preferred_rows)
 	return {
 		"laid_out_reads": packed.get("laid_out_reads", []),
 		"read_row_count": int(packed.get("row_count", 0)),
@@ -109,9 +109,9 @@ func build_layout(reads_in: Array[Dictionary], view_mode: int, fragment_log: boo
 		"strand_reverse_rows": 0
 	}
 
-func _pack_reads_into_rows(source_reads: Array[Dictionary], use_pair_span: bool, row_limit: int, view_start: int, view_end: int) -> Dictionary:
+func _pack_reads_into_rows(source_reads: Array[Dictionary], use_pair_span: bool, row_limit: int, view_start: int, view_end: int, preferred_rows: Dictionary = {}) -> Dictionary:
 	if use_pair_span:
-		return _pack_paired_reads_into_rows(source_reads, row_limit, view_start, view_end)
+		return _pack_paired_reads_into_rows(source_reads, row_limit, view_start, view_end, preferred_rows)
 	var laid_out_reads: Array[Dictionary] = []
 	if source_reads.is_empty():
 		return {"laid_out_reads": laid_out_reads, "row_count": 0}
@@ -129,7 +129,13 @@ func _pack_reads_into_rows(source_reads: Array[Dictionary], use_pair_span: bool,
 		var s := _layout_span_start(read, use_pair_span, view_start, view_end)
 		var e := _layout_span_end(read, use_pair_span, view_start, view_end)
 		var chosen := -1
+		var preferred_key := _single_read_group_key(read)
+		var preferred_row := int(preferred_rows.get(preferred_key, -1))
+		if preferred_row >= 0 and _row_is_available(row_ends, preferred_row, s, row_limit):
+			chosen = preferred_row
 		for i in range(row_ends.size()):
+			if chosen >= 0:
+				break
 			if s > row_ends[i]:
 				chosen = i
 				break
@@ -145,7 +151,7 @@ func _pack_reads_into_rows(source_reads: Array[Dictionary], use_pair_span: bool,
 		laid_out_reads.append(laid_out)
 	return {"laid_out_reads": laid_out_reads, "row_count": row_ends.size()}
 
-func _pack_paired_reads_into_rows(source_reads: Array[Dictionary], row_limit: int, view_start: int, view_end: int) -> Dictionary:
+func _pack_paired_reads_into_rows(source_reads: Array[Dictionary], row_limit: int, view_start: int, view_end: int, preferred_rows: Dictionary = {}) -> Dictionary:
 	var laid_out_reads: Array[Dictionary] = []
 	if source_reads.is_empty():
 		return {"laid_out_reads": laid_out_reads, "row_count": 0}
@@ -183,7 +189,12 @@ func _pack_paired_reads_into_rows(source_reads: Array[Dictionary], row_limit: in
 		var s := int(group.get("start", 0))
 		var e := int(group.get("end", s + 1))
 		var chosen := -1
+		var preferred_row := int(preferred_rows.get(key, -1))
+		if preferred_row >= 0 and _row_is_available(row_ends, preferred_row, s, row_limit):
+			chosen = preferred_row
 		for i in range(row_ends.size()):
+			if chosen >= 0:
+				break
 			if s > row_ends[i]:
 				chosen = i
 				break
@@ -199,6 +210,27 @@ func _pack_paired_reads_into_rows(source_reads: Array[Dictionary], row_limit: in
 			laid_out["row"] = chosen
 			laid_out_reads.append(laid_out)
 	return {"laid_out_reads": laid_out_reads, "row_count": row_ends.size()}
+
+func preferred_row_map(laid_out_reads: Array[Dictionary], view_mode: int, view_start: int, view_end: int) -> Dictionary:
+	var out := {}
+	for read in laid_out_reads:
+		var row := int(read.get("row", -1))
+		if row < 0:
+			continue
+		var key := _single_read_group_key(read)
+		if view_mode == READ_VIEW_PAIRED:
+			key = _pair_group_key(read, view_start, view_end)
+		out[key] = row
+	return out
+
+func _row_is_available(row_ends: Array[int], row_index: int, start_bp: int, row_limit: int) -> bool:
+	if row_index < 0:
+		return false
+	if row_limit > 0 and row_index >= row_limit:
+		return false
+	while row_ends.size() <= row_index:
+		row_ends.append(-2147483648)
+	return start_bp > row_ends[row_index]
 
 func _layout_span_start(read: Dictionary, use_pair_span: bool, view_start: int, view_end: int) -> int:
 	var s := int(read.get("start", 0))

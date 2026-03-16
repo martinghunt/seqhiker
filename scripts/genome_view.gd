@@ -437,6 +437,9 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_activate_read_track(track_id)
 	var prev_view_mode := _read_view_mode
 	var next_view_mode := clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
+	var preferred_rows := {}
+	if prev_view_mode == next_view_mode:
+		preferred_rows = _read_layout_helper.preferred_row_map(_laid_out_reads, _read_view_mode, int(view_start_bp), int(_viewport_end_bp()))
 	var current_summary_only := bp_per_px > DETAILED_READ_MAX_BP_PER_PX and bp_per_px <= READ_RENDER_MAX_BP_PER_PX
 	var should_center_paired_from_summary := _was_summary_only and not current_summary_only and next_view_mode == READ_VIEW_PAIRED
 	var should_center_strand := prev_view_mode != READ_VIEW_STRAND and next_view_mode == READ_VIEW_STRAND
@@ -455,6 +458,20 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_read_row_count = int(payload.get("read_row_count", 0))
 	_strand_forward_rows = int(payload.get("strand_forward_rows", 0))
 	_strand_reverse_rows = int(payload.get("strand_reverse_rows", 0))
+	if not reads.is_empty() and _read_view_mode != READ_VIEW_FRAGMENT and not preferred_rows.is_empty():
+		var stable_layout := _read_layout_helper.build_layout(
+			reads,
+			_read_view_mode,
+			_fragment_log_scale,
+			_read_row_limit,
+			int(view_start_bp),
+			int(_viewport_end_bp()),
+			preferred_rows
+		)
+		_laid_out_reads = stable_layout.get("laid_out_reads", [])
+		_read_row_count = int(stable_layout.get("read_row_count", 0))
+		_strand_forward_rows = int(stable_layout.get("strand_forward_rows", 0))
+		_strand_reverse_rows = int(stable_layout.get("strand_reverse_rows", 0))
 	if not reads.is_empty() and (_laid_out_reads.is_empty() or (_read_view_mode != READ_VIEW_FRAGMENT and _read_row_count <= 0)):
 		_layout_reads()
 	_layout_read_scrollbar()
@@ -2303,13 +2320,15 @@ func _region_selection_spans(track_rects: Dictionary) -> Array[Rect2]:
 	return spans
 
 func _layout_reads() -> void:
+	var preferred_rows := _read_layout_helper.preferred_row_map(_laid_out_reads, _read_view_mode, int(view_start_bp), int(_viewport_end_bp()))
 	var layout := _read_layout_helper.build_layout(
 		reads,
 		_read_view_mode,
 		_fragment_log_scale,
 		_read_row_limit,
 		int(view_start_bp),
-		int(_viewport_end_bp())
+		int(_viewport_end_bp()),
+		preferred_rows
 	)
 	_laid_out_reads = layout.get("laid_out_reads", [])
 	_read_row_count = int(layout.get("read_row_count", 0))
