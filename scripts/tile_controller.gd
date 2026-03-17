@@ -167,7 +167,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 				return {"ok": false, "serial": int(request.get("serial", -1)), "error": "Reference query failed: %s" % ref_resp.get("error", "error")}
 			ref_start = int(ref_resp.get("slice_start", query_start))
 			ref_sequence = str(ref_resp.get("sequence", ""))
-		if has_bam_loaded and show_reads:
+		if has_bam_loaded and (show_reads or show_depth_plot):
 			for t_any in bam_tracks:
 				var track: Dictionary = t_any as Dictionary
 				var track_id := str(track.get("track_id", ""))
@@ -249,7 +249,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	else:
 		if bool(request.get("need_reference", false)):
 			ref_sequence = _build_concat_reference(zem, query_start, query_end, overlaps)
-		if has_bam_loaded and show_reads:
+		if has_bam_loaded and (show_reads or show_depth_plot):
 			for t_any in bam_tracks:
 				var track: Dictionary = t_any as Dictionary
 				var track_id := str(track.get("track_id", ""))
