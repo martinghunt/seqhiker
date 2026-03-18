@@ -139,6 +139,12 @@ func writeTestGFF3(path string, contigs []struct {
 		if contig.name == "ctgA" {
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tgene\t901\t2100\t.\t+\t.\tID=%s_gene1;Name=%s_gene1\n", contig.name, contig.name, contig.name))
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tCDS\t901\t2100\t.\t+\t0\tID=%s_cds1;Parent=%s_gene1;Name=%s_cds1\n", contig.name, contig.name, contig.name, contig.name))
+			buf.WriteString(fmt.Sprintf("%s\tdemo\tgene\t3001\t4200\t.\t+\t.\tID=%s_gene3;Name=%s_gene3_two_exon\n", contig.name, contig.name, contig.name))
+			buf.WriteString(fmt.Sprintf("%s\tdemo\tmRNA\t3001\t4200\t.\t+\t.\tID=%s_tx3;Parent=%s_gene3;Name=%s_tx3\n", contig.name, contig.name, contig.name, contig.name))
+			buf.WriteString(fmt.Sprintf("%s\tdemo\texon\t3001\t3300\t.\t+\t.\tID=%s_exon3a;Parent=%s_tx3;Name=%s_exon3a\n", contig.name, contig.name, contig.name, contig.name))
+			buf.WriteString(fmt.Sprintf("%s\tdemo\tCDS\t3001\t3300\t.\t+\t0\tID=%s_cds3a;Parent=%s_tx3;Name=%s_cds3a\n", contig.name, contig.name, contig.name, contig.name))
+			buf.WriteString(fmt.Sprintf("%s\tdemo\texon\t3902\t4200\t.\t+\t.\tID=%s_exon3b;Parent=%s_tx3;Name=%s_exon3b\n", contig.name, contig.name, contig.name, contig.name))
+			buf.WriteString(fmt.Sprintf("%s\tdemo\tCDS\t3902\t4200\t.\t+\t0\tID=%s_cds3b;Parent=%s_tx3;Name=%s_cds3b\n", contig.name, contig.name, contig.name, contig.name))
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tgene\t6201\t8600\t.\t-\t.\tID=%s_gene2;Name=%s_gene2\n", contig.name, contig.name, contig.name))
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tCDS\t6201\t8600\t.\t-\t0\tID=%s_cds2;Parent=%s_gene2;Name=%s_cds2\n", contig.name, contig.name, contig.name, contig.name))
 			buf.WriteString(fmt.Sprintf("%s\tdemo\trepeat_region\t4801\t5350\t.\t+\t.\tID=%s_repeat1;Name=%s_repeat1\n", contig.name, contig.name, contig.name))

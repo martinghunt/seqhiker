@@ -2442,12 +2442,20 @@ func _apply_pending_annotation_highlight(features: Array[Dictionary]) -> void:
 
 func _collapse_gene_cds_features(features_in: Array[Dictionary]) -> Array[Dictionary]:
 	var gene_index_by_key := {}
+	var gene_index_by_id := {}
+	var feature_index_by_id := {}
 	for i in range(features_in.size()):
 		var feature: Dictionary = features_in[i]
+		var feature_id := str(feature.get("id", "")).strip_edges()
+		if not feature_id.is_empty():
+			feature_index_by_id[feature_id] = i
 		if str(feature.get("type", "")).to_lower() != "gene":
 			continue
 		gene_index_by_key[_feature_pair_key(feature)] = i
+		if not feature_id.is_empty():
+			gene_index_by_id[feature_id] = i
 	var drop_indexes := {}
+	var cds_parts_by_gene := {}
 	for i in range(features_in.size()):
 		var feature: Dictionary = features_in[i]
 		if str(feature.get("type", "")).to_lower() != "cds":
@@ -2455,16 +2463,61 @@ func _collapse_gene_cds_features(features_in: Array[Dictionary]) -> Array[Dictio
 		var parent_id := str(feature.get("parent", "")).strip_edges()
 		if parent_id.is_empty():
 			continue
-		var pair_key := _feature_pair_key(feature)
-		if not gene_index_by_key.has(pair_key):
-			continue
-		var gene_idx := int(gene_index_by_key[pair_key])
-		var gene_feature: Dictionary = features_in[gene_idx]
-		if parent_id != str(gene_feature.get("id", "")).strip_edges():
-			continue
-		gene_feature["paired_cds"] = feature.duplicate(true)
-		features_in[gene_idx] = gene_feature
+		var gene_idx := -1
+		if gene_index_by_id.has(parent_id):
+			gene_idx = int(gene_index_by_id[parent_id])
+		elif feature_index_by_id.has(parent_id):
+			var parent_feature: Dictionary = features_in[int(feature_index_by_id[parent_id])]
+			var grandparent_id := str(parent_feature.get("parent", "")).strip_edges()
+			if gene_index_by_id.has(grandparent_id):
+				gene_idx = int(gene_index_by_id[grandparent_id])
+		if gene_idx < 0:
+			var pair_key := _feature_pair_key(feature)
+			if not gene_index_by_key.has(pair_key):
+				continue
+			gene_idx = int(gene_index_by_key[pair_key])
+		var parts: Array = cds_parts_by_gene.get(gene_idx, [])
+		parts.append(feature.duplicate(true))
+		cds_parts_by_gene[gene_idx] = parts
 		drop_indexes[i] = true
+	for gene_idx_any in cds_parts_by_gene.keys():
+		var gene_idx := int(gene_idx_any)
+		var gene_feature: Dictionary = features_in[gene_idx]
+		var parts: Array = cds_parts_by_gene[gene_idx]
+		parts.sort_custom(func(a_any: Variant, b_any: Variant) -> bool:
+			var a: Dictionary = a_any
+			var b: Dictionary = b_any
+			return int(a.get("start", 0)) < int(b.get("start", 0))
+		)
+		gene_feature["cds_parts"] = parts
+		if parts.size() == 1:
+			gene_feature["paired_cds"] = parts[0]
+		features_in[gene_idx] = gene_feature
+	var multipart_gene_ids := {}
+	for gene_idx_any in cds_parts_by_gene.keys():
+		var gene_idx := int(gene_idx_any)
+		var gene_feature: Dictionary = features_in[gene_idx]
+		var gene_id := str(gene_feature.get("id", "")).strip_edges()
+		var parts: Array = cds_parts_by_gene[gene_idx]
+		if parts.size() > 1 and not gene_id.is_empty():
+			multipart_gene_ids[gene_id] = true
+	for i in range(features_in.size()):
+		if drop_indexes.get(i, false):
+			continue
+		var feature: Dictionary = features_in[i]
+		if str(feature.get("type", "")).to_lower() == "gene":
+			continue
+		var parent_id := str(feature.get("parent", "")).strip_edges()
+		if parent_id.is_empty():
+			continue
+		if multipart_gene_ids.has(parent_id):
+			drop_indexes[i] = true
+			continue
+		if feature_index_by_id.has(parent_id):
+			var parent_feature: Dictionary = features_in[int(feature_index_by_id[parent_id])]
+			var grandparent_id := str(parent_feature.get("parent", "")).strip_edges()
+			if multipart_gene_ids.has(grandparent_id):
+				drop_indexes[i] = true
 	var out: Array[Dictionary] = []
 	for i in range(features_in.size()):
 		if drop_indexes.get(i, false):

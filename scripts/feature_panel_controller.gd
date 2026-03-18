@@ -30,6 +30,28 @@ func on_feature_clicked(feature: Dictionary) -> void:
 	else:
 		host.feature_source_label.text = "Source: %s | ID=%s" % [str(feature.get("source", "-")), feature_id]
 	var seq_text := "Sequence: %s" % str(feature.get("seq_name", host._current_chr_name))
+	var cds_parts_any: Variant = feature.get("cds_parts", [])
+	if cds_parts_any is Array and (cds_parts_any as Array).size() > 1:
+		var cds_parts: Array = cds_parts_any
+		seq_text += "\n\nExons / CDS Parts"
+		for i in range(cds_parts.size()):
+			var part_any: Variant = cds_parts[i]
+			if typeof(part_any) != TYPE_DICTIONARY:
+				continue
+			var part: Dictionary = part_any
+			var part_id := str(part.get("id", "")).strip_edges()
+			var part_name := str(part.get("name", "-"))
+			var part_source := str(part.get("source", "-"))
+			seq_text += "\n\nPart %d\nName: %s\nRange: %d - %d\nStrand: %s\nSource: %s" % [
+				i + 1,
+				part_name,
+				_display_range_start_bp(int(part.get("start", 0))),
+				_display_range_end_bp(int(part.get("end", 0))),
+				str(part.get("strand", ".")),
+				part_source
+			]
+			if not part_id.is_empty():
+				seq_text += "\nID: %s" % part_id
 	var paired_cds: Dictionary = feature.get("paired_cds", {})
 	if not paired_cds.is_empty():
 		var cds_id := str(paired_cds.get("id", "")).strip_edges()
