@@ -32,6 +32,16 @@ func _bp_to_x_at(bp: float, render_start_bp: float, render_bp_per_px: float) -> 
 func _bp_to_screen_center_at(bp: float, render_start_bp: float, render_bp_per_px: float) -> float:
 	return view.TRACK_LEFT_PAD + _bp_to_x_at(bp + 0.5, render_start_bp, render_bp_per_px)
 
+func _render_left_edge_bp_at(render_start_bp: float, render_bp_per_px: float) -> float:
+	var start_bp := _viewport_start_bp_at(render_start_bp, render_bp_per_px)
+	var bp_per_px_value := render_bp_per_px if render_bp_per_px > 0.0 else view.bp_per_px
+	return start_bp - view.TRACK_LEFT_PAD * bp_per_px_value
+
+func _render_right_edge_bp_at(render_start_bp: float, render_bp_per_px: float) -> float:
+	var start_bp := _viewport_start_bp_at(render_start_bp, render_bp_per_px)
+	var bp_per_px_value := render_bp_per_px if render_bp_per_px > 0.0 else view.bp_per_px
+	return start_bp + view.size.x * bp_per_px_value
+
 func _color_distance(a: Color, b: Color) -> float:
 	var dr := a.r - b.r
 	var dg := a.g - b.g
@@ -264,7 +274,8 @@ func draw_read_tracks(area: Rect2) -> void:
 	var draw_snp_text := can_draw_read_snp_letters() and not pan_animating
 	var snp_font := view.sequence_letter_font()
 	var snp_font_size := maxi(8, read_text_font_size() - 1)
-	var visible_end_bp := int(view._viewport_end_bp())
+	var visible_start_bp := int(floor(_render_left_edge_bp_at(0.0, 0.0)))
+	var visible_end_bp := int(ceil(_render_right_edge_bp_at(0.0, 0.0)))
 	var can_break_by_start := view._read_view_mode != view.READ_VIEW_STRAND
 	for i in range(view._laid_out_reads.size()):
 		var read: Dictionary = view._laid_out_reads[i]
@@ -272,7 +283,7 @@ func draw_read_tracks(area: Rect2) -> void:
 		var read_end: int = read["end"]
 		if can_break_by_start and read_start > visible_end_bp:
 			break
-		if read_end < int(view.view_start_bp) or read_start > int(view._viewport_end_bp()):
+		if read_end < visible_start_bp or read_start > visible_end_bp:
 			continue
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 			var pair_key := pair_render_key(read)
@@ -355,8 +366,8 @@ func draw_read_tracks(area: Rect2) -> void:
 func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: float, render_bp_per_px: float, render_end_bp: float, track_id: String) -> void:
 	if area.size.y <= 24.0:
 		return
-	var visible_start := int(_viewport_start_bp_at(render_start_bp, render_bp_per_px))
-	var visible_end_bp := int(render_end_bp)
+	var visible_start := int(floor(_render_left_edge_bp_at(render_start_bp, render_bp_per_px)))
+	var visible_end_bp := int(ceil(render_end_bp))
 	var content_top := area.position.y + 30.0
 	var content_bottom := area.position.y + area.size.y - 4.0
 	var row_h := view.current_read_row_h()

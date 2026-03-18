@@ -241,16 +241,14 @@ func detailed_read_target_ready(start_bp: int, end_bp: int, bp_per_px: float) ->
 	if not detailed_read_strips_enabled(bp_per_px):
 		return true
 	_ensure_read_strip_scope(bp_per_px)
-	var covered := _strip_covered_range()
-	return covered.x <= start_bp and covered.y >= end_bp
+	return _strip_range_fully_covered(start_bp, end_bp)
 
 
 func apply_detailed_read_span(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	if not detailed_read_strips_enabled(bp_per_px):
 		return
 	_ensure_read_strip_scope(bp_per_px)
-	var covered := _strip_covered_range()
-	if covered.x <= start_bp and covered.y >= end_bp:
+	if _strip_range_fully_covered(start_bp, end_bp):
 		_apply_read_strip_viewport(start_bp, end_bp)
 
 
@@ -461,8 +459,31 @@ func _strip_covered_range() -> Vector2i:
 		right = maxi(right, int(seg.get("end_bp", right)))
 	return Vector2i(left, right)
 
+func _strip_range_fully_covered(start_bp: int, end_bp: int) -> bool:
+	if end_bp <= start_bp:
+		return true
+	if _strip_segments.is_empty():
+		return false
+	var cursor := start_bp
+	for seg_any in _strip_segments:
+		var seg: Dictionary = seg_any
+		var seg_start := int(seg.get("start_bp", 0))
+		var seg_end := int(seg.get("end_bp", 0))
+		if seg_end <= cursor:
+			continue
+		if seg_start > cursor:
+			return false
+		cursor = maxi(cursor, seg_end)
+		if cursor >= end_bp:
+			return true
+	return false
+
 
 func _apply_read_strip_viewport(start_bp: int, end_bp: int) -> void:
+	var apply_left_margin_bp := maxi(192, int(ceil(host._last_bp_per_px * 240.0)))
+	var apply_right_margin_bp := maxi(128, int(ceil(host._last_bp_per_px * 160.0)))
+	var apply_start := maxi(0, start_bp - apply_left_margin_bp)
+	var apply_end := mini(host._current_chr_len, end_bp + apply_right_margin_bp)
 	for t_any in host._bam_tracks:
 		var track: Dictionary = t_any
 		var track_id := str(track.get("track_id", ""))
@@ -472,7 +493,7 @@ func _apply_read_strip_viewport(start_bp: int, end_bp: int) -> void:
 		var fragment_summary := {}
 		for seg_any in _strip_segments:
 			var seg: Dictionary = seg_any
-			if int(seg.get("end_bp", 0)) <= start_bp or int(seg.get("start_bp", 0)) >= end_bp:
+			if int(seg.get("end_bp", 0)) <= apply_start or int(seg.get("start_bp", 0)) >= apply_end:
 				continue
 			var read_payload_by_track: Dictionary = seg.get("read_payload_by_track", {})
 			var payload: Dictionary = read_payload_by_track.get(track_id, {})
@@ -480,7 +501,7 @@ func _apply_read_strip_viewport(start_bp: int, end_bp: int) -> void:
 				if typeof(read_any) != TYPE_DICTIONARY:
 					continue
 				var read: Dictionary = read_any
-				if int(read.get("end", 0)) > start_bp and int(read.get("start", 0)) < end_bp:
+				if int(read.get("end", 0)) > apply_start and int(read.get("start", 0)) < apply_end:
 					reads_out.append(read)
 			for cov_any in payload.get("coverage", []):
 				if typeof(cov_any) == TYPE_DICTIONARY:
