@@ -781,6 +781,24 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 		cigar := string(payload[off : off+cigarLen])
 		off += cigarLen
 		if off+2 > len(payload) {
+			t.Fatalf("missing left soft-clip length")
+		}
+		leftSoftLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2
+		if off+leftSoftLen > len(payload) {
+			t.Fatalf("alignment left soft-clip overflow")
+		}
+		off += leftSoftLen
+		if off+2 > len(payload) {
+			t.Fatalf("missing right soft-clip length")
+		}
+		rightSoftLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2
+		if off+rightSoftLen > len(payload) {
+			t.Fatalf("alignment right soft-clip overflow")
+		}
+		off += rightSoftLen
+		if off+2 > len(payload) {
 			t.Fatalf("missing snp count")
 		}
 		snpCount := int(binary.LittleEndian.Uint16(payload[off : off+2]))

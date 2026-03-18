@@ -233,7 +233,7 @@ func _row_is_available(row_ends: Array[int], row_index: int, start_bp: int, row_
 	return start_bp > row_ends[row_index]
 
 func _layout_span_start(read: Dictionary, use_pair_span: bool, view_start: int, view_end: int) -> int:
-	var s := int(read.get("start", 0))
+	var s := int(read.get("start", 0)) - str(read.get("soft_clip_left", "")).length()
 	if not use_pair_span or not _should_use_mate_span_for_packing(read, view_start, view_end):
 		return s
 	var mate_start := int(read.get("mate_start", -1))
@@ -243,7 +243,7 @@ func _layout_span_start(read: Dictionary, use_pair_span: bool, view_start: int, 
 
 func _layout_span_end(read: Dictionary, use_pair_span: bool, view_start: int, view_end: int) -> int:
 	var s := int(read.get("start", 0))
-	var e := int(read.get("end", s + 1))
+	var e := int(read.get("end", s + 1)) + str(read.get("soft_clip_right", "")).length()
 	if not use_pair_span or not _should_use_mate_span_for_packing(read, view_start, view_end):
 		return e
 	var mate_end := int(read.get("mate_end", -1))

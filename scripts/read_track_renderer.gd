@@ -42,6 +42,86 @@ func _render_right_edge_bp_at(render_start_bp: float, render_bp_per_px: float) -
 	var bp_per_px_value := render_bp_per_px if render_bp_per_px > 0.0 else view.bp_per_px
 	return start_bp + view.size.x * bp_per_px_value
 
+
+func _soft_clip_len(read: Dictionary, key: String) -> int:
+	return str(read.get(key, "")).length()
+
+
+func _render_read_start_bp(read: Dictionary) -> int:
+	var read_start := int(read.get("start", 0))
+	if not view._show_soft_clips:
+		return read_start
+	return read_start - _soft_clip_len(read, "soft_clip_left")
+
+
+func _render_read_end_bp(read: Dictionary) -> int:
+	var read_end := int(read.get("end", 0))
+	if not view._show_soft_clips:
+		return read_end
+	return read_end + _soft_clip_len(read, "soft_clip_right")
+
+
+func _soft_clip_color(read_color: Color) -> Color:
+	var snp_col: Color = view.palette.get("snp", Color(0.86, 0.14, 0.14))
+	var out := read_color.lerp(snp_col, 0.65)
+	out.a = maxf(out.a, 0.95)
+	return out
+
+
+func _soft_clip_marker_color() -> Color:
+	var out: Color = view.palette.get("text", view._axis_text_color())
+	out.a = maxf(out.a, 0.95)
+	return out
+
+
+func _draw_soft_clip_text(target: CanvasItem, seq: String, rect: Rect2, font: Font, font_size: int) -> void:
+	if seq.is_empty():
+		return
+	var per_base_w := rect.size.x / float(maxi(1, seq.length()))
+	if per_base_w < 6.0:
+		return
+	var text_col: Color = view.palette.get("snp_text", Color.WHITE)
+	for i in range(seq.length()):
+		var base_text := seq.substr(i, 1)
+		var base_center_x := rect.position.x + (float(i) + 0.5) * per_base_w
+		var tw := font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		var tx := base_center_x - tw * 0.5
+		var ty := view._text_baseline_for_center(rect.position.y + rect.size.y * 0.5, font, font_size)
+		target.draw_string(font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+
+
+func _draw_soft_clip_overhangs_to(target: CanvasItem, read: Dictionary, y: float, read_color: Color, render_start_bp: float, render_bp_per_px: float) -> void:
+	if not view._show_soft_clips:
+		return
+	var left_seq := str(read.get("soft_clip_left", ""))
+	var right_seq := str(read.get("soft_clip_right", ""))
+	if left_seq.is_empty() and right_seq.is_empty():
+		return
+	var row_h := view.current_read_row_h()
+	var aligned_x0 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(int(read.get("start", 0))), render_start_bp, render_bp_per_px)
+	var aligned_x1 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(int(read.get("end", 0))), render_start_bp, render_bp_per_px)
+	var bp_per_px_value := render_bp_per_px if render_bp_per_px > 0.0 else view.bp_per_px
+	var clip_color := _soft_clip_color(read_color)
+	var marker_color := _soft_clip_marker_color()
+	var marker_w := maxf(1.5, row_h * 0.14)
+	var font := view.sequence_letter_font()
+	var font_size := maxi(8, read_text_font_size() - 1)
+	var draw_text := view.can_draw_read_snp_letters_for_row_h(row_h)
+	if not left_seq.is_empty():
+		var left_w := maxf(2.0, float(left_seq.length()) / bp_per_px_value)
+		var left_rect := Rect2(aligned_x0 - left_w, y, left_w, row_h)
+		target.draw_rect(left_rect, clip_color, true)
+		target.draw_rect(Rect2(aligned_x0 - marker_w * 0.5, y, marker_w, row_h), marker_color, true)
+		if draw_text:
+			_draw_soft_clip_text(target, left_seq, left_rect, font, font_size)
+	if not right_seq.is_empty():
+		var right_w := maxf(2.0, float(right_seq.length()) / bp_per_px_value)
+		var right_rect := Rect2(aligned_x1, y, right_w, row_h)
+		target.draw_rect(right_rect, clip_color, true)
+		target.draw_rect(Rect2(aligned_x1 - marker_w * 0.5, y, marker_w, row_h), marker_color, true)
+		if draw_text:
+			_draw_soft_clip_text(target, right_seq, right_rect, font, font_size)
+
 func _color_distance(a: Color, b: Color) -> float:
 	var dr := a.r - b.r
 	var dg := a.g - b.g
@@ -276,14 +356,16 @@ func draw_read_tracks(area: Rect2) -> void:
 	var snp_font_size := maxi(8, read_text_font_size() - 1)
 	var visible_start_bp := int(floor(_render_left_edge_bp_at(0.0, 0.0)))
 	var visible_end_bp := int(ceil(_render_right_edge_bp_at(0.0, 0.0)))
-	var can_break_by_start := view._read_view_mode != view.READ_VIEW_STRAND
+	var can_break_by_start := view._read_view_mode != view.READ_VIEW_STRAND and not view._show_soft_clips
 	for i in range(view._laid_out_reads.size()):
 		var read: Dictionary = view._laid_out_reads[i]
-		var read_start: int = read["start"]
-		var read_end: int = read["end"]
-		if can_break_by_start and read_start > visible_end_bp:
+		var visible_read_start: int = _render_read_start_bp(read)
+		var visible_read_end: int = _render_read_end_bp(read)
+		var read_start: int = int(read.get("start", 0))
+		var read_end: int = int(read.get("end", read_start))
+		if can_break_by_start and visible_read_start > visible_end_bp:
 			break
-		if read_end < visible_start_bp or read_start > visible_end_bp:
+		if visible_read_end < visible_start_bp or visible_read_start > visible_end_bp:
 			continue
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 			var pair_key := pair_render_key(read)
@@ -297,10 +379,14 @@ func draw_read_tracks(area: Rect2) -> void:
 		var x0 := view.TRACK_LEFT_PAD + view._bp_to_x(read_start)
 		var x1 := view.TRACK_LEFT_PAD + view._bp_to_x(read_end)
 		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), row_h))
+		var full_x0 := view.TRACK_LEFT_PAD + view._bp_to_x(visible_read_start)
+		var full_x1 := view.TRACK_LEFT_PAD + view._bp_to_x(visible_read_end)
+		var full_rect := Rect2(Vector2(full_x0, y), Vector2(maxf(2.0, full_x1 - full_x0), row_h))
 		var read_color := _read_color(read, mate_contig_colors, inferred_ids)
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 			draw_pair_connector(read, y, read_color)
 			draw_mate_block(read, y, read_color)
+		_draw_soft_clip_overhangs_to(view, read, y, read_color, 0.0, 0.0)
 		view.draw_rect(rect, read_color, true)
 		var draw_selected := false
 		if track_id == view._selected_read_track_id and i == view._selected_read_index:
@@ -316,9 +402,9 @@ func draw_read_tracks(area: Rect2) -> void:
 					draw_selected = true
 		if draw_selected:
 			var border_col: Color = view.palette.get("text", view._axis_text_color())
-			view.draw_rect(rect.grow(1.5), border_col, false, 2.0)
+			view.draw_rect(full_rect.grow(1.5), border_col, false, 2.0)
 		view._read_hitboxes.append({
-			"rect": rect,
+			"rect": full_rect,
 			"read": read,
 			"read_index": i,
 			"track_id": track_id
@@ -392,15 +478,17 @@ func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: fl
 	var snp_font := view.sequence_letter_font()
 	var snp_font_size := read_text_font_size()
 	var draw_snp_text := view.can_draw_read_snp_letters_for_row_h(view.current_read_row_h())
-	var can_break_by_start := view._read_view_mode != view.READ_VIEW_STRAND
+	var can_break_by_start := view._read_view_mode != view.READ_VIEW_STRAND and not view._show_soft_clips
 	var render_screen_right := view.TRACK_LEFT_PAD + maxf(0.0, (render_end_bp - render_start_bp) / render_bp_per_px)
 	for i in range(view._laid_out_reads.size()):
 		var read: Dictionary = view._laid_out_reads[i]
-		var read_start: int = read["start"]
-		var read_end: int = read["end"]
-		if can_break_by_start and read_start > visible_end_bp:
+		var visible_read_start: int = _render_read_start_bp(read)
+		var visible_read_end: int = _render_read_end_bp(read)
+		var read_start: int = int(read.get("start", 0))
+		var read_end: int = int(read.get("end", read_start))
+		if can_break_by_start and visible_read_start > visible_end_bp:
 			break
-		if read_end < visible_start or read_start > visible_end_bp:
+		if visible_read_end < visible_start or visible_read_start > visible_end_bp:
 			continue
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 			var pair_key := pair_render_key(read)
@@ -414,10 +502,14 @@ func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: fl
 		var x0 := view.TRACK_LEFT_PAD + _bp_to_x_at(read_start, render_start_bp, render_bp_per_px)
 		var x1 := view.TRACK_LEFT_PAD + _bp_to_x_at(read_end, render_start_bp, render_bp_per_px)
 		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), row_h))
+		var full_x0 := view.TRACK_LEFT_PAD + _bp_to_x_at(visible_read_start, render_start_bp, render_bp_per_px)
+		var full_x1 := view.TRACK_LEFT_PAD + _bp_to_x_at(visible_read_end, render_start_bp, render_bp_per_px)
+		var full_rect := Rect2(Vector2(full_x0, y), Vector2(maxf(2.0, full_x1 - full_x0), row_h))
 		var read_color := _read_color(read, mate_contig_colors, inferred_ids)
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 			_draw_pair_connector_to(target, read, y, read_color, render_start_bp, render_bp_per_px)
 			_draw_mate_block_to(target, read, y, read_color, render_start_bp, render_bp_per_px, render_end_bp)
+		_draw_soft_clip_overhangs_to(target, read, y, read_color, render_start_bp, render_bp_per_px)
 		target.draw_rect(rect, read_color, true)
 		var draw_selected := false
 		if track_id == view._selected_read_track_id and i == view._selected_read_index:
@@ -433,7 +525,7 @@ func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: fl
 					draw_selected = true
 		if draw_selected:
 			var border_col: Color = view.palette.get("text", view._axis_text_color())
-			target.draw_rect(rect.grow(1.5), border_col, false, 2.0)
+			target.draw_rect(full_rect.grow(1.5), border_col, false, 2.0)
 		if view.bp_per_px <= view.SNP_MARK_MAX_BP_PER_PX:
 			var snps: PackedInt32Array = read.get("snps", PackedInt32Array())
 			var snp_bases: PackedByteArray = read.get("snp_bases", PackedByteArray())

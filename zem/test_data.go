@@ -207,6 +207,22 @@ func writeSingleEndTestBAMAndIndex(bamPath, baiPath string, contigs []struct {
 			})
 		}
 	}
+	specs = append(specs, testReadSpec{
+		name:  "ctgA_softclip_single",
+		ref:   refByName["ctgA"],
+		start: 3400,
+		seq:   buildSoftClippedReadSequence(contigByName["ctgA"], 3400, testReadLen, 10, 12),
+		cigar: []sam.CigarOp{
+			sam.NewCigarOp(sam.CigarSoftClipped, 10),
+			sam.NewCigarOp(sam.CigarMatch, testReadLen),
+			sam.NewCigarOp(sam.CigarSoftClipped, 12),
+		},
+		flags:   0,
+		mapQ:    60,
+		mateRef: nil,
+		matePos: -1,
+		tempLen: 0,
+	})
 	return writeTestBAMFromSpecs(bamPath, baiPath, header, specs)
 }
 
@@ -290,6 +306,39 @@ func writePairedEndTestBAMAndIndex(bamPath, baiPath string, contigs []struct {
 		mateRef: ctgARef,
 		matePos: 0,
 		tempLen: 0,
+	})
+
+	specs = append(specs, testReadSpec{
+		name:  "ctgA_softclip_pair_1",
+		ref:   ctgARef,
+		start: 5600,
+		seq:   buildSoftClippedReadSequence(contigByName["ctgA"], 5600, testPairReadLen, 8, 10),
+		cigar: []sam.CigarOp{
+			sam.NewCigarOp(sam.CigarSoftClipped, 8),
+			sam.NewCigarOp(sam.CigarMatch, testPairReadLen),
+			sam.NewCigarOp(sam.CigarSoftClipped, 10),
+		},
+		flags:   sam.Paired | sam.ProperPair | sam.Read1 | sam.MateReverse,
+		mapQ:    60,
+		mateRef: ctgARef,
+		matePos: 5760,
+		tempLen: 250,
+	})
+	specs = append(specs, testReadSpec{
+		name:  "ctgA_softclip_pair_1",
+		ref:   ctgARef,
+		start: 5760,
+		seq:   buildSoftClippedReadSequence(contigByName["ctgA"], 5760, testPairReadLen, 6, 14),
+		cigar: []sam.CigarOp{
+			sam.NewCigarOp(sam.CigarSoftClipped, 6),
+			sam.NewCigarOp(sam.CigarMatch, testPairReadLen),
+			sam.NewCigarOp(sam.CigarSoftClipped, 14),
+		},
+		flags:   sam.Paired | sam.ProperPair | sam.Read2 | sam.Reverse,
+		mapQ:    60,
+		mateRef: ctgARef,
+		matePos: 5600,
+		tempLen: -250,
 	})
 
 	bridgeOffsetsByPair := []int{0, 180, 360}
@@ -487,6 +536,20 @@ func buildReadSequence(refSeq string, start, refSpan int, variant demoVariant) (
 	default:
 		return []byte(refSeq[start : start+refSpan]), []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, refSpan)}
 	}
+}
+
+func buildSoftClippedReadSequence(refSeq string, start, alignedSpan, leftClip, rightClip int) []byte {
+	var buf bytes.Buffer
+	leftAlphabet := []byte("TGCATGCATGCA")
+	rightAlphabet := []byte("CAGTCAGTCAGT")
+	for i := 0; i < leftClip; i++ {
+		buf.WriteByte(leftAlphabet[i%len(leftAlphabet)])
+	}
+	buf.WriteString(refSeq[start : start+alignedSpan])
+	for i := 0; i < rightClip; i++ {
+		buf.WriteByte(rightAlphabet[i%len(rightAlphabet)])
+	}
+	return buf.Bytes()
 }
 
 func addRandomErrors(seq []byte, variant demoVariant, refStart int, rng *rand.Rand) {

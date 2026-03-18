@@ -483,6 +483,22 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 			break
 		var cigar := _decode_wire_text(payload.slice(off, off + cigar_len))
 		off += cigar_len
+		if off + 2 > payload.size():
+			break
+		var soft_left_len := payload.decode_u16(off)
+		off += 2
+		if off + soft_left_len > payload.size():
+			break
+		var soft_clip_left := _decode_wire_text(payload.slice(off, off + soft_left_len))
+		off += soft_left_len
+		if off + 2 > payload.size():
+			break
+		var soft_right_len := payload.decode_u16(off)
+		off += 2
+		if off + soft_right_len > payload.size():
+			break
+		var soft_clip_right := _decode_wire_text(payload.slice(off, off + soft_right_len))
+		off += soft_right_len
 		var snps := PackedInt32Array()
 		var snp_bases := PackedByteArray()
 		if off + 2 <= payload.size():
@@ -506,6 +522,8 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 			"flags": int(flags),
 			"name": read_name,
 			"cigar": cigar,
+			"soft_clip_left": soft_clip_left,
+			"soft_clip_right": soft_clip_right,
 			"snps": snps,
 			"snp_bases": snp_bases,
 			"mate_start": -1 if mate_start_u == 0xFFFFFFFF else int(mate_start_u),

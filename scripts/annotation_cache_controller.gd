@@ -523,6 +523,7 @@ func _apply_read_strip_viewport(start_bp: int, end_bp: int) -> void:
 			float(track.get("thickness", host.DEFAULT_READ_THICKNESS)),
 			int(track.get("max_rows", host.DEFAULT_READ_MAX_ROWS)),
 			bool(track.get("auto_expand_snp_text", true)),
+			bool(track.get("show_soft_clips", false)),
 			bool(track.get("color_by_mate_contig", false))
 		)
 
@@ -587,6 +588,7 @@ func _apply_visible_tile_result(tile_resp: Dictionary, visible_req: Dictionary) 
 				float(track.get("thickness", host.DEFAULT_READ_THICKNESS)),
 				int(track.get("max_rows", host.DEFAULT_READ_MAX_ROWS)),
 				bool(track.get("auto_expand_snp_text", true)),
+				bool(track.get("show_soft_clips", false)),
 				bool(track.get("color_by_mate_contig", false))
 			)
 			if host.center_strand_scroll_pending and int(track.get("view_mode", 0)) == 1 and (payload.get("reads", []) as Array).size() > 0:

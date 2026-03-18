@@ -35,6 +35,10 @@ value = 8.0
 layout_mode = 2
 text = "Auto-expand to fit SNP letters"
 
+[node name="ShowSoftClips" type="CheckButton" parent="."]
+layout_mode = 2
+text = "Show soft-clipped bases"
+
 [node name="MateContigColor" type="CheckButton" parent="."]
 layout_mode = 2
 text = "Color reads by mate contig"

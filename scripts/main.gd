@@ -1161,6 +1161,9 @@ func _setup_track_settings_panel() -> void:
 		var auto_expand_snp_cb := _read_track_settings_panel.get_node("AutoExpandSNPText") as CheckButton
 		if auto_expand_snp_cb != null and not auto_expand_snp_cb.toggled.is_connected(_on_active_read_track_auto_expand_snp_toggled):
 			auto_expand_snp_cb.toggled.connect(_on_active_read_track_auto_expand_snp_toggled)
+		var show_soft_clips_cb := _read_track_settings_panel.get_node("ShowSoftClips") as CheckButton
+		if show_soft_clips_cb != null and not show_soft_clips_cb.toggled.is_connected(_on_active_read_track_show_soft_clips_toggled):
+			show_soft_clips_cb.toggled.connect(_on_active_read_track_show_soft_clips_toggled)
 		var mate_contig_color_cb := _read_track_settings_panel.get_node("MateContigColor") as CheckButton
 		if mate_contig_color_cb != null and not mate_contig_color_cb.toggled.is_connected(_on_active_read_track_mate_contig_color_toggled):
 			mate_contig_color_cb.toggled.connect(_on_active_read_track_mate_contig_color_toggled)
@@ -1334,6 +1337,11 @@ func _on_active_read_track_thickness_changed(value: float) -> void:
 func _on_active_read_track_auto_expand_snp_toggled(enabled: bool) -> void:
 	_update_active_bam_track(func(t: Dictionary) -> void:
 		t["auto_expand_snp_text"] = enabled
+	)
+
+func _on_active_read_track_show_soft_clips_toggled(enabled: bool) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["show_soft_clips"] = enabled
 	)
 
 func _on_active_read_track_mate_contig_color_toggled(enabled: bool) -> void:
@@ -1644,6 +1652,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 		var frag_cb := _read_track_settings_panel.get_node("FragmentLogScale") as CheckButton
 		var thickness_spin := _read_track_settings_panel.get_node("ReadThicknessSpin") as SpinBox
 		var auto_expand_snp_cb := _read_track_settings_panel.get_node("AutoExpandSNPText") as CheckButton
+		var show_soft_clips_cb := _read_track_settings_panel.get_node("ShowSoftClips") as CheckButton
 		var mate_contig_color_cb := _read_track_settings_panel.get_node("MateContigColor") as CheckButton
 		var max_rows_spin := _read_track_settings_panel.get_node("MaxRowsSpin") as SpinBox
 		var mapq_spin := _read_track_settings_panel.get_node("MapQSpin") as SpinBox
@@ -1661,6 +1670,8 @@ func _on_track_settings_requested(track_id: String) -> void:
 			thickness_spin.value = float(track_meta.get("thickness", DEFAULT_READ_THICKNESS))
 		if auto_expand_snp_cb != null:
 			auto_expand_snp_cb.button_pressed = bool(track_meta.get("auto_expand_snp_text", true))
+		if show_soft_clips_cb != null:
+			show_soft_clips_cb.button_pressed = bool(track_meta.get("show_soft_clips", false))
 		if mate_contig_color_cb != null:
 			mate_contig_color_cb.button_pressed = bool(track_meta.get("color_by_mate_contig", false))
 		if max_rows_spin != null:

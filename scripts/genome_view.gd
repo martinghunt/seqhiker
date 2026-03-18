@@ -182,6 +182,7 @@ var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
 var _auto_expand_snp_text := false
+var _show_soft_clips := false
 var _color_by_mate_contig := false
 var _read_row_limit := 0
 var _annotation_max_on_screen := 4400
@@ -268,6 +269,7 @@ func _ready() -> void:
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
 		"auto_expand_snp_text": _auto_expand_snp_text,
+		"show_soft_clips": _show_soft_clips,
 		"color_by_mate_contig": _color_by_mate_contig,
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
@@ -445,7 +447,7 @@ func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_c
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, color_by_mate_contig: bool = false) -> void:
+func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, show_soft_clips: bool = false, color_by_mate_contig: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
 	var selected_read_key := ""
@@ -464,6 +466,7 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
 	_auto_expand_snp_text = auto_expand_snp_text
+	_show_soft_clips = show_soft_clips
 	_color_by_mate_contig = color_by_mate_contig
 	_read_row_limit = maxi(0, row_limit)
 	reads = _as_dict_array(payload.get("reads", []))
@@ -519,7 +522,7 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, color_by_mate_contig: bool = false) -> void:
+func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, show_soft_clips: bool = false, color_by_mate_contig: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
 	var prev_view_mode := _read_view_mode
@@ -527,6 +530,7 @@ func set_read_track_settings(track_id: String, view_mode: int, fragment_log: boo
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
 	_auto_expand_snp_text = auto_expand_snp_text
+	_show_soft_clips = show_soft_clips
 	_color_by_mate_contig = color_by_mate_contig
 	_read_row_limit = maxi(0, row_limit)
 	_layout_reads()
@@ -2489,6 +2493,7 @@ func _ensure_read_track_state(track_id: String) -> void:
 		"fragment_log_scale": true,
 		"read_row_h": READ_ROW_H,
 		"auto_expand_snp_text": false,
+		"show_soft_clips": false,
 		"color_by_mate_contig": false,
 		"read_row_limit": 0,
 		"scrollbar": sb
@@ -2517,6 +2522,7 @@ func _activate_read_track(track_id: String) -> void:
 	_fragment_log_scale = bool(state.get("fragment_log_scale", true))
 	_read_row_h = float(state.get("read_row_h", READ_ROW_H))
 	_auto_expand_snp_text = bool(state.get("auto_expand_snp_text", false))
+	_show_soft_clips = bool(state.get("show_soft_clips", false))
 	_color_by_mate_contig = bool(state.get("color_by_mate_contig", false))
 	_read_row_limit = int(state.get("read_row_limit", 0))
 	_reads_scrollbar = state.get("scrollbar", _reads_scrollbar)
@@ -2549,6 +2555,7 @@ func _persist_active_read_track() -> void:
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
 		"auto_expand_snp_text": _auto_expand_snp_text,
+		"show_soft_clips": _show_soft_clips,
 		"color_by_mate_contig": _color_by_mate_contig,
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
