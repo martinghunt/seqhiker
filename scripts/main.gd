@@ -2656,9 +2656,7 @@ func _load_view_slot(slot_idx: int) -> void:
 				_seq_option.select(i)
 				_on_seq_selected(i)
 				break
-	genome_view.set_view_state(float(slot.get("start_bp", _last_start)), float(slot.get("bp_per_px", _last_bp_per_px)))
-	_invalidate_viewport_cache()
-	_schedule_fetch()
+	_navigate_to_view(float(slot.get("start_bp", _last_start)), float(slot.get("bp_per_px", _last_bp_per_px)))
 	_set_status("Loaded view slot %d." % slot_idx)
 
 func _is_viewport_cached(start_bp: int, end_bp: int, zoom: int, mode: int, need_reference: bool, scope_key: String) -> bool:
