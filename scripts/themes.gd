@@ -35,6 +35,7 @@ const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 #  - read: default read/depth-summary color
 #  - gc_plot: GC plot color
 #  - depth_plot: depth plot color
+#  - depth_plot_series: per-BAM depth plot series colors
 #  - snp: SNP marker fill
 #  - snp_text: text drawn on SNP markers
 #  - aa_forward: forward-frame AA summary/read-derived accent
@@ -73,6 +74,14 @@ const THEMES := {
 		"read": Color8(25, 7, 244),
 		"gc_plot": Color("000000"),
 		"depth_plot": Color("000000"),
+		"depth_plot_series": [
+			Color("000000"),
+			Color("3f3f3f"),
+			Color("6a6a6a"),
+			Color("8f8f8f"),
+			Color("b5b5b5"),
+			Color("d0d0d0")
+		],
 		"snp": Color("ff0000"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("0000ff"),
@@ -109,6 +118,14 @@ const THEMES := {
 		"read": Color("686868"),
 		"gc_plot": Color("7e7e7e"),
 		"depth_plot": Color("444444"),
+		"depth_plot_series": [
+			Color("444444"),
+			Color("5c5c5c"),
+			Color("747474"),
+			Color("8c8c8c"),
+			Color("a4a4a4"),
+			Color("bcbcbc")
+		],
 		"snp": Color("2f2f2f"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("5f5f5f"),
@@ -145,6 +162,14 @@ const THEMES := {
 		"read": Color("0f8b8d"),
 		"gc_plot": Color("2aa198"),
 		"depth_plot": Color("345995"),
+		"depth_plot_series": [
+			Color("345995"),
+			Color("2a9d8f"),
+			Color("e76f51"),
+			Color("6d597a"),
+			Color("4f772d"),
+			Color("b56576")
+		],
 		"snp": Color("b11f47"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("8a4fff"),
@@ -181,6 +206,14 @@ const THEMES := {
 		"read": Color("6a994e"),
 		"gc_plot": Color("2a9d8f"),
 		"depth_plot": Color("386641"),
+		"depth_plot_series": [
+			Color("386641"),
+			Color("2a9d8f"),
+			Color("bc4749"),
+			Color("588157"),
+			Color("6a994e"),
+			Color("7f5539")
+		],
 		"snp": Color("7a143a"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("588157"),
@@ -217,6 +250,14 @@ const THEMES := {
 		"read": Color("2d7dd2"),
 		"gc_plot": Color("2d7dd2"),
 		"depth_plot": Color("345995"),
+		"depth_plot_series": [
+			Color("345995"),
+			Color("2d7dd2"),
+			Color("f4a259"),
+			Color("5c6784"),
+			Color("7d8597"),
+			Color("8d99ae")
+		],
 		"snp": Color("d7263d"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("5c6784"),
@@ -253,6 +294,14 @@ const THEMES := {
 		"read": Color("4fb6c2"),
 		"gc_plot": Color("58a6ff"),
 		"depth_plot": Color("7aa2f7"),
+		"depth_plot_series": [
+			Color("7aa2f7"),
+			Color("58a6ff"),
+			Color("4fb6c2"),
+			Color("b392f0"),
+			Color("ffb86b"),
+			Color("8ec07c")
+		],
 		"snp": Color("ff7b72"),
 		"snp_text": Color("111111"),
 		"aa_forward": Color("b392f0"),
@@ -289,6 +338,14 @@ const THEMES := {
 		"read": Color("9a9a9a"),
 		"gc_plot": Color("7f7f7f"),
 		"depth_plot": Color("c8c8c8"),
+		"depth_plot_series": [
+			Color("c8c8c8"),
+			Color("b0b0b0"),
+			Color("989898"),
+			Color("808080"),
+			Color("686868"),
+			Color("505050")
+		],
 		"snp": Color("f0f0f0"),
 		"snp_text": Color("111111"),
 		"aa_forward": Color("bababa"),
@@ -325,6 +382,14 @@ const THEMES := {
 		"read": Color("2aa198"),
 		"gc_plot": Color("2aa198"),
 		"depth_plot": Color("268bd2"),
+		"depth_plot_series": [
+			Color("268bd2"),
+			Color("2aa198"),
+			Color("cb4b16"),
+			Color("6c71c4"),
+			Color("859900"),
+			Color("d33682")
+		],
 		"snp": Color("d33682"),
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
@@ -361,6 +426,14 @@ const THEMES := {
 		"read": Color("2aa198"),
 		"gc_plot": Color("2aa198"),
 		"depth_plot": Color("268bd2"),
+		"depth_plot_series": [
+			Color("268bd2"),
+			Color("2aa198"),
+			Color("cb4b16"),
+			Color("6c71c4"),
+			Color("859900"),
+			Color("d33682")
+		],
 		"snp": Color("d33682"),
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
@@ -421,6 +494,7 @@ func genome_palette(theme_name: String) -> Dictionary:
 		"read": p["read"],
 		"gc_plot": p["gc_plot"],
 		"depth_plot": p["depth_plot"],
+		"depth_plot_series": p.get("depth_plot_series", [p["depth_plot"]]),
 		"snp": p["snp"],
 		"snp_text": p["snp_text"],
 		"aa_forward": p["aa_forward"],
@@ -428,6 +502,15 @@ func genome_palette(theme_name: String) -> Dictionary:
 		"feature": p["feature"],
 		"feature_text": p["feature_text"]
 	}
+
+func depth_plot_series(theme_name: String) -> Array:
+	var p := palette(theme_name)
+	var colors_any: Variant = p.get("depth_plot_series", [p["depth_plot"]])
+	var colors: Array = []
+	for color_any in colors_any:
+		if color_any is Color:
+			colors.append(color_any)
+	return colors
 
 func ui_font(font_name: String) -> Font:
 	match font_name:

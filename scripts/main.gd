@@ -51,14 +51,6 @@ const READS_TRACK_MIN_HEIGHT := 140.0
 const DEFAULT_UI_FONT_SIZE := 15
 const MIN_UI_FONT_SIZE := 8
 const MAX_UI_FONT_SIZE := 26
-const DEPTH_SERIES_COLORS := [
-	Color("345995"),
-	Color("2a9d8f"),
-	Color("e76f51"),
-	Color("6d597a"),
-	Color("4f772d"),
-	Color("b56576")
-]
 const VIEW_SLOT_COUNT := 9
 const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
 const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
@@ -1592,7 +1584,10 @@ func _depth_plot_color_for_track(track_id: String) -> Color:
 		if str(t.get("track_id", "")) == track_id:
 			idx = i
 			break
-	return DEPTH_SERIES_COLORS[idx % DEPTH_SERIES_COLORS.size()]
+	var series_colors: Array = _themes_lib.depth_plot_series(theme_option.get_item_text(theme_option.selected))
+	if series_colors.is_empty():
+		return genome_view.palette.get("depth_plot", genome_view.palette.get("read", Color("808080")))
+	return series_colors[idx % series_colors.size()]
 
 func _existing_bam_source_id(bam_path: String) -> int:
 	for t_any in _bam_tracks:
