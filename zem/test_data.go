@@ -74,7 +74,7 @@ func (e *Engine) GenerateTestData(rootDir string) ([]string, error) {
 		name string
 		seq  string
 	}, 0, 8)
-	for _, suffix := range []string{"A", "B", "C", "D", "E", "F", "G", "H"} {
+	for _, suffix := range []string{"A", "B", "C", "D", "E", "F", "G", "H", "I"} {
 		contigs = append(contigs, struct {
 			name string
 			seq  string
@@ -154,7 +154,7 @@ func writeTestGFF3(path string, contigs []struct {
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tgene\t5401\t7600\t.\t-\t.\tID=%s_gene2;Name=%s_gene2\n", contig.name, contig.name, contig.name))
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tCDS\t5401\t7600\t.\t-\t0\tID=%s_cds2;Parent=%s_gene2;Name=%s_cds2\n", contig.name, contig.name, contig.name, contig.name))
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tmisc_feature\t9401\t9800\t.\t+\t.\tID=%s_misc1;Name=%s_misc1\n", contig.name, contig.name, contig.name))
-		} else {
+		} else if contig.name != "ctgI" {
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tgene\t701\t1800\t.\t+\t.\tID=%s_gene1;Name=%s_gene1\n", contig.name, contig.name, contig.name))
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tCDS\t701\t1800\t.\t+\t0\tID=%s_cds1;Parent=%s_gene1;Name=%s_cds1\n", contig.name, contig.name, contig.name, contig.name))
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tgene\t4101\t6900\t.\t-\t.\tID=%s_gene2;Name=%s_gene2\n", contig.name, contig.name, contig.name))
@@ -184,6 +184,9 @@ func writeSingleEndTestBAMAndIndex(bamPath, baiPath string, contigs []struct {
 
 	var specs []testReadSpec
 	for _, contig := range contigs {
+		if contig.name == "ctgI" {
+			continue
+		}
 		ref := refByName[contig.name]
 		for start := 0; start+testReadLen <= len(contig.seq); start += testReadStep {
 			variant := pickVariantForWindow(variantByContig[contig.name], start, testReadLen)
@@ -207,6 +210,36 @@ func writeSingleEndTestBAMAndIndex(bamPath, baiPath string, contigs []struct {
 			})
 		}
 	}
+	logoRef := refByName["ctgI"]
+	logoSeq := contigByName["ctgI"]
+	mix50Pos := 1060
+	mix50Start := mix50Pos - 40
+	mix50Alt := pickAltBase(logoSeq[mix50Pos])
+	specs = append(specs,
+		testReadSpec{name: "ctgI_mix50_ref_1", ref: logoRef, start: mix50Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix50Start, testReadLen, mix50Pos, 0), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: 0, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+		testReadSpec{name: "ctgI_mix50_ref_2", ref: logoRef, start: mix50Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix50Start, testReadLen, mix50Pos, 0), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: sam.Reverse, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+		testReadSpec{name: "ctgI_mix50_alt_1", ref: logoRef, start: mix50Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix50Start, testReadLen, mix50Pos, mix50Alt[0]), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: 0, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+		testReadSpec{name: "ctgI_mix50_alt_2", ref: logoRef, start: mix50Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix50Start, testReadLen, mix50Pos, mix50Alt[0]), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: sam.Reverse, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+	)
+	mix3Pos := 1460
+	mix3Start := mix3Pos - 40
+	mix3AltA := pickAltBase(logoSeq[mix3Pos])
+	mix3AltB := pickAltBaseExcluding(logoSeq[mix3Pos], []byte{mix3AltA[0]})
+	specs = append(specs,
+		testReadSpec{name: "ctgI_mix325_ref", ref: logoRef, start: mix3Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix3Start, testReadLen, mix3Pos, 0), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: 0, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+		testReadSpec{name: "ctgI_mix325_altA", ref: logoRef, start: mix3Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix3Start, testReadLen, mix3Pos, mix3AltA[0]), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: sam.Reverse, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+		testReadSpec{name: "ctgI_mix325_altB_1", ref: logoRef, start: mix3Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix3Start, testReadLen, mix3Pos, mix3AltB), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: 0, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+		testReadSpec{name: "ctgI_mix325_altB_2", ref: logoRef, start: mix3Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix3Start, testReadLen, mix3Pos, mix3AltB), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: sam.Reverse, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+	)
+	mix4Pos := 1860
+	mix4Start := mix4Pos - 40
+	mix4Alts := remainingBases(logoSeq[mix4Pos])
+	specs = append(specs,
+		testReadSpec{name: "ctgI_mix4_ref", ref: logoRef, start: mix4Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix4Start, testReadLen, mix4Pos, 0), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: 0, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+		testReadSpec{name: "ctgI_mix4_alt1", ref: logoRef, start: mix4Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix4Start, testReadLen, mix4Pos, mix4Alts[0]), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: sam.Reverse, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+		testReadSpec{name: "ctgI_mix4_alt2", ref: logoRef, start: mix4Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix4Start, testReadLen, mix4Pos, mix4Alts[1]), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: 0, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+		testReadSpec{name: "ctgI_mix4_alt3", ref: logoRef, start: mix4Start, seq: buildReadSequenceWithExplicitSNP(logoSeq, mix4Start, testReadLen, mix4Pos, mix4Alts[2]), cigar: []sam.CigarOp{sam.NewCigarOp(sam.CigarMatch, testReadLen)}, flags: sam.Reverse, mapQ: 60, mateRef: nil, matePos: -1, tempLen: 0},
+	)
 	specs = append(specs, testReadSpec{
 		name:  "ctgA_softclip_single",
 		ref:   refByName["ctgA"],
@@ -249,6 +282,9 @@ func writePairedEndTestBAMAndIndex(bamPath, baiPath string, contigs []struct {
 	pairGap := 20
 	pairSpacing := testPairReadLen*2 + pairGap
 	for _, contig := range contigs {
+		if contig.name == "ctgI" {
+			continue
+		}
 		ref := refByName[contig.name]
 		for start := 0; start+pairSpacing <= len(contig.seq); start += pairSpacing {
 			mateStart := start + testPairReadLen + pairGap
@@ -550,6 +586,47 @@ func buildSoftClippedReadSequence(refSeq string, start, alignedSpan, leftClip, r
 		buf.WriteByte(rightAlphabet[i%len(rightAlphabet)])
 	}
 	return buf.Bytes()
+}
+
+func buildReadSequenceWithExplicitSNP(refSeq string, start, refSpan, snpPos int, alt byte) []byte {
+	seq := []byte(refSeq[start : start+refSpan])
+	if alt == 0 {
+		return seq
+	}
+	idx := snpPos - start
+	if idx >= 0 && idx < len(seq) {
+		seq[idx] = alt
+	}
+	return seq
+}
+
+func pickAltBaseExcluding(ref byte, excluded []byte) byte {
+	for _, b := range []byte("ACGT") {
+		if b == ref {
+			continue
+		}
+		skip := false
+		for _, ex := range excluded {
+			if b == ex {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			return b
+		}
+	}
+	return pickAltBase(ref)[0]
+}
+
+func remainingBases(ref byte) []byte {
+	out := make([]byte, 0, 3)
+	for _, b := range []byte("ACGT") {
+		if b != ref {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 func addRandomErrors(seq []byte, variant demoVariant, refStart int, rng *rand.Rand) {

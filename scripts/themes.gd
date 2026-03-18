@@ -36,6 +36,7 @@ const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 #  - gc_plot: GC plot color
 #  - depth_plot: depth plot color
 #  - depth_plot_series: per-BAM depth plot series colors
+#  - pileup_logo_bases: per-base colors for pileup logo A/C/G/T/D
 #  - snp: SNP marker fill
 #  - snp_text: text drawn on SNP markers
 #  - aa_forward: forward-frame AA summary/read-derived accent
@@ -83,6 +84,13 @@ const THEMES := {
 			Color("b5b5b5"),
 			Color("d0d0d0")
 		],
+		"pileup_logo_bases": {
+			"A": Color("2b9348"),
+			"C": Color("1d4ed8"),
+			"G": Color("a16207"),
+			"T": Color("b91c1c"),
+			"D": Color("4a4a4a")
+		},
 		"snp": Color("ff0000"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("0000ff"),
@@ -128,6 +136,13 @@ const THEMES := {
 			Color("a4a4a4"),
 			Color("bcbcbc")
 		],
+		"pileup_logo_bases": {
+			"A": Color("4c4c4c"),
+			"C": Color("666666"),
+			"G": Color("808080"),
+			"T": Color("9a9a9a"),
+			"D": Color("2f2f2f")
+		},
 		"snp": Color("2f2f2f"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("5f5f5f"),
@@ -173,6 +188,13 @@ const THEMES := {
 			Color("4f772d"),
 			Color("b56576")
 		],
+		"pileup_logo_bases": {
+			"A": Color("2b9348"),
+			"C": Color("1d4ed8"),
+			"G": Color("a16207"),
+			"T": Color("b91c1c"),
+			"D": Color("4a5568")
+		},
 		"snp": Color("b11f47"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("8a4fff"),
@@ -218,6 +240,13 @@ const THEMES := {
 			Color("6a994e"),
 			Color("7f5539")
 		],
+		"pileup_logo_bases": {
+			"A": Color("4f8a3f"),
+			"C": Color("2f6f99"),
+			"G": Color("8f6a1b"),
+			"T": Color("9a3d32"),
+			"D": Color("4f5f4d")
+		},
 		"snp": Color("7a143a"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("588157"),
@@ -263,6 +292,13 @@ const THEMES := {
 			Color("7d8597"),
 			Color("8d99ae")
 		],
+		"pileup_logo_bases": {
+			"A": Color("2b9348"),
+			"C": Color("1d4ed8"),
+			"G": Color("a16207"),
+			"T": Color("b91c1c"),
+			"D": Color("4b5563")
+		},
 		"snp": Color("d7263d"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("5c6784"),
@@ -308,6 +344,13 @@ const THEMES := {
 			Color("ffb86b"),
 			Color("8ec07c")
 		],
+		"pileup_logo_bases": {
+			"A": Color("5ac26b"),
+			"C": Color("73b7ff"),
+			"G": Color("d3a34a"),
+			"T": Color("ff7b72"),
+			"D": Color("aab6c2")
+		},
 		"snp": Color("ff7b72"),
 		"snp_text": Color("111111"),
 		"aa_forward": Color("b392f0"),
@@ -353,6 +396,13 @@ const THEMES := {
 			Color("686868"),
 			Color("505050")
 		],
+		"pileup_logo_bases": {
+			"A": Color("d0d0d0"),
+			"C": Color("b0b0b0"),
+			"G": Color("909090"),
+			"T": Color("707070"),
+			"D": Color("f0f0f0")
+		},
 		"snp": Color("f0f0f0"),
 		"snp_text": Color("111111"),
 		"aa_forward": Color("bababa"),
@@ -398,6 +448,13 @@ const THEMES := {
 			Color("859900"),
 			Color("d33682")
 		],
+		"pileup_logo_bases": {
+			"A": Color("859900"),
+			"C": Color("268bd2"),
+			"G": Color("b58900"),
+			"T": Color("dc322f"),
+			"D": Color("657b83")
+		},
 		"snp": Color("d33682"),
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
@@ -443,6 +500,13 @@ const THEMES := {
 			Color("859900"),
 			Color("d33682")
 		],
+		"pileup_logo_bases": {
+			"A": Color("859900"),
+			"C": Color("268bd2"),
+			"G": Color("b58900"),
+			"T": Color("dc322f"),
+			"D": Color("839496")
+		},
 		"snp": Color("d33682"),
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
@@ -505,6 +569,7 @@ func genome_palette(theme_name: String) -> Dictionary:
 		"gc_plot": p["gc_plot"],
 		"depth_plot": p["depth_plot"],
 		"depth_plot_series": p.get("depth_plot_series", [p["depth_plot"]]),
+		"pileup_logo_bases": p.get("pileup_logo_bases", {}),
 		"snp": p["snp"],
 		"snp_text": p["snp_text"],
 		"aa_forward": p["aa_forward"],

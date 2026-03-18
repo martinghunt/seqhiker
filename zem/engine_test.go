@@ -641,8 +641,8 @@ func TestGenerateTestData(t *testing.T) {
 		t.Fatalf("loading generated paired-end BAM failed: %v", err)
 	}
 	chroms := e.ListChromosomes()
-	if len(chroms) != 8 {
-		t.Fatalf("unexpected chromosome count after generated test data load: got %d, want 8", len(chroms))
+	if len(chroms) != 9 {
+		t.Fatalf("unexpected chromosome count after generated test data load: got %d, want 9", len(chroms))
 	}
 }
 

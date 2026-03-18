@@ -183,6 +183,7 @@ var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
 var _auto_expand_snp_text := false
 var _show_soft_clips := false
+var _show_pileup_logo := false
 var _color_by_mate_contig := false
 var _read_row_limit := 0
 var _annotation_max_on_screen := 4400
@@ -270,6 +271,7 @@ func _ready() -> void:
 		"read_row_h": _read_row_h,
 		"auto_expand_snp_text": _auto_expand_snp_text,
 		"show_soft_clips": _show_soft_clips,
+		"show_pileup_logo": _show_pileup_logo,
 		"color_by_mate_contig": _color_by_mate_contig,
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
@@ -447,7 +449,7 @@ func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_c
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, show_soft_clips: bool = false, color_by_mate_contig: bool = false) -> void:
+func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, show_soft_clips: bool = false, show_pileup_logo: bool = false, color_by_mate_contig: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
 	var selected_read_key := ""
@@ -467,6 +469,7 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_read_row_h = clampf(row_h, 2.0, 24.0)
 	_auto_expand_snp_text = auto_expand_snp_text
 	_show_soft_clips = show_soft_clips
+	_show_pileup_logo = show_pileup_logo
 	_color_by_mate_contig = color_by_mate_contig
 	_read_row_limit = maxi(0, row_limit)
 	reads = _as_dict_array(payload.get("reads", []))
@@ -522,7 +525,7 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, show_soft_clips: bool = false, color_by_mate_contig: bool = false) -> void:
+func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, show_soft_clips: bool = false, show_pileup_logo: bool = false, color_by_mate_contig: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
 	var prev_view_mode := _read_view_mode
@@ -531,6 +534,7 @@ func set_read_track_settings(track_id: String, view_mode: int, fragment_log: boo
 	_read_row_h = clampf(row_h, 2.0, 24.0)
 	_auto_expand_snp_text = auto_expand_snp_text
 	_show_soft_clips = show_soft_clips
+	_show_pileup_logo = show_pileup_logo
 	_color_by_mate_contig = color_by_mate_contig
 	_read_row_limit = maxi(0, row_limit)
 	_layout_reads()
@@ -730,6 +734,28 @@ func current_read_row_h() -> float:
 func current_read_row_step() -> float:
 	return current_read_row_h() + READ_ROW_GAP
 
+func should_show_pileup_logo() -> bool:
+	if not _show_pileup_logo:
+		return false
+	if _read_view_mode == READ_VIEW_FRAGMENT:
+		return false
+	if not can_draw_read_snp_letters_for_row_h(current_read_row_h()):
+		return false
+	if reference_sequence.is_empty():
+		return false
+	return bp_per_px <= SNP_MARK_MAX_BP_PER_PX
+
+func pileup_logo_height() -> float:
+	if not should_show_pileup_logo():
+		return 0.0
+	return float(_font_size_medium) * 3.0
+
+func read_content_top_for_area(area: Rect2) -> float:
+	return area.position.y + 30.0
+
+func read_content_bottom_for_area(area: Rect2) -> float:
+	return area.position.y + area.size.y - 4.0 - pileup_logo_height()
+
 func can_draw_read_snp_letters_for_row_h(row_h: float) -> bool:
 	if row_h < 10.0:
 		return false
@@ -806,7 +832,7 @@ func center_strand_scroll() -> void:
 	if _read_view_mode != READ_VIEW_STRAND or _reads_scrollbar == null:
 		return
 	var read_area := _track_rect(TRACK_ID_READS)
-	var content_top := read_area.position.y + 30.0
+	var content_top := read_content_top_for_area(read_area)
 	var content_bottom := read_area.position.y + read_area.size.y - 4.0
 	_strand_split_lock_y = (content_top + content_bottom) * 0.5
 	_layout_read_scrollbar()
@@ -1166,8 +1192,8 @@ func _track_index_for_y(y: float) -> int:
 func _draw_read_tracks(area: Rect2) -> void:
 	_read_renderer.draw_read_tracks(area)
 	if is_motion_read_layer_active() and _read_view_mode == READ_VIEW_STRAND:
-		var content_top := area.position.y + 30.0
-		var content_bottom := area.position.y + area.size.y - 4.0
+		var content_top := read_content_top_for_area(area)
+		var content_bottom := read_content_bottom_for_area(area)
 		var strand_split_y := _strand_split_y_for_area(area, _reads_scrollbar.value)
 		if strand_split_y >= content_top and strand_split_y <= content_bottom:
 			draw_line(Vector2(0.0, strand_split_y), Vector2(size.x, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
@@ -2494,6 +2520,7 @@ func _ensure_read_track_state(track_id: String) -> void:
 		"read_row_h": READ_ROW_H,
 		"auto_expand_snp_text": false,
 		"show_soft_clips": false,
+		"show_pileup_logo": false,
 		"color_by_mate_contig": false,
 		"read_row_limit": 0,
 		"scrollbar": sb
@@ -2523,6 +2550,7 @@ func _activate_read_track(track_id: String) -> void:
 	_read_row_h = float(state.get("read_row_h", READ_ROW_H))
 	_auto_expand_snp_text = bool(state.get("auto_expand_snp_text", false))
 	_show_soft_clips = bool(state.get("show_soft_clips", false))
+	_show_pileup_logo = bool(state.get("show_pileup_logo", false))
 	_color_by_mate_contig = bool(state.get("color_by_mate_contig", false))
 	_read_row_limit = int(state.get("read_row_limit", 0))
 	_reads_scrollbar = state.get("scrollbar", _reads_scrollbar)
@@ -2556,6 +2584,7 @@ func _persist_active_read_track() -> void:
 		"read_row_h": _read_row_h,
 		"auto_expand_snp_text": _auto_expand_snp_text,
 		"show_soft_clips": _show_soft_clips,
+		"show_pileup_logo": _show_pileup_logo,
 		"color_by_mate_contig": _color_by_mate_contig,
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
@@ -2597,14 +2626,14 @@ func _layout_read_scrollbar() -> void:
 		return
 	var row_h := current_read_row_h()
 	var row_step := row_h + READ_ROW_GAP
-	var content_h := maxf(1.0, read_area.size.y - 34.0)
+	var content_h := maxf(1.0, read_content_bottom_for_area(read_area) - read_content_top_for_area(read_area))
 	var visible_rows := maxf(1.0, floor(content_h / row_step))
 	var max_rows := maxi(_read_row_count, 0)
 	if _read_view_mode == READ_VIEW_STRAND:
 		var step_px := row_step
 		var split_gap := _strand_split_gap_px()
-		var content_top := read_area.position.y + 30.0
-		var content_bottom := read_area.position.y + read_area.size.y - 4.0
+		var content_top := read_content_top_for_area(read_area)
+		var content_bottom := read_content_bottom_for_area(read_area)
 		var forward_extent := 0.0
 		var reverse_extent := 0.0
 		if _strand_forward_rows > 0:
@@ -2672,8 +2701,8 @@ func _strand_split_y_for_area(area: Rect2, scroll_value: float) -> float:
 	var row_step := current_read_row_step()
 	var step_px := row_step
 	var split_gap := _strand_split_gap_px()
-	var content_top := area.position.y + 30.0
-	var content_bottom := area.position.y + area.size.y - 4.0
+	var content_top := read_content_top_for_area(area)
+	var content_bottom := read_content_bottom_for_area(area)
 	var forward_extent := 0.0
 	var reverse_extent := 0.0
 	if _strand_forward_rows > 0:

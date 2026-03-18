@@ -39,6 +39,10 @@ text = "Auto-expand to fit SNP letters"
 layout_mode = 2
 text = "Show soft-clipped bases"
 
+[node name="ShowPileupLogo" type="CheckButton" parent="."]
+layout_mode = 2
+text = "Show pileup logo"
+
 [node name="MateContigColor" type="CheckButton" parent="."]
 layout_mode = 2
 text = "Color reads by mate contig"
