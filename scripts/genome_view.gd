@@ -754,6 +754,8 @@ func read_content_top_for_area(area: Rect2) -> float:
 	return area.position.y + 30.0
 
 func read_content_bottom_for_area(area: Rect2) -> float:
+	if _read_view_mode == READ_VIEW_STRAND:
+		return area.position.y + area.size.y - 4.0
 	return area.position.y + area.size.y - 4.0 - pileup_logo_height()
 
 func can_draw_read_snp_letters_for_row_h(row_h: float) -> bool:
@@ -2694,7 +2696,10 @@ func _on_read_scrollbar_gui_input(event: InputEvent, sb: VScrollBar) -> void:
 			_dragging_scrollbar = null
 
 func _strand_split_gap_px() -> float:
-	return 12.0
+	var gap := 12.0
+	if _read_view_mode == READ_VIEW_STRAND and should_show_pileup_logo():
+		gap = maxf(gap, pileup_logo_height() * 2.0 + 6.0)
+	return gap
 
 func _strand_split_y_for_area(area: Rect2, scroll_value: float) -> float:
 	var row_h := current_read_row_h()

@@ -127,79 +127,106 @@ func _draw_pileup_logo(area: Rect2) -> void:
 	var logo_h := view.pileup_logo_height()
 	if logo_h <= 0.0:
 		return
-	var logo_area := Rect2(area.position.x, area.position.y + area.size.y - 4.0 - logo_h, area.size.x, logo_h)
 	var visible_start_bp := int(floor(view.view_start_bp))
 	var visible_end_bp := int(ceil(view._viewport_end_bp()))
 	if visible_end_bp < visible_start_bp:
 		return
+	var row_step := view.current_read_row_step()
+	var scroll_px := 0.0
+	if view._read_view_mode == view.READ_VIEW_FRAGMENT:
+		scroll_px = view._reads_scrollbar.value * row_step
+	elif view._read_view_mode == view.READ_VIEW_STRAND:
+		scroll_px = -view._reads_scrollbar.value * row_step
+	else:
+		var max_offset := maxf(0.0, view._reads_scrollbar.max_value - view._reads_scrollbar.page)
+		var effective_offset := maxf(0.0, max_offset - view._reads_scrollbar.value)
+		scroll_px = effective_offset * row_step
+	var logo_areas: Array[Dictionary] = []
+	if view._read_view_mode == view.READ_VIEW_STRAND:
+		var strand_split_y := view._strand_split_y_for_area(area, view._reads_scrollbar.value)
+		var split_gap := view._strand_split_gap_px()
+		var forward_rect := Rect2(area.position.x, strand_split_y - split_gap * 0.5, area.size.x, logo_h)
+		var reverse_rect := Rect2(area.position.x, strand_split_y + split_gap * 0.5 - logo_h, area.size.x, logo_h)
+		logo_areas.append({"rect": forward_rect, "reverse": false})
+		logo_areas.append({"rect": reverse_rect, "reverse": true})
+	else:
+		var content_bottom := view.read_content_bottom_for_area(area)
+		var logo_area := Rect2(area.position.x, content_bottom + scroll_px, area.size.x, logo_h)
+		logo_areas.append({"rect": logo_area, "reverse": null})
 	var font := view.sequence_letter_font()
 	var colors := _pileup_logo_colors()
-	var logo_bottom := logo_area.position.y + logo_area.size.y
-	var max_logo_h := maxf(1.0, logo_area.size.y)
-	for bp in range(visible_start_bp, visible_end_bp + 1):
-		var ref_base := _reference_base_at(bp)
-		if ref_base.is_empty():
-			continue
-		var counts := {"A": 0, "C": 0, "G": 0, "T": 0, "D": 0}
-		for read in view._laid_out_reads:
-			var read_start := int(read.get("start", 0))
-			var read_end := int(read.get("end", read_start))
-			if bp < read_start or bp >= read_end:
+	for entry_any in logo_areas:
+		var entry: Dictionary = entry_any
+		var logo_area: Rect2 = entry.get("rect", Rect2())
+		var strand_reverse: Variant = entry.get("reverse", null)
+		var logo_bottom := logo_area.position.y + logo_area.size.y
+		var max_logo_h := maxf(1.0, logo_area.size.y)
+		for bp in range(visible_start_bp, visible_end_bp + 1):
+			var ref_base := _reference_base_at(bp)
+			if ref_base.is_empty():
 				continue
-			if _read_has_deletion_at(read, bp):
-				counts["D"] = int(counts["D"]) + 1
+			var counts := {"A": 0, "C": 0, "G": 0, "T": 0, "D": 0}
+			for read in view._laid_out_reads:
+				if strand_reverse != null and bool(read.get("reverse", false)) != bool(strand_reverse):
+					continue
+				var read_start := int(read.get("start", 0))
+				var read_end := int(read.get("end", read_start))
+				if bp < read_start or bp >= read_end:
+					continue
+				if _read_has_deletion_at(read, bp):
+					counts["D"] = int(counts["D"]) + 1
+					continue
+				var snp_base := _read_snp_base_at(read, bp)
+				var base_key := snp_base if not snp_base.is_empty() else ref_base
+				if not counts.has(base_key):
+					continue
+				counts[base_key] = int(counts[base_key]) + 1
+			var total := 0
+			for key in counts.keys():
+				total += int(counts[key])
+			if total <= 0:
 				continue
-			var snp_base := _read_snp_base_at(read, bp)
-			var base_key := snp_base if not snp_base.is_empty() else ref_base
-			if not counts.has(base_key):
+			var x_center := view._bp_to_screen_center(float(bp))
+			var column_w := maxf(1.0, 1.0 / view.bp_per_px)
+			if x_center + column_w * 0.5 < view.TRACK_LEFT_PAD or x_center - column_w * 0.5 > view.size.x - view.TRACK_RIGHT_PAD:
 				continue
-			counts[base_key] = int(counts[base_key]) + 1
-		var total := 0
-		for key in counts.keys():
-			total += int(counts[key])
-		if total <= 0:
-			continue
-		var x_center := view._bp_to_screen_center(float(bp))
-		var column_w := maxf(1.0, 1.0 / view.bp_per_px)
-		if x_center + column_w * 0.5 < view.TRACK_LEFT_PAD or x_center - column_w * 0.5 > view.size.x - view.TRACK_RIGHT_PAD:
-			continue
-		var order: Array[String] = []
-		for key_any in counts.keys():
-			var key := str(key_any)
-			if int(counts[key]) > 0:
-				order.append(key)
-		order.sort_custom(func(a: String, b: String) -> bool:
-			var ca := int(counts[a])
-			var cb := int(counts[b])
-			if ca == cb:
-				return a < b
-			return ca < cb
-		)
-		var y_cursor := logo_bottom
-		var base_font_size := view._font_size_medium
-		var base_ascent := maxf(1.0, font.get_ascent(base_font_size))
-		var base_descent := maxf(0.0, font.get_descent(base_font_size))
-		var base_font_h := maxf(1.0, base_ascent + base_descent)
-		for base_key in order:
-			var frac := float(int(counts[base_key])) / float(total)
-			var seg_h := frac * max_logo_h
-			if seg_h <= 0.0:
+			var order: Array[String] = []
+			for key_any in counts.keys():
+				var key := str(key_any)
+				if int(counts[key]) > 0:
+					order.append(key)
+			order.sort_custom(func(a: String, b: String) -> bool:
+				var ca := int(counts[a])
+				var cb := int(counts[b])
+				if ca == cb:
+					return a < b
+				return ca < cb
+			)
+			var y_cursor := logo_bottom
+			var base_font_size := view._font_size_medium
+			var base_ascent := maxf(1.0, font.get_ascent(base_font_size))
+			var base_descent := maxf(0.0, font.get_descent(base_font_size))
+			var base_font_h := maxf(1.0, base_ascent + base_descent)
+			for base_key in order:
+				var frac := float(int(counts[base_key])) / float(total)
+				var seg_h := frac * max_logo_h
+				if seg_h <= 0.0:
+					y_cursor -= seg_h
+					continue
+				var tw := font.get_string_size(base_key, HORIZONTAL_ALIGNMENT_LEFT, -1, base_font_size).x
+				var tx := x_center - tw * 0.5
+				var y_scale := (seg_h / base_font_h) * 1.25
+				var seg_top := y_cursor - seg_h
+				var base_col: Color = colors.get(base_key, view.palette.get("text", Color.BLACK))
+				var seg_rect_col := base_col
+				seg_rect_col.a = 0.18
+				view.draw_rect(Rect2(x_center - column_w * 0.5, seg_top, column_w, seg_h), seg_rect_col, true)
+				var seg_mid_y := seg_top + seg_h * 0.5
+				var local_baseline_y := base_ascent - base_font_h * 0.5
+				view.draw_set_transform(Vector2(tx, seg_mid_y), 0.0, Vector2(1.0, y_scale))
+				view.draw_string(font, Vector2(0.0, local_baseline_y), base_key, HORIZONTAL_ALIGNMENT_LEFT, -1, base_font_size, base_col)
+				view.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 				y_cursor -= seg_h
-				continue
-			var tw := font.get_string_size(base_key, HORIZONTAL_ALIGNMENT_LEFT, -1, base_font_size).x
-			var tx := x_center - tw * 0.5
-			var y_scale := (seg_h / base_font_h) * 1.25
-			var seg_top := y_cursor - seg_h
-			var base_col: Color = colors.get(base_key, view.palette.get("text", Color.BLACK))
-			var seg_rect_col := base_col
-			seg_rect_col.a = 0.18
-			view.draw_rect(Rect2(x_center - column_w * 0.5, seg_top, column_w, seg_h), seg_rect_col, true)
-			var seg_mid_y := seg_top + seg_h * 0.5
-			var local_baseline_y := base_ascent - base_font_h * 0.5
-			view.draw_set_transform(Vector2(tx, seg_mid_y), 0.0, Vector2(1.0, y_scale))
-			view.draw_string(font, Vector2(0.0, local_baseline_y), base_key, HORIZONTAL_ALIGNMENT_LEFT, -1, base_font_size, base_col)
-			view.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-			y_cursor -= seg_h
 
 
 func _draw_soft_clip_text(target: CanvasItem, seq: String, rect: Rect2, font: Font, font_size: int) -> void:
