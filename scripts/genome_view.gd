@@ -22,6 +22,7 @@ signal track_visibility_changed(track_id: String, visible: bool)
 signal region_selected(start_bp: int, end_bp: int)
 signal region_selection_changed(active: bool, start_bp: int, end_bp: int)
 signal map_jump_requested(bp_center: float)
+signal center_jump_requested(bp_center: float)
 
 const AA_ROW_H := 26.0
 const AA_ROW_GAP := 3.0
@@ -1996,8 +1997,10 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		var read_rect := _any_read_track_rect_at_point(mouse_pos)
 		var aa_rect := _track_rect(TRACK_ID_AA)
+		var genome_rect := _track_rect(TRACK_ID_GENOME)
 		var in_reads := read_rect.size.x > 0.0 and read_rect.has_point(mouse_pos)
 		var in_aa := aa_rect.has_point(mouse_pos)
+		var in_genome := genome_rect.has_point(mouse_pos)
 		var hit_feature := false
 		var hit_read := false
 		if in_reads:
@@ -2028,6 +2031,12 @@ func _gui_input(event: InputEvent) -> void:
 						emit_signal("feature_activated", hit["feature"])
 					accept_event()
 					return
+			if mb.double_click and mouse_pos.x >= TRACK_LEFT_PAD and mouse_pos.x <= size.x - TRACK_RIGHT_PAD:
+				clear_selected_read()
+				clear_selected_feature()
+				emit_signal("center_jump_requested", _x_to_bp(mouse_pos.x))
+				accept_event()
+				return
 		if not in_reads:
 			for i in range(_read_hitboxes.size() - 1, -1, -1):
 				var read_hit_any: Dictionary = _read_hitboxes[i]
@@ -2053,6 +2062,12 @@ func _gui_input(event: InputEvent) -> void:
 						emit_signal("feature_activated", hit_any["feature"])
 					accept_event()
 					return
+			if mb.double_click and (in_aa or in_genome) and mouse_pos.x >= TRACK_LEFT_PAD and mouse_pos.x <= size.x - TRACK_RIGHT_PAD:
+				clear_selected_read()
+				clear_selected_feature()
+				emit_signal("center_jump_requested", _x_to_bp(mouse_pos.x))
+				accept_event()
+				return
 			if _can_start_region_selection(mouse_pos):
 				clear_selected_read()
 				clear_selected_feature()

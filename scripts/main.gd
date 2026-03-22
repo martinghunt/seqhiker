@@ -443,6 +443,7 @@ func _connect_ui() -> void:
 	download_button.pressed.connect(_toggle_download_panel)
 	genome_view.viewport_changed.connect(_on_viewport_changed)
 	genome_view.map_jump_requested.connect(_on_map_jump_requested)
+	genome_view.center_jump_requested.connect(_on_center_jump_requested)
 	genome_view.feature_clicked.connect(_on_feature_selected)
 	genome_view.feature_activated.connect(_on_feature_clicked)
 	genome_view.read_clicked.connect(_on_read_selected)
@@ -2003,6 +2004,11 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 
 
 func _on_map_jump_requested(bp_center: float) -> void:
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	var target_start := maxi(0, int(floor(bp_center - genome_view.get_visible_span_bp() * 0.5)))
+	_navigate_to_view(float(target_start), current_bp_per_px)
+
+func _on_center_jump_requested(bp_center: float) -> void:
 	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
 	var target_start := maxi(0, int(floor(bp_center - genome_view.get_visible_span_bp() * 0.5)))
 	_navigate_to_view(float(target_start), current_bp_per_px)
