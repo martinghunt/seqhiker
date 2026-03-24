@@ -16,6 +16,8 @@ run/main_scene="res://scenes/Main.tscn"
 config/use_custom_user_dir=true
 config/custom_user_dir_name="seqhiker"
 config/features=PackedStringArray("4.4")
+boot_splash/image="uid://fwg74jxgxdih"
+config/icon="uid://ctbrdm4iil2of"
 
 [display]
 
