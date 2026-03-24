@@ -209,18 +209,21 @@ shortcut_in_tooltip = false
 text = "D"
 
 [node name="PlayLeftButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+visible = false
 layout_mode = 2
 tooltip_text = "Autoscroll to the left"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "B"
 
 [node name="StopButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+visible = false
 layout_mode = 2
 tooltip_text = "Stop autoscrolling"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "F"
 
 [node name="PlayButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+visible = false
 layout_mode = 2
 tooltip_text = "Autoscroll to the right"
 theme_override_fonts/font = ExtResource("2_0bbpv")
