@@ -1,8 +1,13 @@
 # seqhiker
 
-Genome browser for BAM, FASTA, and annotation files.
+Genome browser for FASTA, annotation, and BAM files.
 
 Currently in beta. It is fairly stable. Feel free to give it a try.
+
+Documentation: https://seqhiker.readthedocs.io/en/
+
+
+# Quick Start
 
 ## Install
 
@@ -10,7 +15,7 @@ Currently in beta. It is fairly stable. Feel free to give it a try.
 2. Download the build for your operating system and architecture.
 3. Open the app.
 
-## Quick start
+## View genomes
 
 1. Launch `seqhiker`.
 2. Drag and drop your files into the window.
