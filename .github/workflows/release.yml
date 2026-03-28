@@ -38,6 +38,23 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Verify release tag matches project version
+        run: |
+          set -euo pipefail
+          project_version="$(sed -n 's/^config\/version="\([^"]*\)"/\1/p' project.godot | head -n1)"
+          expected_tag="v${project_version}"
+          if [[ -z "${project_version}" ]]; then
+            echo "Failed to read project version from project.godot" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_NAME}" != "${expected_tag}" ]]; then
+            echo "Release tag/version mismatch:" >&2
+            echo "  tag:     ${GITHUB_REF_NAME}" >&2
+            echo "  project: ${project_version}" >&2
+            echo "Expected tag: ${expected_tag}" >&2
+            exit 1
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
