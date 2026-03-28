@@ -20,3 +20,6 @@ mono_crash.*.json
 site/
 __pycache__/
 docs/_build/
+
+# macOS Finder metadata
+.DS_Store
