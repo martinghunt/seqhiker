@@ -14,3 +14,8 @@ export_credentials.cfg
 .mono/
 data_*/
 mono_crash.*.json
+
+# Docs / local Python env
+.venv/
+site/
+__pycache__/
