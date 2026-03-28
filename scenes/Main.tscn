@@ -496,10 +496,12 @@ layout_mode = 2
 text = "75%"
 
 [node name="PlaySpeedLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+visible = false
 layout_mode = 2
 text = "Play Speed (screen width/s)"
 
 [node name="PlaySpeedRow" type="HBoxContainer" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+visible = false
 layout_mode = 2
 theme_override_constants/separation = 8
 
