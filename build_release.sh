@@ -13,6 +13,7 @@ GODOT_BIN="${DEFAULT_GODOT_BIN}"
 EXPORT_MODE="release"
 SKIP_ZEM=0
 STAGE_DIR=""
+OUTFILE_ABS=""
 
 usage() {
 	cat <<'EOF'
@@ -90,6 +91,12 @@ done
 	exit 1
 }
 
+if [[ "${OUTFILE}" = /* ]]; then
+	OUTFILE_ABS="${OUTFILE}"
+else
+	OUTFILE_ABS="${APP_DIR}/${OUTFILE}"
+fi
+
 if [[ ! -x "${BUILD_ZEM_SCRIPT}" ]]; then
 	echo "Missing or non-executable: ${BUILD_ZEM_SCRIPT}" >&2
 	exit 1
@@ -141,7 +148,7 @@ if [[ "${SKIP_ZEM}" -eq 1 ]]; then
 	step_label="[2/2]"
 fi
 
-echo "${step_label} Exporting seqhiker (${EXPORT_MODE}) preset='${PRESET}' -> ${OUTFILE}"
-mkdir -p "$(dirname "${OUTFILE}")"
-"${GODOT_BIN}" --headless --path "${STAGE_DIR}" "--export-${EXPORT_MODE}" "${PRESET}" "${OUTFILE}"
-echo "Done: ${OUTFILE}"
+echo "${step_label} Exporting seqhiker (${EXPORT_MODE}) preset='${PRESET}' -> ${OUTFILE_ABS}"
+mkdir -p "$(dirname "${OUTFILE_ABS}")"
+"${GODOT_BIN}" --headless --path "${STAGE_DIR}" "--export-${EXPORT_MODE}" "${PRESET}" "${OUTFILE_ABS}"
+echo "Done: ${OUTFILE_ABS}"
