@@ -37,13 +37,9 @@ func gatherInputFiles(path string) ([]string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		kind := detectInputKindByName(d.Name())
-		if kind == inputKindUnknown {
-			var detectErr error
-			kind, detectErr = detectInputKind(p)
-			if detectErr != nil {
-				return detectErr
-			}
+		kind, detectErr := detectInputKind(p)
+		if detectErr != nil {
+			return detectErr
 		}
 		if kind != inputKindUnknown {
 			files = append(files, p)
@@ -61,10 +57,12 @@ func gatherInputFiles(path string) ([]string, error) {
 }
 
 func detectInputKind(path string) (inputKind, error) {
-	if kind := detectInputKindByName(path); kind != inputKindUnknown {
+	if kind, err := detectInputKindByContent(path); err != nil {
+		return inputKindUnknown, err
+	} else if kind != inputKindUnknown {
 		return kind, nil
 	}
-	return detectInputKindByContent(path)
+	return detectInputKindByName(path), nil
 }
 
 func detectInputKindByName(name string) inputKind {

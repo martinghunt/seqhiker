@@ -56,12 +56,29 @@ func TestDetectInputKindByContent(t *testing.T) {
 	}
 }
 
+func TestDetectInputKindPrefersContentOverMisleadingExtension(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stupid.gbk")
+	if err := os.WriteFile(path, []byte(">chr1\nACGT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := detectInputKind(path)
+	if err != nil {
+		t.Fatalf("detectInputKind returned error: %v", err)
+	}
+	if got != inputKindFASTA {
+		t.Fatalf("detectInputKind(%q) = %v, want %v", path, got, inputKindFASTA)
+	}
+}
+
 func TestGatherInputFilesFiltersAndSorts(t *testing.T) {
 	dir := t.TempDir()
 	paths := map[string]string{
-		"b.gff3": "##gff-version 3\n",
-		"a.fa":   ">chr1\nACGT\n",
-		"c.txt":  "ignore me\n",
+		"b.gff3":      "##gff-version 3\n",
+		"a.fa":        ">chr1\nACGT\n",
+		"c.txt":       "ignore me\n",
+		"misnamed.gbk": ">chr2\nTGCA\n",
 	}
 	for name, content := range paths {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
@@ -76,6 +93,7 @@ func TestGatherInputFilesFiltersAndSorts(t *testing.T) {
 	want := []string{
 		filepath.Join(dir, "a.fa"),
 		filepath.Join(dir, "b.gff3"),
+		filepath.Join(dir, "misnamed.gbk"),
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("gatherInputFiles = %v, want %v", got, want)
