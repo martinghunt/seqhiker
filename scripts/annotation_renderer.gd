@@ -8,24 +8,48 @@ func configure(next_view: GenomeView) -> void:
 	view = next_view
 
 
-func draw_quadratic_bezier(target: CanvasItem, p0: Vector2, p1: Vector2, p2: Vector2, color: Color, width: float, segments: int = 12) -> void:
+func _draw_rect_on(target, rect: Rect2, color: Color, filled: bool, width: float = 1.0) -> void:
+	if target == null or target == view:
+		if filled:
+			view.draw_rect(rect, color, true)
+		else:
+			view.draw_rect(rect, color, false, width)
+	else:
+		target.draw_rect(rect, color, filled, width)
+
+
+func _draw_line_on(target, p0: Vector2, p1: Vector2, color: Color, width: float = 1.0) -> void:
+	if target == null or target == view:
+		view.draw_line(p0, p1, color, width)
+	else:
+		target.draw_line(p0, p1, color, width)
+
+
+func _draw_string_on(target, font: Font, pos: Vector2, text: String, align: int, max_width: float, font_size: int, color: Color) -> void:
+	if target == null or target == view:
+		view.draw_string(font, pos, text, align, max_width, font_size, color)
+	else:
+		target.draw_string(font, pos, text, align, max_width, font_size, color)
+
+
+func draw_quadratic_bezier(target, p0: Vector2, p1: Vector2, p2: Vector2, color: Color, width: float, segments: int = 12) -> void:
 	var prev := p0
 	for i in range(1, segments + 1):
 		var t := float(i) / float(segments)
 		var u := 1.0 - t
 		var point := u * u * p0 + 2.0 * u * t * p1 + t * t * p2
-		target.draw_line(prev, point, color, width)
+		_draw_line_on(target, prev, point, color, width)
 		prev = point
 
 
-func draw_exon_connector_curve(target: CanvasItem, from_point: Vector2, to_point: Vector2, color: Color, width: float) -> void:
+func draw_exon_connector_curve(target, from_point: Vector2, to_point: Vector2, color: Color, width: float) -> void:
 	var dx := maxf(0.0, to_point.x - from_point.x)
 	var curve_lift := minf(10.0, maxf(4.0, dx * 0.12))
 	var control := Vector2(0.5 * (from_point.x + to_point.x), minf(from_point.y, to_point.y) - curve_lift)
 	draw_quadratic_bezier(target, from_point, control, to_point, color, width)
 
 
-func draw_aa_tracks(area: Rect2) -> void:
+func draw_aa_tracks(area: Rect2, target = null) -> void:
 	var t0 := Time.get_ticks_usec()
 	var seen := 0
 	var drawn := 0
@@ -49,10 +73,10 @@ func draw_aa_tracks(area: Rect2) -> void:
 		var bg_col: Color = view.palette["bg"]
 		if i == 1 or i == 4:
 			bg_col = view.palette.get("aa_alt_bg", bg_col)
-		view.draw_rect(track_rect, bg_col, true)
-		view._draw_grid(track_rect)
+		_draw_rect_on(target, track_rect, bg_col, true)
+		view._draw_grid(track_rect, target)
 	var split_y := area_start + 3.0 * (view.AA_ROW_H + view.AA_ROW_GAP) - view.AA_ROW_GAP * 0.5
-	view.draw_line(Vector2(0.0, split_y), Vector2(view.size.x, split_y), Color(0.15, 0.15, 0.15, 0.45), 1.0)
+	_draw_line_on(target, Vector2(0.0, split_y), Vector2(view.size.x, split_y), Color(0.15, 0.15, 0.15, 0.45), 1.0)
 
 	for feature in view.features:
 		seen += 1
@@ -83,7 +107,7 @@ func draw_aa_tracks(area: Rect2) -> void:
 				var rect_part := Rect2(Vector2(fx0_part, fy_part), Vector2(feature_w_part, aa_feature_height))
 				var feature_col_part: Color = view.palette["feature"]
 				feature_col_part.a = 1.0
-				view.draw_rect(rect_part, feature_col_part, true)
+				_draw_rect_on(target, rect_part, feature_col_part, true)
 				var key_part := view._feature_key(feature)
 				if not view._selected_feature_key.is_empty() and key_part == view._selected_feature_key:
 					selected_border_rects.append(rect_part.grow(1.5))
@@ -126,7 +150,7 @@ func draw_aa_tracks(area: Rect2) -> void:
 					var right_rect: Rect2 = part_rects[i + 1]
 					var from_point := Vector2(left_rect.end.x, left_rect.position.y + left_rect.size.y * 0.5)
 					var to_point := Vector2(right_rect.position.x, right_rect.position.y + right_rect.size.y * 0.5)
-					draw_exon_connector_curve(view, from_point, to_point, connector_col, 8.0)
+					draw_exon_connector_curve(target, from_point, to_point, connector_col, 8.0)
 					if draw_selected_connector:
 						selected_connector_segments.append({
 							"from": from_point,
@@ -136,7 +160,7 @@ func draw_aa_tracks(area: Rect2) -> void:
 					for seg_any in selected_connector_segments:
 						var seg: Dictionary = seg_any
 						draw_exon_connector_curve(
-							view,
+							target,
 							seg.get("from", Vector2.ZERO),
 							seg.get("to", Vector2.ZERO),
 							selected_connector_col,
@@ -145,7 +169,7 @@ func draw_aa_tracks(area: Rect2) -> void:
 			if not selected_border_rects.is_empty():
 				var border_col_part: Color = view.palette.get("feature_text", view._axis_text_color())
 				for border_rect in selected_border_rects:
-					view.draw_rect(border_rect, border_col_part, false, 2.0)
+					_draw_rect_on(target, border_rect, border_col_part, false, 2.0)
 			for hitbox in part_hitboxes:
 				view._feature_hitboxes.append({
 					"rect": hitbox,
@@ -169,11 +193,11 @@ func draw_aa_tracks(area: Rect2) -> void:
 		var rect := Rect2(Vector2(fx0, fy), Vector2(feature_w, aa_feature_height))
 		var feature_col: Color = view.palette["feature"]
 		feature_col.a = 1.0
-		view.draw_rect(rect, feature_col, true)
+		_draw_rect_on(target, rect, feature_col, true)
 		var key := view._feature_key(feature)
 		if not view._selected_feature_key.is_empty() and key == view._selected_feature_key:
 			var border_col: Color = view.palette.get("feature_text", view._axis_text_color())
-			view.draw_rect(rect.grow(1.5), border_col, false, 2.0)
+			_draw_rect_on(target, rect.grow(1.5), border_col, false, 2.0)
 		drawn += 1
 		var click_rect := rect.grow(3.0) if show_feature_detail else rect
 		view._feature_hitboxes.append({
@@ -205,10 +229,11 @@ func draw_aa_tracks(area: Rect2) -> void:
 					labels += 1
 
 	if show_aa_letters:
-		draw_aa_translation_letters(area_start)
+		draw_aa_translation_letters(area_start, target)
 	var label_font := view.get_theme_default_font()
 	for entry in pending_labels:
-		view.draw_string(
+		_draw_string_on(
+			target,
 			label_font,
 			entry.get("pos", Vector2.ZERO),
 			str(entry.get("text", "")),
@@ -227,7 +252,7 @@ func draw_aa_tracks(area: Rect2) -> void:
 	}
 
 
-func draw_genome_feature_tracks(area: Rect2, line_y: float) -> void:
+func draw_genome_feature_tracks(area: Rect2, line_y: float, target = null) -> void:
 	var show_feature_labels := not view._can_draw_nucleotide_letters()
 	var row_height := view.AA_ROW_H - 2.0
 	var exon_row_height := row_height
@@ -292,12 +317,12 @@ func draw_genome_feature_tracks(area: Rect2, line_y: float) -> void:
 							Vector2(intron_x0, row_center_y_multi - intron_h * 0.5),
 							Vector2(intron_x1 - intron_x0, intron_h)
 						)
-						view.draw_rect(intron_rect, intron_col, true)
+						_draw_rect_on(target, intron_rect, intron_col, true)
 			for exon_rect in exon_rects:
-				view.draw_rect(exon_rect, exon_col, true)
+				_draw_rect_on(target, exon_rect, exon_col, true)
 			var key_multi := view._feature_key(feature)
 			if not view._selected_feature_key.is_empty() and key_multi == view._selected_feature_key:
-				view.draw_rect(gene_rect.grow(1.5), text_col, false, 2.0)
+				_draw_rect_on(target, gene_rect.grow(1.5), text_col, false, 2.0)
 			view._feature_hitboxes.append({
 				"rect": gene_rect.grow(3.0),
 				"feature": feature
@@ -341,10 +366,10 @@ func draw_genome_feature_tracks(area: Rect2, line_y: float) -> void:
 		var rect := Rect2(Vector2(fx0, row_center_y - row_height * 0.5), Vector2(feature_w, row_height))
 		var feature_col: Color = view.palette["feature"]
 		feature_col.a = 0.9
-		view.draw_rect(rect, feature_col, true)
+		_draw_rect_on(target, rect, feature_col, true)
 		var key := view._feature_key(feature)
 		if not view._selected_feature_key.is_empty() and key == view._selected_feature_key:
-			view.draw_rect(rect.grow(1.5), text_col, false, 2.0)
+			_draw_rect_on(target, rect.grow(1.5), text_col, false, 2.0)
 		view._feature_hitboxes.append({
 			"rect": rect.grow(3.0),
 			"feature": feature
@@ -375,7 +400,8 @@ func draw_genome_feature_tracks(area: Rect2, line_y: float) -> void:
 		row_label_boxes[row].append(label_rect)
 	var label_font := view.get_theme_default_font()
 	for entry in pending_labels:
-		view.draw_string(
+		_draw_string_on(
+			target,
 			label_font,
 			entry.get("pos", Vector2.ZERO),
 			str(entry.get("text", "")),
@@ -419,7 +445,7 @@ func annotation_debug_stats() -> Dictionary:
 	return view.annotation_debug_stats_state.duplicate()
 
 
-func draw_aa_translation_letters(area_start: float) -> void:
+func draw_aa_translation_letters(area_start: float, target = null) -> void:
 	if not view._can_draw_aa_letters():
 		return
 	var font := view.sequence_letter_font()
@@ -465,7 +491,7 @@ func draw_aa_translation_letters(area_start: float) -> void:
 				var x := view.TRACK_LEFT_PAD + view._bp_to_x(float(bp) + 1.5) - aa_char_px * 0.5
 				var center_y := aa_frame_row_center_y(area_start, frame)
 				var y := text_baseline_for_center(center_y, font, aa_font_size)
-				view.draw_string(font, Vector2(x, y), aa_fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, view.palette["text"])
+				_draw_string_on(target, font, Vector2(x, y), aa_fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, view.palette["text"])
 
 			var rev_codon := view._complement_base(b2) + view._complement_base(b1) + view._complement_base(b0)
 			var aa_rev := view._translate_codon(rev_codon)
@@ -473,7 +499,7 @@ func draw_aa_translation_letters(area_start: float) -> void:
 				var rx := view.TRACK_LEFT_PAD + view._bp_to_x(float(bp) + 1.5) - aa_char_px * 0.5
 				var rev_center_y := aa_frame_row_center_y(area_start, 3 + frame)
 				var ry := text_baseline_for_center(rev_center_y, font, aa_font_size)
-				view.draw_string(font, Vector2(rx, ry), aa_rev, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, view.palette["text"])
+				_draw_string_on(target, font, Vector2(rx, ry), aa_rev, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, view.palette["text"])
 
 
 func is_hidden_full_length_region(feature: Dictionary) -> bool:

@@ -208,6 +208,12 @@ shortcut = SubResource("Shortcut_zoom_in")
 shortcut_in_tooltip = false
 text = "D"
 
+[node name="ScreenshotButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+layout_mode = 2
+tooltip_text = "Save current viewport as SVG"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+text = "R"
+
 [node name="PlayLeftButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 visible = false
 layout_mode = 2

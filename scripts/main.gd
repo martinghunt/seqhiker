@@ -90,6 +90,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var _settings_header: HBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader
 @onready var top_bar: HBoxContainer = $Root/TopBar
 @onready var settings_toggle_button: Button = $Root/TopBar/SettingsToggleButton
+@onready var screenshot_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ScreenshotButton
 @onready var search_button: Button = $Root/TopBar/ActionClipper/ActionStrip/SearchButton
 @onready var go_button: Button = $Root/TopBar/ActionClipper/ActionStrip/GoButton
 @onready var download_button: Button = $Root/TopBar/ActionClipper/ActionStrip/DownloadButton
@@ -183,6 +184,7 @@ var _download_action_button: Button
 var _download_status_label: RichTextLabel
 var _download_thread: Thread
 var _download_in_progress := false
+var _screenshot_dialog: FileDialog
 var _startup_zem_prepare_thread: Thread
 var _startup_zem_connect_thread: Thread
 var _startup_zem_host := "127.0.0.1"
@@ -349,6 +351,35 @@ func _ready() -> void:
 	call_deferred("_startup_connect_local_zem")
 	if get_window().has_signal("files_dropped"):
 		get_window().files_dropped.connect(_on_files_dropped)
+	if screenshot_button != null:
+		screenshot_button.pressed.connect(_on_screenshot_pressed)
+	_setup_screenshot_dialog()
+
+func _setup_screenshot_dialog() -> void:
+	_screenshot_dialog = FileDialog.new()
+	_screenshot_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	_screenshot_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_screenshot_dialog.use_native_dialog = true
+	_screenshot_dialog.title = "Save Screenshot as SVG"
+	_screenshot_dialog.filters = PackedStringArray(["*.svg ; SVG files"])
+	_screenshot_dialog.file_selected.connect(_on_screenshot_file_selected)
+	add_child(_screenshot_dialog)
+
+func _on_screenshot_pressed() -> void:
+	if _screenshot_dialog == null:
+		return
+	_screenshot_dialog.current_dir = OS.get_system_dir(OS.SYSTEM_DIR_DESKTOP).get_base_dir()
+	_screenshot_dialog.current_file = "seqhiker-view.svg"
+	_screenshot_dialog.popup_centered_ratio(0.7)
+
+func _on_screenshot_file_selected(path: String) -> void:
+	var out_path := path
+	if not out_path.to_lower().ends_with(".svg"):
+		out_path += ".svg"
+	if genome_view.export_current_view_svg(out_path):
+		_set_status("Saved screenshot: %s" % out_path)
+	else:
+		_set_status("Failed to save screenshot: %s" % out_path, true)
 
 func _initialize_settings_panel() -> void:
 	_set_status("Disconnected")
@@ -2428,10 +2459,12 @@ func _apply_search_theme(palette: Dictionary) -> void:
 
 func _apply_topbar_button_font_size() -> void:
 	var topbar_font_size := clampi(_ui_font_size + 6, MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE + 6)
+	var topbar_button_size := Vector2(topbar_font_size + 14, topbar_font_size + 14)
 	var topbar_buttons := [
 		settings_toggle_button,
 		search_button,
 		go_button,
+		screenshot_button,
 		download_button,
 		jump_start_button,
 		jump_end_button,
@@ -2446,7 +2479,7 @@ func _apply_topbar_button_font_size() -> void:
 	for b_any in topbar_buttons:
 		var b: Button = b_any
 		b.add_theme_font_size_override("font_size", topbar_font_size)
-	settings_toggle_button.custom_minimum_size = Vector2(topbar_font_size + 14, topbar_font_size + 14)
+		b.custom_minimum_size = topbar_button_size
 	if _settings_toggle_icon_label != null:
 		_settings_toggle_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
 		_update_settings_toggle_icon_pivot()

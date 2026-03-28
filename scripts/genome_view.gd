@@ -8,6 +8,7 @@ const TRACK_ROW_SCENE := preload("res://scenes/Track.tscn")
 const ReadLayoutHelperScript = preload("res://scripts/read_layout_helper.gd")
 const ReadTrackRendererScript = preload("res://scripts/read_track_renderer.gd")
 const AnnotationRendererScript = preload("res://scripts/annotation_renderer.gd")
+const SVGCanvasScript = preload("res://scripts/svg_canvas.gd")
 const MotionReadLayerScript = preload("res://scripts/motion_read_layer.gd")
 const DETAILED_READ_MAX_BP_PER_PX := 48.0
 
@@ -1096,10 +1097,41 @@ func _notification(what: int) -> void:
 		_emit_viewport_changed()
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), palette["panel"], true)
+	_draw_view_to(self)
+
+func _draw_rect_on(target, rect: Rect2, color: Color, filled: bool, width: float = 1.0) -> void:
+	if target == self:
+		if filled:
+			draw_rect(rect, color, true)
+		else:
+			draw_rect(rect, color, false, width)
+	else:
+		target.draw_rect(rect, color, filled, width)
+
+func _draw_line_on(target, p0: Vector2, p1: Vector2, color: Color, width: float = 1.0) -> void:
+	if target == self:
+		draw_line(p0, p1, color, width)
+	else:
+		target.draw_line(p0, p1, color, width)
+
+func _draw_string_on(target, font: Font, pos: Vector2, text: String, align: int, max_width: float, font_size: int, color: Color) -> void:
+	if target == self:
+		draw_string(font, pos, text, align, max_width, font_size, color)
+	else:
+		target.draw_string(font, pos, text, align, max_width, font_size, color)
+
+func export_current_view_svg(path: String) -> bool:
+	var svg = SVGCanvasScript.new()
+	svg.configure(size.x, size.y)
+	_draw_view_to(svg)
+	return svg.save(path)
+
+func _draw_view_to(target) -> void:
+	_draw_rect_on(target, Rect2(Vector2.ZERO, size), palette["panel"], true)
 	_layout_track_rows()
-	_read_hitboxes.clear()
-	_feature_hitboxes.clear()
+	if target == self:
+		_read_hitboxes.clear()
+		_feature_hitboxes.clear()
 	var track_rects := _track_layout_rects()
 	var previous_track_id := _active_read_track_id
 	for track_id in _track_order:
@@ -1108,32 +1140,36 @@ func _draw() -> void:
 		var area: Rect2 = track_rects[track_id]
 		if _is_read_track(track_id):
 			_activate_read_track(track_id)
-			_draw_read_tracks(area)
+			if target == self:
+				_draw_read_tracks(area)
+			else:
+				_read_renderer.export_read_tracks_to(target, area)
 		else:
 				match track_id:
 					TRACK_ID_AA:
-						_draw_aa_tracks(area)
+						_draw_aa_tracks(area, target)
 					TRACK_ID_GC_PLOT:
-						_draw_plot_track(area, gc_plot_tiles, _gc_plot_y_mode, _gc_plot_y_min, _gc_plot_y_max, palette.get("gc_plot", palette["read"]))
+						_draw_plot_track(area, gc_plot_tiles, _gc_plot_y_mode, _gc_plot_y_min, _gc_plot_y_max, palette.get("gc_plot", palette["read"]), target)
 					TRACK_ID_DEPTH_PLOT:
 						if not depth_plot_series.is_empty():
-							_draw_plot_track_multi(area, depth_plot_series, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max)
+							_draw_plot_track_multi(area, depth_plot_series, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, target)
 						else:
-							_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]))
+							_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]), target)
 					TRACK_ID_GENOME:
-						_draw_genome_track(area)
+						_draw_genome_track(area, target)
 					TRACK_ID_MAP:
-						_draw_map_track(area)
+						_draw_map_track(area, target)
 	if not previous_track_id.is_empty() and _read_track_states.has(previous_track_id):
 		_activate_read_track(previous_track_id)
-	_draw_region_selection(track_rects)
-	if _track_drag_active and _track_drag_target_index >= 0 and _track_drag_target_index < _track_order.size():
+	if target == self:
+		_draw_region_selection(track_rects)
+	if target == self and _track_drag_active and _track_drag_target_index >= 0 and _track_drag_target_index < _track_order.size():
 		var target_id := _track_order[_track_drag_target_index]
 		if track_rects.has(target_id):
 			var target_rect: Rect2 = track_rects[target_id]
 			var y := target_rect.position.y - 2.0
-			draw_line(Vector2(2.0, y), Vector2(size.x - 2.0, y), Color(0.05, 0.05, 0.05, 0.9), 2.0)
-	_draw_file_status()
+			_draw_line_on(target, Vector2(2.0, y), Vector2(size.x - 2.0, y), Color(0.05, 0.05, 0.05, 0.9), 2.0)
+	_draw_file_status(target)
 
 func _input(event: InputEvent) -> void:
 	if not _track_drag_active:
@@ -1294,11 +1330,11 @@ func _draw_stack_summary(area: Rect2) -> void:
 func _draw_fragment_summary(area: Rect2) -> void:
 	_read_renderer.draw_fragment_summary(area)
 
-func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_fixed: float, y_max_fixed: float, line_color: Color) -> void:
+func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_fixed: float, y_max_fixed: float, line_color: Color, target = self) -> void:
 	if area.size.y <= 24.0:
 		return
-	draw_rect(area, palette["bg"], true)
-	_draw_grid(area)
+	_draw_rect_on(target, area, palette["bg"], true)
+	_draw_grid(area, target)
 	if tiles.is_empty():
 		return
 	var visible_start := int(view_start_bp)
@@ -1343,7 +1379,7 @@ func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_
 	if y_max <= y_min:
 		y_max = y_min + 1.0
 	var y_span := y_max - y_min
-	_draw_plot_scale(area, top, bottom, y_min, y_max)
+	_draw_plot_scale(area, top, bottom, y_min, y_max, target)
 	var prev := Vector2.ZERO
 	var have_prev := false
 	var prev_tile_end := 0
@@ -1373,16 +1409,16 @@ func _draw_plot_track(area: Rect2, tiles: Array[Dictionary], y_mode: int, y_min_
 			var y := bottom - clampf(norm, 0.0, 1.0) * h
 			var p := Vector2(x, y)
 			if have_prev:
-				draw_line(prev, p, line_color, 1.5)
+				_draw_line_on(target, prev, p, line_color, 1.5)
 			prev = p
 			have_prev = true
 		prev_tile_end = tile_end
 
-func _draw_plot_track_multi(area: Rect2, series: Array[Dictionary], y_mode: int, y_min_fixed: float, y_max_fixed: float) -> void:
+func _draw_plot_track_multi(area: Rect2, series: Array[Dictionary], y_mode: int, y_min_fixed: float, y_max_fixed: float, target = self) -> void:
 	if area.size.y <= 24.0:
 		return
-	draw_rect(area, palette["bg"], true)
-	_draw_grid(area)
+	_draw_rect_on(target, area, palette["bg"], true)
+	_draw_grid(area, target)
 	if series.is_empty():
 		return
 	var visible_start := int(view_start_bp)
@@ -1432,7 +1468,7 @@ func _draw_plot_track_multi(area: Rect2, series: Array[Dictionary], y_mode: int,
 	if y_max <= y_min:
 		y_max = y_min + 1.0
 	var y_span := y_max - y_min
-	_draw_plot_scale(area, top, bottom, y_min, y_max)
+	_draw_plot_scale(area, top, bottom, y_min, y_max, target)
 	for series_any in series:
 		if typeof(series_any) != TYPE_DICTIONARY:
 			continue
@@ -1469,12 +1505,12 @@ func _draw_plot_track_multi(area: Rect2, series: Array[Dictionary], y_mode: int,
 				var y := bottom - clampf(norm, 0.0, 1.0) * h
 				var p := Vector2(x, y)
 				if have_prev:
-					draw_line(prev, p, line_color, 1.5)
+					_draw_line_on(target, prev, p, line_color, 1.5)
 				prev = p
 				have_prev = true
 			prev_tile_end = tile_end
 
-func _draw_plot_scale(area: Rect2, top: float, bottom: float, y_min: float, y_max: float) -> void:
+func _draw_plot_scale(area: Rect2, top: float, bottom: float, y_min: float, y_max: float, target = self) -> void:
 	var tick_x := TRACK_LEFT_PAD - 6.0
 	var label_x := 26.0
 	var text_col: Color = _axis_text_color()
@@ -1482,14 +1518,14 @@ func _draw_plot_scale(area: Rect2, top: float, bottom: float, y_min: float, y_ma
 	var font_size := _font_size_small
 	var guide_col: Color = palette["grid"]
 	guide_col.a *= 0.45
-	draw_line(Vector2(TRACK_LEFT_PAD, top), Vector2(area.position.x + area.size.x - TRACK_RIGHT_PAD, top), guide_col, 1.0)
-	draw_line(Vector2(TRACK_LEFT_PAD, bottom), Vector2(area.position.x + area.size.x - TRACK_RIGHT_PAD, bottom), guide_col, 1.0)
-	draw_line(Vector2(tick_x, top), Vector2(tick_x + 5.0, top), palette["grid"], 1.0)
-	draw_line(Vector2(tick_x, bottom), Vector2(tick_x + 5.0, bottom), palette["grid"], 1.0)
+	_draw_line_on(target, Vector2(TRACK_LEFT_PAD, top), Vector2(area.position.x + area.size.x - TRACK_RIGHT_PAD, top), guide_col, 1.0)
+	_draw_line_on(target, Vector2(TRACK_LEFT_PAD, bottom), Vector2(area.position.x + area.size.x - TRACK_RIGHT_PAD, bottom), guide_col, 1.0)
+	_draw_line_on(target, Vector2(tick_x, top), Vector2(tick_x + 5.0, top), palette["grid"], 1.0)
+	_draw_line_on(target, Vector2(tick_x, bottom), Vector2(tick_x + 5.0, bottom), palette["grid"], 1.0)
 	var top_label := _format_plot_value(y_max)
 	var bottom_label := _format_plot_value(y_min)
-	draw_string(font, Vector2(label_x, top + 10.0), top_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
-	draw_string(font, Vector2(label_x, bottom), bottom_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+	_draw_string_on(target, font, Vector2(label_x, top + 10.0), top_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+	_draw_string_on(target, font, Vector2(label_x, bottom), bottom_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
 
 func _format_plot_value(v: float) -> String:
 	if absf(v) >= 10.0:
@@ -1498,11 +1534,11 @@ func _format_plot_value(v: float) -> String:
 		return "%.2f" % v
 	return "%.3f" % v
 
-func _draw_aa_tracks(area: Rect2) -> void:
-	_annotation_renderer.draw_aa_tracks(area)
+func _draw_aa_tracks(area: Rect2, target = self) -> void:
+	_annotation_renderer.draw_aa_tracks(area, target)
 
-func _draw_genome_feature_tracks(area: Rect2, line_y: float) -> void:
-	_annotation_renderer.draw_genome_feature_tracks(area, line_y)
+func _draw_genome_feature_tracks(area: Rect2, line_y: float, target = self) -> void:
+	_annotation_renderer.draw_genome_feature_tracks(area, line_y, target)
 
 func _text_center_y(font: Font, font_size: int, baseline_y: float) -> float:
 	return _annotation_renderer.text_center_y(font, font_size, baseline_y)
@@ -1637,10 +1673,10 @@ func _draw_aa_translation_letters(area_start: float) -> void:
 func _is_hidden_full_length_region(feature: Dictionary) -> bool:
 	return _annotation_renderer.is_hidden_full_length_region(feature)
 
-func _draw_genome_track(area: Rect2) -> void:
+func _draw_genome_track(area: Rect2, target = self) -> void:
 	var y := area.position.y
-	draw_rect(area, palette["bg"], true)
-	_draw_grid(area)
+	_draw_rect_on(target, area, palette["bg"], true)
+	_draw_grid(area, target)
 	var line_y := y + 36.0
 	if concat_segments.is_empty():
 		var axis_left := TRACK_LEFT_PAD
@@ -1651,17 +1687,17 @@ func _draw_genome_track(area: Rect2) -> void:
 			var x0 := clampf(axis_left + _bp_to_x(vis_start), axis_left, axis_right)
 			var x1 := clampf(axis_left + _bp_to_x(vis_end), axis_left, axis_right)
 			if x1 > x0:
-				draw_line(Vector2(x0, line_y), Vector2(x1, line_y), palette["genome"], 3.0)
-		_draw_ticks(y, line_y)
+				_draw_line_on(target, Vector2(x0, line_y), Vector2(x1, line_y), palette["genome"], 3.0)
+		_draw_ticks(y, line_y, target)
 	else:
-		_draw_concat_genome_axis(y, line_y)
-	_draw_genome_feature_tracks(area, line_y)
-	_draw_nucleotide_letters(y, line_y)
+		_draw_concat_genome_axis(y, line_y, target)
+	_draw_genome_feature_tracks(area, line_y, target)
+	_draw_nucleotide_letters(y, line_y, target)
 
-func _draw_map_track(area: Rect2) -> void:
+func _draw_map_track(area: Rect2, target = self) -> void:
 	if area.size.y <= 24.0:
 		return
-	draw_rect(area, palette["bg"], true)
+	_draw_rect_on(target, area, palette["bg"], true)
 	var axis_left := TRACK_LEFT_PAD
 	var axis_right := area.position.x + area.size.x - TRACK_RIGHT_PAD
 	if axis_right <= axis_left:
@@ -1681,14 +1717,14 @@ func _draw_map_track(area: Rect2) -> void:
 	var alt_seq_color: Color = palette.get("map_contig_alt", palette.get("aa_alt_bg", base_seq_color))
 	if concat_segments.is_empty():
 		var seq_rect := Rect2(axis_left, seq_top, axis_right - axis_left, MAP_SEQUENCE_H)
-		draw_rect(seq_rect, base_seq_color, true)
-		draw_rect(seq_rect, palette["text"], false, 1.0)
+		_draw_rect_on(target, seq_rect, base_seq_color, true)
+		_draw_rect_on(target, seq_rect, palette["text"], false, 1.0)
 		var seq_name := chromosome_name.strip_edges()
 		if has_loaded_genome and not seq_name.is_empty():
 			var label := _truncate_label_to_width(seq_name, seq_rect.size.x - 10.0, 4, seq_font, seq_font_size)
 			if not label.is_empty():
 				var label_y := _text_baseline_for_center(seq_rect.get_center().y, seq_font, seq_font_size)
-				draw_string(seq_font, Vector2(seq_rect.position.x + 5.0, label_y), label, HORIZONTAL_ALIGNMENT_LEFT, seq_rect.size.x - 10.0, seq_font_size, palette["text"])
+				_draw_string_on(target, seq_font, Vector2(seq_rect.position.x + 5.0, label_y), label, HORIZONTAL_ALIGNMENT_LEFT, seq_rect.size.x - 10.0, seq_font_size, palette["text"])
 	else:
 		for i in range(concat_segments.size()):
 			var seg: Dictionary = concat_segments[i]
@@ -1702,8 +1738,8 @@ func _draw_map_track(area: Rect2) -> void:
 				continue
 			var seq_rect := Rect2(x0, seq_top, x1 - x0, MAP_SEQUENCE_H)
 			var seq_color: Color = base_seq_color if (i % 2) == 0 else alt_seq_color
-			draw_rect(seq_rect, seq_color, true)
-			draw_rect(seq_rect, palette["text"], false, 1.0)
+			_draw_rect_on(target, seq_rect, seq_color, true)
+			_draw_rect_on(target, seq_rect, palette["text"], false, 1.0)
 			if not has_loaded_genome:
 				continue
 			var seq_name := str(seg.get("name", "")).strip_edges()
@@ -1713,14 +1749,14 @@ func _draw_map_track(area: Rect2) -> void:
 			if label.is_empty():
 				continue
 			var label_y := _text_baseline_for_center(seq_rect.get_center().y, seq_font, seq_font_size)
-			draw_string(seq_font, Vector2(seq_rect.position.x + 5.0, label_y), label, HORIZONTAL_ALIGNMENT_LEFT, seq_rect.size.x - 10.0, seq_font_size, palette["text"])
+			_draw_string_on(target, seq_font, Vector2(seq_rect.position.x + 5.0, label_y), label, HORIZONTAL_ALIGNMENT_LEFT, seq_rect.size.x - 10.0, seq_font_size, palette["text"])
 	if has_loaded_genome:
 		var fill: Color = palette.get("map_view_fill", palette.get("genome", Color(0.25, 0.45, 0.75)))
 		fill.a = 0.5
-		draw_rect(viewport_rect, fill, true)
-		draw_rect(viewport_rect, palette.get("map_view_outline", palette["text"]), false, 1.5)
+		_draw_rect_on(target, viewport_rect, fill, true)
+		_draw_rect_on(target, viewport_rect, palette.get("map_view_outline", palette["text"]), false, 1.5)
 
-func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
+func _draw_concat_genome_axis(top_y: float, line_y: float, target = self) -> void:
 	var axis_left := TRACK_LEFT_PAD
 	var axis_right := size.x - TRACK_RIGHT_PAD
 	var view_start := view_start_bp
@@ -1736,16 +1772,16 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 		x1 = clampf(x1, axis_left, axis_right)
 		if x1 <= x0:
 			continue
-		draw_line(Vector2(x0, line_y), Vector2(x1, line_y), palette["genome"], 3.0)
+		_draw_line_on(target, Vector2(x0, line_y), Vector2(x1, line_y), palette["genome"], 3.0)
 		if seg_start >= view_start and seg_start <= visible_end:
-			draw_line(Vector2(x0, line_y - 7.0), Vector2(x0, line_y + 7.0), Color.BLACK, 1.0)
+			_draw_line_on(target, Vector2(x0, line_y - 7.0), Vector2(x0, line_y + 7.0), Color.BLACK, 1.0)
 		if seg_end >= view_start and seg_end <= visible_end:
-			draw_line(Vector2(x1, line_y - 7.0), Vector2(x1, line_y + 7.0), Color.BLACK, 1.0)
+			_draw_line_on(target, Vector2(x1, line_y - 7.0), Vector2(x1, line_y + 7.0), Color.BLACK, 1.0)
 		var chr_label := str(seg.get("name", "chr"))
 		var label_x := x0 + 4.0
 		var label_w := maxf(0.0, x1 - x0 - 8.0)
 		if label_w > 12.0:
-			draw_string(get_theme_default_font(), Vector2(label_x, top_y + 10.0), chr_label, HORIZONTAL_ALIGNMENT_LEFT, label_w, _font_size_medium, _axis_text_color())
+			_draw_string_on(target, get_theme_default_font(), Vector2(label_x, top_y + 10.0), chr_label, HORIZONTAL_ALIGNMENT_LEFT, label_w, _font_size_medium, _axis_text_color())
 
 	var span := _plot_width() * bp_per_px
 	if span <= 0:
@@ -1774,7 +1810,7 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 			if local_tick >= 0 and local_tick <= seg_len:
 				var global_tick := seg_start + local_tick
 				var x := _bp_to_screen_center(float(global_tick))
-				draw_line(Vector2(x, line_y - 8), Vector2(x, line_y + 8), palette["grid"], 1.0)
+				_draw_line_on(target, Vector2(x, line_y - 8), Vector2(x, line_y + 8), palette["grid"], 1.0)
 				ticks_for_segment.append({
 					"x": x,
 					"label": _format_axis_bp(local_tick, tick_step)
@@ -1821,7 +1857,7 @@ func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 		var label := str(tick_info.get("label", ""))
 		var x := float(tick_info.get("x", 0.0))
 		var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		draw_string(font, Vector2(x - label_w * 0.5, top_y + 49.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
+		_draw_string_on(target, font, Vector2(x - label_w * 0.5, top_y + 49.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
 
 func _bp_in_concat_segment(bp: int) -> bool:
 	for seg in concat_segments:
@@ -1831,7 +1867,7 @@ func _bp_in_concat_segment(bp: int) -> bool:
 			return true
 	return false
 
-func _draw_ticks(top_y: float, line_y: float) -> void:
+func _draw_ticks(top_y: float, line_y: float, target = self) -> void:
 	var span := _plot_width() * bp_per_px
 	if span <= 0:
 		return
@@ -1841,15 +1877,15 @@ func _draw_ticks(top_y: float, line_y: float) -> void:
 	while tick < int(view_start_bp + span):
 		if tick >= 0 and tick <= chromosome_length:
 			var x := _bp_to_screen_center(float(tick))
-			draw_line(Vector2(x, line_y - 8), Vector2(x, line_y + 8), palette["grid"], 1.0)
+			_draw_line_on(target, Vector2(x, line_y - 8), Vector2(x, line_y + 8), palette["grid"], 1.0)
 			var label := _format_axis_bp(tick, int(tick_step))
 			var font := get_theme_default_font()
 			var font_size := _font_size_small
 			var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-			draw_string(font, Vector2(x - label_w * 0.5, top_y + 49), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
+			_draw_string_on(target, font, Vector2(x - label_w * 0.5, top_y + 49), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _axis_text_color())
 		tick += int(tick_step)
 
-func _draw_grid(area: Rect2) -> void:
+func _draw_grid(area: Rect2, target = self) -> void:
 	var span := _plot_width() * bp_per_px
 	if span <= 0:
 		return
@@ -1859,10 +1895,10 @@ func _draw_grid(area: Rect2) -> void:
 	while grid < view_start_bp + span:
 		if grid >= 0.0:
 			var x := _bp_to_screen_center(grid)
-			draw_line(Vector2(x, area.position.y), Vector2(x, area.position.y + area.size.y), palette["grid"], 1.0)
+			_draw_line_on(target, Vector2(x, area.position.y), Vector2(x, area.position.y + area.size.y), palette["grid"], 1.0)
 		grid += step
 
-func _draw_file_status() -> void:
+func _draw_file_status(target = self) -> void:
 	if not loaded_files.is_empty():
 		return
 	var view_area := Rect2(Vector2.ZERO, size)
@@ -1873,15 +1909,15 @@ func _draw_file_status() -> void:
 	var text_w := font.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium).x
 	var x := view_area.position.x + (view_area.size.x - text_w) * 0.5
 	var y := view_area.position.y + view_area.size.y * 0.62 + _font_size_medium * 0.35
-	draw_string(font, Vector2(x, y), msg, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
+	_draw_string_on(target, font, Vector2(x, y), msg, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
 	if _empty_state_status.is_empty():
 		return
 	var status_w := font.get_string_size(_empty_state_status, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium).x
 	var status_x := view_area.position.x + (view_area.size.x - status_w) * 0.5
 	var status_y := view_area.position.y + view_area.size.y * 0.38 + _font_size_medium * 0.35
-	draw_string(font, Vector2(status_x, status_y), _empty_state_status, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
+	_draw_string_on(target, font, Vector2(status_x, status_y), _empty_state_status, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
 
-func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
+func _draw_nucleotide_letters(_top_y: float, line_y: float, target = self) -> void:
 	if reference_sequence.is_empty():
 		return
 	if not _can_draw_nucleotide_letters():
@@ -1927,8 +1963,8 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 		var x := _bp_to_screen_center(float(bp))
 		var fwd_w := font.get_string_size(fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		var rev_w := font.get_string_size(rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		draw_string(font, Vector2(x - fwd_w * 0.5, fwd_y), fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
-		draw_string(font, Vector2(x - rev_w * 0.5, rev_y), rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+		_draw_string_on(target, font, Vector2(x - fwd_w * 0.5, fwd_y), fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+		_draw_string_on(target, font, Vector2(x - rev_w * 0.5, rev_y), rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 
 func _complement_base(base: String) -> String:
 	return COMPLEMENT_MAP.get(base, "N")

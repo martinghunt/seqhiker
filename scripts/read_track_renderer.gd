@@ -8,6 +8,37 @@ func configure(next_view: GenomeView) -> void:
 	view = next_view
 
 
+func _draw_rect_on(target, rect: Rect2, color: Color, filled: bool, width: float = 1.0) -> void:
+	if target == null or target == view:
+		if filled:
+			view.draw_rect(rect, color, true)
+		else:
+			view.draw_rect(rect, color, false, width)
+	else:
+		target.draw_rect(rect, color, filled, width)
+
+
+func _draw_line_on(target, p0: Vector2, p1: Vector2, color: Color, width: float = 1.0) -> void:
+	if target == null or target == view:
+		view.draw_line(p0, p1, color, width)
+	else:
+		target.draw_line(p0, p1, color, width)
+
+
+func _draw_string_on(target, font: Font, pos: Vector2, text: String, align: int, max_width: float, font_size: int, color: Color) -> void:
+	if target == null or target == view:
+		view.draw_string(font, pos, text, align, max_width, font_size, color)
+	else:
+		target.draw_string(font, pos, text, align, max_width, font_size, color)
+
+
+func _draw_set_transform_on(target, offset: Vector2, rotation: float, scale: Vector2) -> void:
+	if target == null or target == view:
+		view.draw_set_transform(offset, rotation, scale)
+	else:
+		target.draw_set_transform(offset, rotation, scale)
+
+
 func _viewport_start_bp_at(render_start_bp: float, render_bp_per_px: float) -> float:
 	if render_bp_per_px > 0.0:
 		return render_start_bp
@@ -119,7 +150,7 @@ func _read_snp_base_at(read: Dictionary, bp: int) -> String:
 	return ""
 
 
-func _draw_pileup_logo(area: Rect2) -> void:
+func _draw_pileup_logo(area: Rect2, target = null) -> void:
 	if not view.should_show_pileup_logo():
 		return
 	if view._laid_out_reads.is_empty():
@@ -220,16 +251,16 @@ func _draw_pileup_logo(area: Rect2) -> void:
 				var base_col: Color = colors.get(base_key, view.palette.get("text", Color.BLACK))
 				var seg_rect_col := base_col
 				seg_rect_col.a = 0.18
-				view.draw_rect(Rect2(x_center - column_w * 0.5, seg_top, column_w, seg_h), seg_rect_col, true)
+				_draw_rect_on(target, Rect2(x_center - column_w * 0.5, seg_top, column_w, seg_h), seg_rect_col, true)
 				var seg_mid_y := seg_top + seg_h * 0.5
 				var local_baseline_y := base_ascent - base_font_h * 0.5
-				view.draw_set_transform(Vector2(tx, seg_mid_y), 0.0, Vector2(1.0, y_scale))
-				view.draw_string(font, Vector2(0.0, local_baseline_y), base_key, HORIZONTAL_ALIGNMENT_LEFT, -1, base_font_size, base_col)
-				view.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				_draw_set_transform_on(target, Vector2(tx, seg_mid_y), 0.0, Vector2(1.0, y_scale))
+				_draw_string_on(target, font, Vector2(0.0, local_baseline_y), base_key, HORIZONTAL_ALIGNMENT_LEFT, -1, base_font_size, base_col)
+				_draw_set_transform_on(target, Vector2.ZERO, 0.0, Vector2.ONE)
 				y_cursor -= seg_h
 
 
-func _draw_soft_clip_text(target: CanvasItem, seq: String, rect: Rect2, font: Font, font_size: int) -> void:
+func _draw_soft_clip_text(target, seq: String, rect: Rect2, font: Font, font_size: int) -> void:
 	if seq.is_empty():
 		return
 	var per_base_w := rect.size.x / float(maxi(1, seq.length()))
@@ -242,10 +273,10 @@ func _draw_soft_clip_text(target: CanvasItem, seq: String, rect: Rect2, font: Fo
 		var tw := font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		var tx := base_center_x - tw * 0.5
 		var ty := view._text_baseline_for_center(rect.position.y + rect.size.y * 0.5, font, font_size)
-		target.draw_string(font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+		_draw_string_on(target, font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
 
 
-func _draw_soft_clip_overhangs_to(target: CanvasItem, read: Dictionary, y: float, read_color: Color, render_start_bp: float, render_bp_per_px: float) -> void:
+func _draw_soft_clip_overhangs_to(target, read: Dictionary, y: float, read_color: Color, render_start_bp: float, render_bp_per_px: float) -> void:
 	if not view._show_soft_clips:
 		return
 	var left_seq := str(read.get("soft_clip_left", ""))
@@ -265,15 +296,15 @@ func _draw_soft_clip_overhangs_to(target: CanvasItem, read: Dictionary, y: float
 	if not left_seq.is_empty():
 		var left_w := maxf(2.0, float(left_seq.length()) / bp_per_px_value)
 		var left_rect := Rect2(aligned_x0 - left_w, y, left_w, row_h)
-		target.draw_rect(left_rect, clip_color, true)
-		target.draw_rect(Rect2(aligned_x0 - marker_w * 0.5, y, marker_w, row_h), marker_color, true)
+		_draw_rect_on(target, left_rect, clip_color, true)
+		_draw_rect_on(target, Rect2(aligned_x0 - marker_w * 0.5, y, marker_w, row_h), marker_color, true)
 		if draw_text:
 			_draw_soft_clip_text(target, left_seq, left_rect, font, font_size)
 	if not right_seq.is_empty():
 		var right_w := maxf(2.0, float(right_seq.length()) / bp_per_px_value)
 		var right_rect := Rect2(aligned_x1, y, right_w, row_h)
-		target.draw_rect(right_rect, clip_color, true)
-		target.draw_rect(Rect2(aligned_x1 - marker_w * 0.5, y, marker_w, row_h), marker_color, true)
+		_draw_rect_on(target, right_rect, clip_color, true)
+		_draw_rect_on(target, Rect2(aligned_x1 - marker_w * 0.5, y, marker_w, row_h), marker_color, true)
 		if draw_text:
 			_draw_soft_clip_text(target, right_seq, right_rect, font, font_size)
 
@@ -449,11 +480,19 @@ func _read_color(read: Dictionary, mate_contig_colors: Dictionary, inferred_ids:
 
 
 func draw_read_tracks(area: Rect2) -> void:
+	_draw_read_tracks_to(view, area, true)
+
+
+func export_read_tracks_to(target, area: Rect2) -> void:
+	_draw_read_tracks_to(target, area, false)
+
+
+func _draw_read_tracks_to(target, area: Rect2, collect_hitboxes: bool) -> void:
 	if area.size.y <= 24.0:
 		return
 	var track_id := view._active_read_track_id
-	view.draw_rect(area, view.palette["bg"], true)
-	view._draw_grid(area)
+	_draw_rect_on(target, area, view.palette["bg"], true)
+	view._draw_grid(area, target)
 	if not view._read_loading_message.is_empty():
 		var font := view.get_theme_default_font()
 		var fs := view._font_size_medium
@@ -461,25 +500,25 @@ func draw_read_tracks(area: Rect2) -> void:
 		var tw := font.get_string_size(view._read_loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var tx := area.position.x + (area.size.x - tw) * 0.5
 		var ty := area.position.y + area.size.y * 0.5 + float(fs) * 0.35
-		view.draw_string(font, Vector2(tx, ty), view._read_loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, text_col)
+		_draw_string_on(target, font, Vector2(tx, ty), view._read_loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, text_col)
 		return
 	var depth_only := view.bp_per_px > view.READ_RENDER_MAX_BP_PER_PX
 	var summary_only := view.bp_per_px > view.DETAILED_READ_MAX_BP_PER_PX
 	if depth_only:
-		draw_coverage_tiles(area, true)
+		draw_coverage_tiles(area, true, target)
 		return
 	if summary_only:
 		match view._read_view_mode:
 			view.READ_VIEW_STRAND:
-				draw_strand_summary(area)
+				draw_strand_summary(area, target)
 			view.READ_VIEW_FRAGMENT:
-				draw_fragment_summary(area)
+				draw_fragment_summary(area, target)
 			_:
-				draw_stack_summary(area)
+				draw_stack_summary(area, target)
 		return
-	draw_coverage_tiles(area, false)
-	_draw_pileup_logo(area)
-	if view.is_motion_read_layer_active():
+	draw_coverage_tiles(area, false, target)
+	_draw_pileup_logo(area, target)
+	if target == view and view.is_motion_read_layer_active():
 		return
 
 	var content_top := view.read_content_top_for_area(area)
@@ -499,7 +538,7 @@ func draw_read_tracks(area: Rect2) -> void:
 	if view._read_view_mode == view.READ_VIEW_STRAND:
 		strand_split_y = view._strand_split_y_for_area(area, view._reads_scrollbar.value)
 		if strand_split_y >= content_top and strand_split_y <= content_bottom:
-			view.draw_line(Vector2(0.0, strand_split_y), Vector2(view.size.x, strand_split_y), Color(0, 0, 0, 0.9), view.STRAND_SPLIT_LINE_WIDTH)
+			_draw_line_on(target, Vector2(0.0, strand_split_y), Vector2(view.size.x, strand_split_y), Color(0, 0, 0, 0.9), view.STRAND_SPLIT_LINE_WIDTH)
 	var drawn_pairs: Dictionary = {}
 	var mate_lookup := {}
 	if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
@@ -540,10 +579,10 @@ func draw_read_tracks(area: Rect2) -> void:
 		var full_rect := Rect2(Vector2(full_x0, y), Vector2(maxf(2.0, full_x1 - full_x0), row_h))
 		var read_color := _read_color(read, mate_contig_colors, inferred_ids)
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
-			draw_pair_connector(read, y, read_color)
-			draw_mate_block(read, y, read_color)
-		_draw_soft_clip_overhangs_to(view, read, y, read_color, 0.0, 0.0)
-		view.draw_rect(rect, read_color, true)
+			_draw_pair_connector_to(target, read, y, read_color, 0.0, 0.0)
+			_draw_mate_block_to(target, read, y, read_color, 0.0, 0.0)
+		_draw_soft_clip_overhangs_to(target, read, y, read_color, 0.0, 0.0)
+		_draw_rect_on(target, rect, read_color, true)
 		var draw_selected := false
 		if track_id == view._selected_read_track_id and i == view._selected_read_index:
 			draw_selected = true
@@ -558,26 +597,28 @@ func draw_read_tracks(area: Rect2) -> void:
 					draw_selected = true
 		if draw_selected:
 			var border_col: Color = view.palette.get("text", view._axis_text_color())
-			view.draw_rect(full_rect.grow(1.5), border_col, false, 2.0)
-		view._read_hitboxes.append({
-			"rect": full_rect,
-			"read": read,
-			"read_index": i,
-			"track_id": track_id
-		})
+			_draw_rect_on(target, full_rect.grow(1.5), border_col, false, 2.0)
+		if collect_hitboxes:
+			view._read_hitboxes.append({
+				"rect": full_rect,
+				"read": read,
+				"read_index": i,
+				"track_id": track_id
+			})
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 			var mate_rect := mate_rect_for_read(read, y)
 			if mate_rect.size.x > 0.0 and mate_rect.size.y > 0.0:
 				if draw_selected:
 					var mate_border: Color = view.palette.get("text", view._axis_text_color())
-					view.draw_rect(mate_rect.grow(1.5), mate_border, false, 2.0)
-				var mate_hit := mate_hitbox_payload(read, i, mate_lookup)
-				view._read_hitboxes.append({
-					"rect": mate_rect,
-					"read": mate_hit.get("read", read),
-					"read_index": int(mate_hit.get("read_index", i)),
-					"track_id": track_id
-				})
+					_draw_rect_on(target, mate_rect.grow(1.5), mate_border, false, 2.0)
+				if collect_hitboxes:
+					var mate_hit := mate_hitbox_payload(read, i, mate_lookup)
+					view._read_hitboxes.append({
+						"rect": mate_rect,
+						"read": mate_hit.get("read", read),
+						"read_index": int(mate_hit.get("read_index", i)),
+						"track_id": track_id
+					})
 		if view.bp_per_px <= view.SNP_MARK_MAX_BP_PER_PX:
 			var snps: PackedInt32Array = read.get("snps", PackedInt32Array())
 			var snp_bases: PackedByteArray = read.get("snp_bases", PackedByteArray())
@@ -595,17 +636,17 @@ func draw_read_tracks(area: Rect2) -> void:
 					base_text = "N" if b.is_empty() else b
 					var base_w := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x + 2.0
 					snp_w = maxf(snp_w, base_w)
-				view.draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, row_h), view.palette.get("snp", Color(0.86, 0.14, 0.14)), true)
+				_draw_rect_on(target, Rect2(sx - snp_w * 0.5, y, snp_w, row_h), view.palette.get("snp", Color(0.86, 0.14, 0.14)), true)
 				if draw_snp_text and not base_text.is_empty():
 					var tw := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x
 					var tx := sx - tw * 0.5
 					var ty := view._text_baseline_for_center(y + row_h * 0.5, snp_font, snp_font_size)
-					view.draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
+					_draw_string_on(target, snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
 			if not pan_animating:
-				draw_indel_markers(read, y)
+				_draw_indel_markers_to(target, read, y, 0.0, 0.0)
 
 
-func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: float, render_bp_per_px: float, render_end_bp: float, track_id: String) -> void:
+func draw_detailed_reads_to(target, area: Rect2, render_start_bp: float, render_bp_per_px: float, render_end_bp: float, track_id: String) -> void:
 	if area.size.y <= 24.0:
 		return
 	var visible_start := int(floor(_render_left_edge_bp_at(render_start_bp, render_bp_per_px)))
@@ -627,7 +668,7 @@ func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: fl
 	if view._read_view_mode == view.READ_VIEW_STRAND:
 		strand_split_y = view._strand_split_y_for_area(area, view._reads_scrollbar.value)
 		if strand_split_y >= content_top and strand_split_y <= content_bottom:
-			target.draw_line(Vector2(0.0, strand_split_y), Vector2(view.size.x, strand_split_y), Color(0, 0, 0, 0.9), view.STRAND_SPLIT_LINE_WIDTH)
+			_draw_line_on(target, Vector2(0.0, strand_split_y), Vector2(view.size.x, strand_split_y), Color(0, 0, 0, 0.9), view.STRAND_SPLIT_LINE_WIDTH)
 	var drawn_pairs: Dictionary = {}
 	var inferred_ids := _inferred_mate_contig_ids(view._laid_out_reads)
 	var mate_contig_colors := _mate_contig_colors(view._laid_out_reads)
@@ -666,7 +707,7 @@ func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: fl
 			_draw_pair_connector_to(target, read, y, read_color, render_start_bp, render_bp_per_px)
 			_draw_mate_block_to(target, read, y, read_color, render_start_bp, render_bp_per_px, render_end_bp)
 		_draw_soft_clip_overhangs_to(target, read, y, read_color, render_start_bp, render_bp_per_px)
-		target.draw_rect(rect, read_color, true)
+		_draw_rect_on(target, rect, read_color, true)
 		var draw_selected := false
 		if track_id == view._selected_read_track_id and i == view._selected_read_index:
 			draw_selected = true
@@ -681,7 +722,7 @@ func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: fl
 					draw_selected = true
 		if draw_selected:
 			var border_col: Color = view.palette.get("text", view._axis_text_color())
-			target.draw_rect(full_rect.grow(1.5), border_col, false, 2.0)
+			_draw_rect_on(target, full_rect.grow(1.5), border_col, false, 2.0)
 		if view.bp_per_px <= view.SNP_MARK_MAX_BP_PER_PX:
 			var snps: PackedInt32Array = read.get("snps", PackedInt32Array())
 			var snp_bases: PackedByteArray = read.get("snp_bases", PackedByteArray())
@@ -699,12 +740,12 @@ func draw_detailed_reads_to(target: CanvasItem, area: Rect2, render_start_bp: fl
 					base_text = "N" if b.is_empty() else b
 					var base_w := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x + 1.0
 					snp_w = maxf(snp_w, base_w)
-				target.draw_rect(Rect2(sx - snp_w * 0.5, y, snp_w, row_h), view.palette.get("snp", Color(0.86, 0.14, 0.14)), true)
+				_draw_rect_on(target, Rect2(sx - snp_w * 0.5, y, snp_w, row_h), view.palette.get("snp", Color(0.86, 0.14, 0.14)), true)
 				if not base_text.is_empty():
 					var tw := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x
 					var tx := sx - tw * 0.5
 					var ty := view._text_baseline_for_center(y + row_h * 0.5, snp_font, snp_font_size)
-					target.draw_string(snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
+					_draw_string_on(target, snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
 			_draw_indel_markers_to(target, read, y, render_start_bp, render_bp_per_px, render_end_bp)
 
 
@@ -739,7 +780,7 @@ func draw_pair_connector(read: Dictionary, y: float, line_color: Color) -> void:
 	view.draw_line(Vector2(x0, yc), Vector2(x1, yc), draw_col, 1.0)
 
 
-func _draw_pair_connector_to(target: CanvasItem, read: Dictionary, y: float, line_color: Color, render_start_bp: float, render_bp_per_px: float) -> void:
+func _draw_pair_connector_to(target, read: Dictionary, y: float, line_color: Color, render_start_bp: float, render_bp_per_px: float) -> void:
 	var mate_start := int(read.get("mate_start", -1))
 	var mate_end := int(read.get("mate_end", -1))
 	if mate_start < 0 or mate_end <= mate_start:
@@ -751,7 +792,7 @@ func _draw_pair_connector_to(target: CanvasItem, read: Dictionary, y: float, lin
 	var yc := y + view.current_read_row_h() * 0.5
 	var draw_col := line_color
 	draw_col.a = maxf(draw_col.a, 0.9)
-	target.draw_line(Vector2(x0, yc), Vector2(x1, yc), draw_col, 1.0)
+	_draw_line_on(target, Vector2(x0, yc), Vector2(x1, yc), draw_col, 1.0)
 
 
 func can_draw_read_snp_letters() -> bool:
@@ -800,7 +841,7 @@ func draw_indel_markers(read: Dictionary, y: float) -> void:
 		view.draw_line(Vector2(ix - cap_w * 0.5, y1), Vector2(ix + cap_w * 0.5, y1), col, cap_line_w)
 
 
-func _draw_indel_markers_to(target: CanvasItem, read: Dictionary, y: float, render_start_bp: float, render_bp_per_px: float, render_end_bp: float = -1.0) -> void:
+func _draw_indel_markers_to(target, read: Dictionary, y: float, render_start_bp: float, render_bp_per_px: float, render_end_bp: float = -1.0) -> void:
 	var row_h := view.current_read_row_h()
 	var mid_y := y + row_h * 0.5
 	var half_h := maxf(1.0, row_h * 0.5)
@@ -820,9 +861,9 @@ func _draw_indel_markers_to(target: CanvasItem, read: Dictionary, y: float, rend
 		var dx0 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(ds), render_start_bp, render_bp_per_px)
 		var dx1 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(de), render_start_bp, render_bp_per_px)
 		if trim_h > 0.0 and dx1 > dx0:
-			target.draw_rect(Rect2(dx0, y, dx1 - dx0, trim_h), view.palette["bg"], true)
-			target.draw_rect(Rect2(dx0, y + row_h - trim_h, dx1 - dx0, trim_h), view.palette["bg"], true)
-		target.draw_line(Vector2(dx0, mid_y), Vector2(dx1, mid_y), Color(0.08, 0.08, 0.08, 0.95), 1.0)
+			_draw_rect_on(target, Rect2(dx0, y, dx1 - dx0, trim_h), view.palette["bg"], true)
+			_draw_rect_on(target, Rect2(dx0, y + row_h - trim_h, dx1 - dx0, trim_h), view.palette["bg"], true)
+		_draw_line_on(target, Vector2(dx0, mid_y), Vector2(dx1, mid_y), Color(0.08, 0.08, 0.08, 0.95), 1.0)
 	var ins_positions: PackedInt32Array = read.get("ins_positions", PackedInt32Array())
 	for pos in ins_positions:
 		var ip := int(pos)
@@ -835,9 +876,9 @@ func _draw_indel_markers_to(target: CanvasItem, read: Dictionary, y: float, rend
 		var cap_line_w := maxf(1.0, row_h * 0.15)
 		var stem_line_w := maxf(1.0, row_h * 0.3)
 		var col := Color(0.05, 0.05, 0.05, 0.98)
-		target.draw_line(Vector2(ix, y0), Vector2(ix, y1), col, stem_line_w)
-		target.draw_line(Vector2(ix - cap_w * 0.5, y0), Vector2(ix + cap_w * 0.5, y0), col, cap_line_w)
-		target.draw_line(Vector2(ix - cap_w * 0.5, y1), Vector2(ix + cap_w * 0.5, y1), col, cap_line_w)
+		_draw_line_on(target, Vector2(ix, y0), Vector2(ix, y1), col, stem_line_w)
+		_draw_line_on(target, Vector2(ix - cap_w * 0.5, y0), Vector2(ix + cap_w * 0.5, y0), col, cap_line_w)
+		_draw_line_on(target, Vector2(ix - cap_w * 0.5, y1), Vector2(ix + cap_w * 0.5, y1), col, cap_line_w)
 
 
 func draw_mate_block(read: Dictionary, y: float, block_color: Color) -> void:
@@ -847,11 +888,11 @@ func draw_mate_block(read: Dictionary, y: float, block_color: Color) -> void:
 	view.draw_rect(mate_rect, block_color, true)
 
 
-func _draw_mate_block_to(target: CanvasItem, read: Dictionary, y: float, block_color: Color, render_start_bp: float, render_bp_per_px: float, render_end_bp: float = -1.0) -> void:
+func _draw_mate_block_to(target, read: Dictionary, y: float, block_color: Color, render_start_bp: float, render_bp_per_px: float, render_end_bp: float = -1.0) -> void:
 	var mate_rect := _mate_rect_for_read_at(read, y, render_start_bp, render_bp_per_px, render_end_bp)
 	if mate_rect.size.x <= 0.0 or mate_rect.size.y <= 0.0:
 		return
-	target.draw_rect(mate_rect, block_color, true)
+	_draw_rect_on(target, mate_rect, block_color, true)
 
 
 func mate_rect_for_read(read: Dictionary, y: float) -> Rect2:
@@ -950,7 +991,7 @@ func pair_render_key(read: Dictionary) -> String:
 	return "%s|%d|%d|%d|%d" % [str(read.get("name", "")), a0, a1, b0, b1]
 
 
-func draw_coverage_tiles(area: Rect2, show_y_ticks: bool = false) -> void:
+func draw_coverage_tiles(area: Rect2, show_y_ticks: bool = false, target = null) -> void:
 	if view.coverage_tiles.is_empty():
 		return
 	var visible_start := int(view.view_start_bp)
@@ -1001,14 +1042,14 @@ func draw_coverage_tiles(area: Rect2, show_y_ticks: bool = false) -> void:
 		var font_size := view._font_size_small
 		var tick_x := view.TRACK_LEFT_PAD - 8.0
 		var label_x := 26.0
-		view.draw_line(Vector2(tick_x, chart_top), Vector2(tick_x, chart_bottom), axis_col, 1.0)
+		_draw_line_on(target, Vector2(tick_x, chart_top), Vector2(tick_x, chart_bottom), axis_col, 1.0)
 		var tick_vals: Array[int] = [0, int(round(float(max_depth) * 0.5)), max_depth]
 		var tick_ys: Array[float] = [chart_bottom, (chart_top + chart_bottom) * 0.5, chart_top]
 		for i in range(3):
 			var ty: float = tick_ys[i]
-			view.draw_line(Vector2(tick_x, ty), Vector2(tick_x + 5.0, ty), axis_col, 1.0)
+			_draw_line_on(target, Vector2(tick_x, ty), Vector2(tick_x + 5.0, ty), axis_col, 1.0)
 			var label := str(tick_vals[i])
-			view.draw_string(font, Vector2(label_x, ty + 4.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+			_draw_string_on(target, font, Vector2(label_x, ty + 4.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
 	for tile in unique_tiles:
 		var tile_start := int(tile.get("start", 0))
 		var tile_end := int(tile.get("end", 0))
@@ -1026,7 +1067,7 @@ func draw_coverage_tiles(area: Rect2, show_y_ticks: bool = false) -> void:
 			if h <= 0.0:
 				continue
 			if not show_y_ticks:
-				view.draw_rect(Rect2(x0, chart_bottom - h, w, h), cov_color, true)
+				_draw_rect_on(target, Rect2(x0, chart_bottom - h, w, h), cov_color, true)
 	if show_y_ticks:
 		var line_col: Color = view.palette["read"]
 		line_col.a = 0.9
@@ -1051,7 +1092,7 @@ func draw_coverage_tiles(area: Rect2, show_y_ticks: bool = false) -> void:
 				var contiguous := have_prev and bin_start_bp <= prev_end_bp + maxi(1, int(ceil(bin_span * 1.25)))
 				var monotonic := not have_prev or p.x >= prev.x
 				if have_prev and contiguous and monotonic:
-					view.draw_line(prev, p, line_col, 1.5)
+					_draw_line_on(target, prev, p, line_col, 1.5)
 				elif have_prev:
 					have_prev = false
 				prev = p
@@ -1059,9 +1100,9 @@ func draw_coverage_tiles(area: Rect2, show_y_ticks: bool = false) -> void:
 				prev_end_bp = bin_end_bp
 
 
-func draw_strand_summary(area: Rect2) -> void:
-	view.draw_rect(area, view.palette["bg"], true)
-	view._draw_grid(area)
+func draw_strand_summary(area: Rect2, target = null) -> void:
+	_draw_rect_on(target, area, view.palette["bg"], true)
+	view._draw_grid(area, target)
 	if view._strand_summary.is_empty():
 		return
 	var forward: PackedFloat32Array = view._strand_summary.get("forward", PackedFloat32Array())
@@ -1077,7 +1118,7 @@ func draw_strand_summary(area: Rect2) -> void:
 	var bottom := area.position.y + area.size.y - 10.0
 	var mid := (top + bottom) * 0.5
 	var half_h := maxf(1.0, (bottom - top) * 0.5 - 4.0)
-	view.draw_line(Vector2(view.TRACK_LEFT_PAD, mid), Vector2(area.position.x + area.size.x - view.TRACK_RIGHT_PAD, mid), view.palette["grid"], 1.0)
+	_draw_line_on(target, Vector2(view.TRACK_LEFT_PAD, mid), Vector2(area.position.x + area.size.x - view.TRACK_RIGHT_PAD, mid), view.palette["grid"], 1.0)
 	var max_v := 1.0
 	for i in range(bins):
 		max_v = maxf(max_v, maxf(forward[i], reverse[i]))
@@ -1095,14 +1136,14 @@ func draw_strand_summary(area: Rect2) -> void:
 		var fh := half_h * (forward[i] / max_v)
 		var rh := half_h * (reverse[i] / max_v)
 		if fh > 0.0:
-			view.draw_rect(Rect2(x0, mid - fh, w, fh), fwd_col, true)
+			_draw_rect_on(target, Rect2(x0, mid - fh, w, fh), fwd_col, true)
 		if rh > 0.0:
-			view.draw_rect(Rect2(x0, mid, w, rh), rev_col, true)
+			_draw_rect_on(target, Rect2(x0, mid, w, rh), rev_col, true)
 
 
-func draw_stack_summary(area: Rect2) -> void:
-	view.draw_rect(area, view.palette["bg"], true)
-	view._draw_grid(area)
+func draw_stack_summary(area: Rect2, target = null) -> void:
+	_draw_rect_on(target, area, view.palette["bg"], true)
+	view._draw_grid(area, target)
 	if view.coverage_tiles.is_empty():
 		return
 	var visible_start := int(view.view_start_bp)
@@ -1158,12 +1199,12 @@ func draw_stack_summary(area: Rect2) -> void:
 			var bar_h := h * (float(bins[i]) / float(max_depth))
 			if bar_h <= 0.0:
 				continue
-			view.draw_rect(Rect2(x0, bottom - bar_h, w, bar_h), bar_col, true)
+			_draw_rect_on(target, Rect2(x0, bottom - bar_h, w, bar_h), bar_col, true)
 
 
-func draw_fragment_summary(area: Rect2) -> void:
-	view.draw_rect(area, view.palette["bg"], true)
-	view._draw_grid(area)
+func draw_fragment_summary(area: Rect2, target = null) -> void:
+	_draw_rect_on(target, area, view.palette["bg"], true)
+	view._draw_grid(area, target)
 	if view._fragment_summary.is_empty():
 		return
 	var p25: PackedFloat32Array = view._fragment_summary.get("p25", PackedFloat32Array())
@@ -1227,10 +1268,10 @@ func draw_fragment_summary(area: Rect2) -> void:
 		var y25 := bottom - clampf((v25 - scale_min) / (scale_max - scale_min), 0.0, 1.0) * h if v25 >= 0.0 else bottom
 		var y50 := bottom - clampf((v50 - scale_min) / (scale_max - scale_min), 0.0, 1.0) * h
 		var y75 := bottom - clampf((v75 - scale_min) / (scale_max - scale_min), 0.0, 1.0) * h if v75 >= 0.0 else y50
-		view.draw_rect(Rect2(x0, minf(y25, y75), w, absf(y75 - y25)), band_col, true)
+		_draw_rect_on(target, Rect2(x0, minf(y25, y75), w, absf(y75 - y25)), band_col, true)
 		var cx := x0 + w * 0.5
 		var p := Vector2(cx, y50)
 		if have_prev_median:
-			view.draw_line(prev_median, p, line_col, 1.5)
+			_draw_line_on(target, prev_median, p, line_col, 1.5)
 		prev_median = p
 		have_prev_median = true
