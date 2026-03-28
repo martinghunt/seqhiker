@@ -1,4 +1,4 @@
-project = "seqhiker"
+project = "Seqhiker's Guide"
 copyright = "2026, Martin Hunt"
 author = "Martin Hunt"
 
@@ -19,4 +19,4 @@ exclude_patterns = [
 ]
 
 html_theme = "furo"
-html_title = "seqhiker"
+html_title = "The Seqhiker's Guide"
