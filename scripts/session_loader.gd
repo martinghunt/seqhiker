@@ -38,7 +38,7 @@ func _load_paths(files: PackedStringArray) -> Dictionary:
 		host._set_status(err_msg, true)
 		return {"ok": false, "error": err_msg}
 	if dropped_sequence:
-		reset_loaded_state()
+		host._reset_loaded_state()
 	else:
 		host._view_slots.clear()
 	if not load_dropped_files(files):
@@ -48,6 +48,8 @@ func _load_paths(files: PackedStringArray) -> Dictionary:
 	refresh_sequence_loaded_state()
 	refresh_chromosomes(dropped_sequence)
 	host._refresh_visible_data()
+	if host._annotation_cache_controller.detailed_read_strips_enabled(host._last_bp_per_px):
+		host._annotation_cache_controller.update_detailed_read_strips(host._last_start, host._last_end, host._last_bp_per_px)
 	return {"ok": true}
 
 
@@ -156,7 +158,8 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 			"hide_improper_pair": false,
 			"hide_forward_strand": false,
 			"hide_mate_forward_strand": false,
-			"auto_expand_snp_text": true
+			"auto_expand_snp_text": true,
+			"color_by_mate_contig": false
 		})
 		host._has_bam_loaded = true
 		host.center_strand_scroll_pending = true

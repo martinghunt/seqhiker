@@ -27,9 +27,8 @@ var _thread: Thread
 var _mutex := Mutex.new()
 var _semaphore := Semaphore.new()
 var _stop_requested := false
-var _pending_request: Dictionary = {}
-var _result_pending := false
-var _latest_result: Dictionary = {}
+var _pending_requests: Array[Dictionary] = []
+var _result_queue: Array[Dictionary] = []
 
 func configure(compute_tile_zoom_cb: Callable) -> void:
 	_compute_tile_zoom_cb = compute_tile_zoom_cb
@@ -37,9 +36,15 @@ func configure(compute_tile_zoom_cb: Callable) -> void:
 func reset() -> void:
 	_mutex.lock()
 	_active_generation = -1
-	_pending_request = {}
-	_latest_result = {}
-	_result_pending = false
+	_pending_requests.clear()
+	_result_queue.clear()
+	_mutex.unlock()
+
+
+func cancel_requests() -> void:
+	_mutex.lock()
+	_pending_requests.clear()
+	_result_queue.clear()
 	_mutex.unlock()
 
 func shutdown() -> void:
@@ -57,16 +62,19 @@ func request_tiles(request: Dictionary) -> void:
 		_thread = Thread.new()
 		_thread.start(Callable(self, "_worker_main"))
 	_mutex.lock()
-	_pending_request = request.duplicate(true)
+	var req := request.duplicate(true)
+	if bool(req.get("high_priority", false)):
+		_pending_requests.push_front(req)
+	else:
+		_pending_requests.append(req)
 	_mutex.unlock()
 	_semaphore.post()
 
 func poll_result() -> Dictionary:
 	var result: Dictionary = {}
 	_mutex.lock()
-	if _result_pending:
-		result = _latest_result
-		_result_pending = false
+	if not _result_queue.is_empty():
+		result = _result_queue.pop_front()
 	_mutex.unlock()
 	return result
 
@@ -79,15 +87,14 @@ func _worker_main() -> void:
 		if _stop_requested:
 			_mutex.unlock()
 			break
-		request = _pending_request.duplicate(true)
+		if not _pending_requests.is_empty():
+			request = _pending_requests.pop_front()
 		_mutex.unlock()
 		if request.is_empty():
 			continue
 		var result := _fetch_visible_tiles_sync(zem, request)
 		_mutex.lock()
-		if int(request.get("serial", -1)) == int(_pending_request.get("serial", -2)):
-			_latest_result = result
-			_result_pending = true
+		_result_queue.append(result)
 		_mutex.unlock()
 	zem.disconnect_from_server()
 
@@ -160,7 +167,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 				return {"ok": false, "serial": int(request.get("serial", -1)), "error": "Reference query failed: %s" % ref_resp.get("error", "error")}
 			ref_start = int(ref_resp.get("slice_start", query_start))
 			ref_sequence = str(ref_resp.get("sequence", ""))
-		if has_bam_loaded and show_reads:
+		if has_bam_loaded and (show_reads or show_depth_plot):
 			for t_any in bam_tracks:
 				var track: Dictionary = t_any as Dictionary
 				var track_id := str(track.get("track_id", ""))
@@ -213,7 +220,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 						if not strand_resp.get("ok", false):
 							return {"ok": false, "error": "Strand coverage query failed: %s" % strand_resp.get("error", "error")}
 						track_strand_cov.append(strand_resp.get("coverage", {}))
-				read_payload_by_track[track_id] = _prepare_track_payload(track, _build_prepared_reads(track, track_reads), track_cov, track_strand_cov, query_start, query_end, visible_start, visible_end, last_bp_per_px)
+				read_payload_by_track[track_id] = _prepare_track_payload(track, _build_prepared_reads(track, track_reads, seq_view_mode), track_cov, track_strand_cov, query_start, query_end, visible_start, visible_end, last_bp_per_px)
 		if show_gc_plot:
 			var tile_width_plot := 1024 << zoom
 			var tile_start_plot := int(floor(float(query_start) / float(tile_width_plot)))
@@ -242,7 +249,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	else:
 		if bool(request.get("need_reference", false)):
 			ref_sequence = _build_concat_reference(zem, query_start, query_end, overlaps)
-		if has_bam_loaded and show_reads:
+		if has_bam_loaded and (show_reads or show_depth_plot):
 			for t_any in bam_tracks:
 				var track: Dictionary = t_any as Dictionary
 				var track_id := str(track.get("track_id", ""))
@@ -313,7 +320,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 							if not strand_resp.get("ok", false):
 								return {"ok": false, "error": "Strand coverage query failed: %s" % strand_resp.get("error", "error")}
 							track_strand_cov.append(_shift_strand_coverage_coords(strand_resp.get("coverage", {}), offset_strand))
-				read_payload_by_track[track_id] = _prepare_track_payload(track, _build_prepared_reads(track, track_reads), track_cov, track_strand_cov, query_start, query_end, visible_start, visible_end, last_bp_per_px)
+				read_payload_by_track[track_id] = _prepare_track_payload(track, _build_prepared_reads(track, track_reads, seq_view_mode), track_cov, track_strand_cov, query_start, query_end, visible_start, visible_end, last_bp_per_px)
 		if show_gc_plot:
 			for ov_any in overlaps:
 				var ov: Dictionary = ov_any as Dictionary
@@ -380,6 +387,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	return {
 		"ok": true,
 		"serial": int(request.get("serial", -1)),
+		"request_kind": str(request.get("request_kind", "visible")),
 		"read_payload_by_track": read_payload_by_track,
 		"annotation_features": annotation_features,
 		"annotation_stats": annotation_stats,
@@ -532,12 +540,13 @@ func _build_fragment_summary(reads_in: Array[Dictionary], view_start: int, view_
 		"p75": p75
 	}
 
-func _build_prepared_reads(track: Dictionary, track_reads: Array[Dictionary]) -> Array[Dictionary]:
+func _build_prepared_reads(track: Dictionary, track_reads: Array[Dictionary], seq_view_mode: int) -> Array[Dictionary]:
 	var min_mapq := int(track.get("min_mapq", 0))
 	var hidden_flags := int(track.get("hidden_flags", 0))
 	var hide_improper_pair := bool(track.get("hide_improper_pair", false))
 	var hide_forward_strand := bool(track.get("hide_forward_strand", false))
 	var hide_mate_forward_strand := bool(track.get("hide_mate_forward_strand", false))
+	var concat_fragment_view := seq_view_mode == SEQ_VIEW_CONCAT and int(track.get("view_mode", 0)) == 3
 	var prepared_reads: Array[Dictionary] = []
 	for read_any in _dedupe_reads(track_reads):
 		if typeof(read_any) != TYPE_DICTIONARY:
@@ -553,6 +562,13 @@ func _build_prepared_reads(track: Dictionary, track_reads: Array[Dictionary]) ->
 			continue
 		if hide_mate_forward_strand and (int(read.get("flags", 0)) & 32) == 0:
 			continue
+		if concat_fragment_view and (int(read.get("flags", 0)) & 1) != 0:
+			var mate_start := int(read.get("mate_start", -1))
+			var mate_end := int(read.get("mate_end", -1))
+			if mate_start < 0 or mate_end <= mate_start:
+				var read_start := int(read.get("start", 0))
+				var read_end := int(read.get("end", read_start))
+				read["fragment_len"] = maxi(1, read_end - read_start)
 		_read_layout_helper.attach_indel_markers(read)
 		prepared_reads.append(read)
 	return prepared_reads

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/biogo/hts/sam"
 )
 
 func TestParseGFF3EmbeddedFASTA(t *testing.T) {
@@ -368,6 +370,55 @@ func TestLoadBAMFixtureReadTileIncludesProperPair(t *testing.T) {
 	}
 }
 
+func TestMateFieldsForRecordHidesUnmappedMate(t *testing.T) {
+	ref, err := sam.NewReference("chr1", "", "", 1000, nil, nil)
+	if err != nil {
+		t.Fatalf("NewReference returned error: %v", err)
+	}
+	rec := &sam.Record{
+		Name:  "read1",
+		Ref:   ref,
+		Cigar: sam.Cigar{sam.NewCigarOp(sam.CigarMatch, 50)},
+		Seq:   sam.NewSeq([]byte(strings.Repeat("A", 50))),
+	}
+	rec.Flags = sam.Paired | sam.MateUnmapped
+	rec.MatePos = 123
+	rec.MateRef = ref
+
+	mateStart, mateEnd, mateRawStart, mateRawEnd, mateRefID := mateFieldsForRecord(rec)
+	if mateStart != -1 || mateEnd != -1 || mateRawStart != -1 || mateRawEnd != -1 || mateRefID != -1 {
+		t.Fatalf("expected unmapped mate fields to be hidden, got start=%d end=%d rawStart=%d rawEnd=%d refID=%d", mateStart, mateEnd, mateRawStart, mateRawEnd, mateRefID)
+	}
+}
+
+func TestMateFieldsForRecordKeepsMappedCrossContigMate(t *testing.T) {
+	ref, err := sam.NewReference("chr1", "", "", 1000, nil, nil)
+	if err != nil {
+		t.Fatalf("NewReference returned error: %v", err)
+	}
+	mateRef, err := sam.NewReference("chr2", "", "", 1000, nil, nil)
+	if err != nil {
+		t.Fatalf("NewReference returned error: %v", err)
+	}
+	rec := &sam.Record{
+		Name:  "read1",
+		Ref:   ref,
+		Cigar: sam.Cigar{sam.NewCigarOp(sam.CigarMatch, 50)},
+		Seq:   sam.NewSeq([]byte(strings.Repeat("A", 50))),
+	}
+	rec.Flags = sam.Paired
+	rec.MatePos = 123
+	rec.MateRef = mateRef
+
+	mateStart, mateEnd, mateRawStart, mateRawEnd, mateRefID := mateFieldsForRecord(rec)
+	if mateStart != 123 || mateEnd != 173 || mateRawStart != 123 || mateRawEnd != 173 {
+		t.Fatalf("unexpected mapped mate coordinates: start=%d end=%d rawStart=%d rawEnd=%d", mateStart, mateEnd, mateRawStart, mateRawEnd)
+	}
+	if mateRefID != mateRef.ID() {
+		t.Fatalf("unexpected mate ref id: got %d want %d", mateRefID, mateRef.ID())
+	}
+}
+
 func TestLoadBAMFixtureCoverageTiles(t *testing.T) {
 	e := NewEngine()
 	refPath := filepath.Join("testdata", "test_reads.ref.fa")
@@ -556,6 +607,45 @@ func TestDispatchGetVersion(t *testing.T) {
 	}
 }
 
+func TestGenerateTestData(t *testing.T) {
+	e := NewEngine()
+	root := t.TempDir()
+	files, err := e.GenerateTestData(root)
+	if err != nil {
+		t.Fatalf("GenerateTestData returned error: %v", err)
+	}
+	if len(files) != 4 {
+		t.Fatalf("unexpected generated file count: got %d, want 4", len(files))
+	}
+	for _, path := range files {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("generated file missing: %s (%v)", path, err)
+		}
+	}
+	if _, err := os.Stat(files[2] + ".bai"); err != nil {
+		t.Fatalf("generated single-end BAM index missing: %v", err)
+	}
+	if _, err := os.Stat(files[3] + ".bai"); err != nil {
+		t.Fatalf("generated paired-end BAM index missing: %v", err)
+	}
+	if err := e.LoadGenome(files[0]); err != nil {
+		t.Fatalf("loading generated FASTA failed: %v", err)
+	}
+	if err := e.LoadGenome(files[1]); err != nil {
+		t.Fatalf("loading generated GFF failed: %v", err)
+	}
+	if _, err := e.LoadBAM(files[2], 0); err != nil {
+		t.Fatalf("loading generated single-end BAM failed: %v", err)
+	}
+	if _, err := e.LoadBAM(files[3], 0); err != nil {
+		t.Fatalf("loading generated paired-end BAM failed: %v", err)
+	}
+	chroms := e.ListChromosomes()
+	if len(chroms) != 9 {
+		t.Fatalf("unexpected chromosome count after generated test data load: got %d, want 9", len(chroms))
+	}
+}
+
 func decodeDNAHitsForTest(payload []byte) (bool, []DNAExactHit) {
 	if len(payload) < 3 {
 		return false, nil
@@ -659,7 +749,7 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 	alns := make([]Alignment, 0, count)
 	off := 13
 	for i := 0; i < count; i++ {
-		if off+26 > len(payload) {
+		if off+38 > len(payload) {
 			t.Fatalf("alignment payload too short")
 		}
 		start := int(binary.LittleEndian.Uint32(payload[off : off+4]))
@@ -670,8 +760,11 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 		mateStartRaw := binary.LittleEndian.Uint32(payload[off+12 : off+16])
 		mateEndRaw := binary.LittleEndian.Uint32(payload[off+16 : off+20])
 		fragLen := int(binary.LittleEndian.Uint32(payload[off+20 : off+24]))
-		nameLen := int(binary.LittleEndian.Uint16(payload[off+24 : off+26]))
-		off += 26
+		mateRawStartRaw := binary.LittleEndian.Uint32(payload[off+24 : off+28])
+		mateRawEndRaw := binary.LittleEndian.Uint32(payload[off+28 : off+32])
+		mateRefIDRaw := binary.LittleEndian.Uint32(payload[off+32 : off+36])
+		nameLen := int(binary.LittleEndian.Uint16(payload[off+36 : off+38]))
+		off += 38
 		if off+nameLen > len(payload) {
 			t.Fatalf("alignment name overflow")
 		}
@@ -688,6 +781,24 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 		cigar := string(payload[off : off+cigarLen])
 		off += cigarLen
 		if off+2 > len(payload) {
+			t.Fatalf("missing left soft-clip length")
+		}
+		leftSoftLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2
+		if off+leftSoftLen > len(payload) {
+			t.Fatalf("alignment left soft-clip overflow")
+		}
+		off += leftSoftLen
+		if off+2 > len(payload) {
+			t.Fatalf("missing right soft-clip length")
+		}
+		rightSoftLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2
+		if off+rightSoftLen > len(payload) {
+			t.Fatalf("alignment right soft-clip overflow")
+		}
+		off += rightSoftLen
+		if off+2 > len(payload) {
 			t.Fatalf("missing snp count")
 		}
 		snpCount := int(binary.LittleEndian.Uint16(payload[off : off+2]))
@@ -697,21 +808,34 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 		}
 		mateStart := -1
 		mateEnd := -1
+		mateRawStart := -1
+		mateRawEnd := -1
+		mateRefID := -1
 		if mateStartRaw != 0xFFFFFFFF && mateEndRaw != 0xFFFFFFFF {
 			mateStart = int(mateStartRaw)
 			mateEnd = int(mateEndRaw)
 		}
+		if mateRawStartRaw != 0xFFFFFFFF && mateRawEndRaw != 0xFFFFFFFF {
+			mateRawStart = int(mateRawStartRaw)
+			mateRawEnd = int(mateRawEndRaw)
+		}
+		if mateRefIDRaw != 0xFFFFFFFF {
+			mateRefID = int(mateRefIDRaw)
+		}
 		alns = append(alns, Alignment{
-			Start:     start,
-			End:       end,
-			Name:      name,
-			MapQ:      mapQ,
-			Flags:     flags,
-			Cigar:     cigar,
-			Reverse:   reverse,
-			MateStart: mateStart,
-			MateEnd:   mateEnd,
-			FragLen:   fragLen,
+			Start:        start,
+			End:          end,
+			Name:         name,
+			MapQ:         mapQ,
+			Flags:        flags,
+			Cigar:        cigar,
+			Reverse:      reverse,
+			MateStart:    mateStart,
+			MateEnd:      mateEnd,
+			MateRawStart: mateRawStart,
+			MateRawEnd:   mateRawEnd,
+			MateRefID:    mateRefID,
+			FragLen:      fragLen,
 		})
 	}
 	return alns

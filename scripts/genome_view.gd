@@ -1,10 +1,14 @@
 extends Control
 class_name GenomeView
 const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
+const ANONYMOUS_PRO_FONT := preload("res://fonts/Anonymous-Pro/Anonymous_Pro.ttf")
+const COURIER_NEW_FONT := preload("res://fonts/Courier-New/couriernew.ttf")
+const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 const TRACK_ROW_SCENE := preload("res://scenes/Track.tscn")
 const ReadLayoutHelperScript = preload("res://scripts/read_layout_helper.gd")
 const ReadTrackRendererScript = preload("res://scripts/read_track_renderer.gd")
 const AnnotationRendererScript = preload("res://scripts/annotation_renderer.gd")
+const MotionReadLayerScript = preload("res://scripts/motion_read_layer.gd")
 const DETAILED_READ_MAX_BP_PER_PX := 48.0
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
@@ -17,6 +21,8 @@ signal track_order_changed(order: PackedStringArray)
 signal track_visibility_changed(track_id: String, visible: bool)
 signal region_selected(start_bp: int, end_bp: int)
 signal region_selection_changed(active: bool, start_bp: int, end_bp: int)
+signal map_jump_requested(bp_center: float)
+signal center_jump_requested(bp_center: float)
 
 const AA_ROW_H := 26.0
 const AA_ROW_GAP := 3.0
@@ -136,6 +142,11 @@ var palette: Dictionary = {
 
 var _pan_tween: Tween
 var _zoom_tween: Tween
+var _motion_read_layer: Control = null
+var _motion_read_layer_active := false
+var _motion_read_layer_start_bp := 0.0
+var _motion_read_layer_end_bp := 0.0
+var _motion_read_layer_bp_per_px := 1.0
 var _zoom_from_bp_per_px := 8.0
 var _zoom_to_bp_per_px := 8.0
 var _zoom_from_start_bp := 0.0
@@ -146,6 +157,7 @@ var _selected_feature_key := ""
 var _selected_read_index := -1
 var _selected_read_track_id := ""
 var _selected_read_pair_name := ""
+var _selected_read_flags := 0
 var _selected_read_pair_a_start := -1
 var _selected_read_pair_a_end := -1
 var _selected_read_pair_b_start := -1
@@ -156,6 +168,7 @@ var _vertical_swipe_zoom_enabled := true
 var _mouse_wheel_zoom_sensitivity := 1.0
 var _invert_mouse_wheel_zoom := false
 var _mouse_wheel_pan_sensitivity := 1.0
+var _pan_zoom_animation_speed := 1.0
 var _reads_scrollbar: VScrollBar
 var _laid_out_reads: Array[Dictionary] = []
 var _read_layout_helper := ReadLayoutHelperScript.new()
@@ -165,10 +178,14 @@ var _read_row_count := 0
 var _strand_forward_rows := 0
 var _strand_reverse_rows := 0
 var _strand_split_lock_y := -1.0
+var _last_layout_bp_per_px := -1.0
 var _read_view_mode := READ_VIEW_STACK
 var _fragment_log_scale := false
 var _read_row_h := READ_ROW_H
 var _auto_expand_snp_text := false
+var _show_soft_clips := false
+var _show_pileup_logo := false
+var _color_by_mate_contig := false
 var _read_row_limit := 0
 var _annotation_max_on_screen := 4400
 var _show_full_length_regions := false
@@ -202,6 +219,8 @@ var _region_select_end_edge := 0
 var _font_size_small := 11
 var _font_size_medium := 13
 var _font_size_large := 14
+var _sequence_letter_font_name := "Anonymous Pro"
+var _dejavu_sans_font: FontFile = null
 var annotation_debug_stats_state := {
 	"seen": 0,
 	"drawn": 0,
@@ -232,6 +251,10 @@ func _ready() -> void:
 	_read_renderer.configure(self)
 	_annotation_renderer = AnnotationRendererScript.new()
 	_annotation_renderer.configure(self)
+	_motion_read_layer = MotionReadLayerScript.new()
+	_motion_read_layer.configure(self)
+	_motion_read_layer.visible = false
+	add_child(_motion_read_layer)
 	_sync_track_rows()
 	_read_track_states[TRACK_ID_READS] = {
 		"reads": reads,
@@ -248,6 +271,9 @@ func _ready() -> void:
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
 		"auto_expand_snp_text": _auto_expand_snp_text,
+		"show_soft_clips": _show_soft_clips,
+		"show_pileup_logo": _show_pileup_logo,
+		"color_by_mate_contig": _color_by_mate_contig,
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
 	}
@@ -316,12 +342,13 @@ func sync_read_tracks(track_ids: PackedStringArray) -> void:
 			"strand_reverse_rows": 0,
 			"strand_split_lock_y": -1.0,
 			"was_summary_only": false,
-				"read_view_mode": READ_VIEW_STACK,
-				"fragment_log_scale": false,
-				"read_row_h": READ_ROW_H,
-				"read_row_limit": 0,
-				"scrollbar": _reads_scrollbar
-			}
+			"read_view_mode": READ_VIEW_STACK,
+			"fragment_log_scale": false,
+			"read_row_h": READ_ROW_H,
+			"color_by_mate_contig": false,
+			"read_row_limit": 0,
+			"scrollbar": _reads_scrollbar
+		}
 	_sync_track_rows()
 	queue_redraw()
 
@@ -423,11 +450,17 @@ func set_read_track_data(track_id: String, next_reads: Array[Dictionary], next_c
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false) -> void:
+func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, show_soft_clips: bool = false, show_pileup_logo: bool = false, color_by_mate_contig: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
+	var selected_read_key := ""
+	if track_id == _selected_read_track_id and _selected_read_index >= 0 and _selected_read_index < _laid_out_reads.size():
+		selected_read_key = _read_key(_laid_out_reads[_selected_read_index])
 	var prev_view_mode := _read_view_mode
 	var next_view_mode := clampi(view_mode, READ_VIEW_STACK, READ_VIEW_FRAGMENT)
+	var preferred_rows := {}
+	if prev_view_mode == next_view_mode and absf(_last_layout_bp_per_px - bp_per_px) < 0.000001:
+		preferred_rows = _read_layout_helper.preferred_row_map(_laid_out_reads, _read_view_mode, int(view_start_bp), int(_viewport_end_bp()))
 	var current_summary_only := bp_per_px > DETAILED_READ_MAX_BP_PER_PX and bp_per_px <= READ_RENDER_MAX_BP_PER_PX
 	var should_center_paired_from_summary := _was_summary_only and not current_summary_only and next_view_mode == READ_VIEW_PAIRED
 	var should_center_strand := prev_view_mode != READ_VIEW_STRAND and next_view_mode == READ_VIEW_STRAND
@@ -436,6 +469,9 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
 	_auto_expand_snp_text = auto_expand_snp_text
+	_show_soft_clips = show_soft_clips
+	_show_pileup_logo = show_pileup_logo
+	_color_by_mate_contig = color_by_mate_contig
 	_read_row_limit = maxi(0, row_limit)
 	reads = _as_dict_array(payload.get("reads", []))
 	coverage_tiles = _as_dict_array(payload.get("coverage", []))
@@ -445,6 +481,20 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 	_read_row_count = int(payload.get("read_row_count", 0))
 	_strand_forward_rows = int(payload.get("strand_forward_rows", 0))
 	_strand_reverse_rows = int(payload.get("strand_reverse_rows", 0))
+	if not reads.is_empty() and _read_view_mode != READ_VIEW_FRAGMENT and not preferred_rows.is_empty():
+		var stable_layout := _read_layout_helper.build_layout(
+			reads,
+			_read_view_mode,
+			_fragment_log_scale,
+			_read_row_limit,
+			int(view_start_bp),
+			int(_viewport_end_bp()),
+			preferred_rows
+		)
+		_laid_out_reads = stable_layout.get("laid_out_reads", [])
+		_read_row_count = int(stable_layout.get("read_row_count", 0))
+		_strand_forward_rows = int(stable_layout.get("strand_forward_rows", 0))
+		_strand_reverse_rows = int(stable_layout.get("strand_reverse_rows", 0))
 	if not reads.is_empty() and (_laid_out_reads.is_empty() or (_read_view_mode != READ_VIEW_FRAGMENT and _read_row_count <= 0)):
 		_layout_reads()
 	_layout_read_scrollbar()
@@ -456,11 +506,27 @@ func set_read_track_payload(track_id: String, payload: Dictionary, view_mode: in
 		_reads_scrollbar.value = max_offset_stack
 	if should_center_strand:
 		center_strand_scroll()
+	if not selected_read_key.is_empty() and track_id == _selected_read_track_id:
+		var rebound_index := -1
+		for i in range(_laid_out_reads.size()):
+			if _read_key(_laid_out_reads[i]) == selected_read_key:
+				rebound_index = i
+				break
+		_selected_read_index = rebound_index
+		if rebound_index < 0:
+			_selected_read_track_id = ""
+			_selected_read_pair_name = ""
+			_selected_read_flags = 0
+			_selected_read_pair_a_start = -1
+			_selected_read_pair_a_end = -1
+			_selected_read_pair_b_start = -1
+			_selected_read_pair_b_end = -1
 	_was_summary_only = current_summary_only
+	_last_layout_bp_per_px = bp_per_px
 	_persist_active_read_track()
 	queue_redraw()
 
-func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false) -> void:
+func set_read_track_settings(track_id: String, view_mode: int, fragment_log: bool, row_h: float, row_limit: int, auto_expand_snp_text: bool = false, show_soft_clips: bool = false, show_pileup_logo: bool = false, color_by_mate_contig: bool = false) -> void:
 	_ensure_read_track_state(track_id)
 	_activate_read_track(track_id)
 	var prev_view_mode := _read_view_mode
@@ -468,6 +534,9 @@ func set_read_track_settings(track_id: String, view_mode: int, fragment_log: boo
 	_fragment_log_scale = fragment_log
 	_read_row_h = clampf(row_h, 2.0, 24.0)
 	_auto_expand_snp_text = auto_expand_snp_text
+	_show_soft_clips = show_soft_clips
+	_show_pileup_logo = show_pileup_logo
+	_color_by_mate_contig = color_by_mate_contig
 	_read_row_limit = maxi(0, row_limit)
 	_layout_reads()
 	_layout_read_scrollbar()
@@ -589,11 +658,42 @@ func set_invert_mouse_wheel_zoom(enabled: bool) -> void:
 func set_mouse_wheel_pan_sensitivity(value: float) -> void:
 	_mouse_wheel_pan_sensitivity = clampf(value, 0.5, 20.0)
 
+func set_pan_zoom_animation_speed(speed: float) -> void:
+	_pan_zoom_animation_speed = clampf(speed, 1.0, 3.0)
+
 func set_base_font_size(base_size: int) -> void:
 	_font_size_medium = clampi(base_size, 9, 24)
 	_font_size_small = maxi(8, _font_size_medium - 2)
 	_font_size_large = _font_size_medium + 1
 	queue_redraw()
+
+
+func set_sequence_letter_font_name(font_name: String) -> void:
+	_sequence_letter_font_name = font_name
+	queue_redraw()
+
+
+func sequence_letter_font() -> Font:
+	match _sequence_letter_font_name:
+		"Noto Sans":
+			return ThemeDB.fallback_font
+		"DejaVu Sans":
+			return _load_dejavu_sans_font()
+		"Courier New":
+			return COURIER_NEW_FONT
+		_:
+			return ANONYMOUS_PRO_FONT
+
+
+func _load_dejavu_sans_font() -> Font:
+	if _dejavu_sans_font != null:
+		return _dejavu_sans_font
+	var font := FontFile.new()
+	var err := font.load_dynamic_font(DEJAVU_SANS_FONT_PATH)
+	if err != OK:
+		return ThemeDB.fallback_font
+	_dejavu_sans_font = font
+	return _dejavu_sans_font
 
 func set_read_view_mode(mode: int) -> void:
 	_activate_read_track(TRACK_ID_READS)
@@ -635,10 +735,34 @@ func current_read_row_h() -> float:
 func current_read_row_step() -> float:
 	return current_read_row_h() + READ_ROW_GAP
 
+func should_show_pileup_logo() -> bool:
+	if not _show_pileup_logo:
+		return false
+	if _read_view_mode == READ_VIEW_FRAGMENT:
+		return false
+	if not can_draw_read_snp_letters_for_row_h(current_read_row_h()):
+		return false
+	if reference_sequence.is_empty():
+		return false
+	return bp_per_px <= SNP_MARK_MAX_BP_PER_PX
+
+func pileup_logo_height() -> float:
+	if not should_show_pileup_logo():
+		return 0.0
+	return float(_font_size_medium) * 3.0
+
+func read_content_top_for_area(area: Rect2) -> float:
+	return area.position.y + 30.0
+
+func read_content_bottom_for_area(area: Rect2) -> float:
+	if _read_view_mode == READ_VIEW_STRAND:
+		return area.position.y + area.size.y - 4.0
+	return area.position.y + area.size.y - 4.0 - pileup_logo_height()
+
 func can_draw_read_snp_letters_for_row_h(row_h: float) -> bool:
 	if row_h < 10.0:
 		return false
-	var font := get_theme_default_font()
+	var font := sequence_letter_font()
 	var font_size := _read_text_font_size_for_row_h(row_h)
 	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	if char_px <= 0.0:
@@ -711,7 +835,7 @@ func center_strand_scroll() -> void:
 	if _read_view_mode != READ_VIEW_STRAND or _reads_scrollbar == null:
 		return
 	var read_area := _track_rect(TRACK_ID_READS)
-	var content_top := read_area.position.y + 30.0
+	var content_top := read_content_top_for_area(read_area)
 	var content_bottom := read_area.position.y + read_area.size.y - 4.0
 	_strand_split_lock_y = (content_top + content_bottom) * 0.5
 	_layout_read_scrollbar()
@@ -783,6 +907,10 @@ func set_track_order(order: PackedStringArray) -> void:
 func is_zoom_animating() -> bool:
 	return _zoom_tween != null and _zoom_tween.is_running()
 
+
+func is_pan_animating() -> bool:
+	return _pan_tween != null and _pan_tween.is_running()
+
 func get_view_state() -> Dictionary:
 	return {
 		"start_bp": view_start_bp,
@@ -795,28 +923,9 @@ func set_view_state(start_bp: float, bp_per_px_value: float) -> void:
 		_pan_tween.kill()
 	if _zoom_tween and _zoom_tween.is_running():
 		_zoom_tween.kill()
+	_end_motion_read_layer()
 	bp_per_px = clampf(bp_per_px_value, min_bp_per_px, _max_allowed_bp_per_px())
 	view_start_bp = _clamp_start(start_bp)
-	_layout_all_read_scrollbars()
-	queue_redraw()
-	_emit_viewport_changed()
-
-func jump_to_start() -> void:
-	if _pan_tween and _pan_tween.is_running():
-		_pan_tween.kill()
-	if _zoom_tween and _zoom_tween.is_running():
-		_zoom_tween.kill()
-	view_start_bp = 0.0
-	_layout_all_read_scrollbars()
-	queue_redraw()
-	_emit_viewport_changed()
-
-func jump_to_end() -> void:
-	if _pan_tween and _pan_tween.is_running():
-		_pan_tween.kill()
-	if _zoom_tween and _zoom_tween.is_running():
-		_zoom_tween.kill()
-	view_start_bp = _clamp_start(float(chromosome_length))
 	_layout_all_read_scrollbars()
 	queue_redraw()
 	_emit_viewport_changed()
@@ -827,7 +936,37 @@ func pan_by_fraction(fraction: float, duration: float = 0.35) -> void:
 		return
 	var span := plot_w * bp_per_px
 	var target := _clamp_start(view_start_bp + span * fraction)
-	_pan_to(target, duration)
+	_pan_to(target, duration, false)
+
+func pan_to_start(target_start: float, duration: float = 0.35) -> void:
+	_pan_to(_clamp_start(target_start), duration, false)
+
+
+func pan_to_start_linear(target_start: float, duration: float) -> void:
+	_pan_to(_clamp_start(target_start), duration, true)
+
+
+func begin_motion_read_layer_for_range(render_start: float, render_end: float) -> void:
+	_end_motion_read_layer()
+	_activate_motion_read_layer(render_start, render_end)
+
+
+func end_motion_read_layer() -> void:
+	_end_motion_read_layer()
+
+
+func motion_read_layer_covers(start_bp: float, end_bp: float) -> bool:
+	if not is_motion_read_layer_active():
+		return false
+	return start_bp >= _motion_read_layer_start_bp and end_bp <= _motion_read_layer_end_bp
+
+
+func motion_read_layer_has_autoplay_margin(view_start: float, view_end: float, direction: float, margin_bp: float) -> bool:
+	if not is_motion_read_layer_active():
+		return false
+	if direction >= 0.0:
+		return view_start >= _motion_read_layer_start_bp and view_end <= (_motion_read_layer_end_bp - margin_bp)
+	return view_end <= _motion_read_layer_end_bp and view_start >= (_motion_read_layer_start_bp + margin_bp)
 
 func zoom_by(factor: float, duration: float = 0.22) -> void:
 	zoom_by_at_x(factor, TRACK_LEFT_PAD + _plot_width() * 0.5, duration)
@@ -851,22 +990,47 @@ func load_files(paths: PackedStringArray) -> void:
 			loaded_files.append(p)
 	queue_redraw()
 
-func _pan_to(target_start: float, duration: float) -> void:
+func _pan_to(target_start: float, duration: float, linear: bool) -> void:
 	if _pan_tween and _pan_tween.is_running():
 		_pan_tween.kill()
+	_end_motion_read_layer()
+	var actual_duration := _effective_animation_duration(duration)
+	if actual_duration <= 0.0:
+		view_start_bp = _clamp_start(target_start)
+		queue_redraw()
+		_emit_viewport_changed()
+		return
+	var current_start := view_start_bp
+	var plot_span := _plot_width() * bp_per_px
+	var target_end := minf(float(chromosome_length), target_start + plot_span)
+	_activate_motion_read_layer(minf(current_start, target_start), maxf(_viewport_end_bp(), target_end))
 	_pan_tween = create_tween()
-	_pan_tween.set_trans(Tween.TRANS_CUBIC)
-	_pan_tween.set_ease(Tween.EASE_OUT)
-	_pan_tween.tween_method(_set_view_start_animated, view_start_bp, target_start, duration)
+	if linear:
+		_pan_tween.set_trans(Tween.TRANS_LINEAR)
+		_pan_tween.set_ease(Tween.EASE_IN_OUT)
+	else:
+		_pan_tween.set_trans(Tween.TRANS_CUBIC)
+		_pan_tween.set_ease(Tween.EASE_OUT)
+	_pan_tween.tween_method(_set_view_start_animated, view_start_bp, target_start, actual_duration)
+	_pan_tween.finished.connect(_on_pan_finished, CONNECT_ONE_SHOT)
 
 func _set_view_start_animated(next_start: float) -> void:
 	view_start_bp = _clamp_start(next_start)
+	_update_motion_read_layer_offset()
 	queue_redraw()
-	_emit_viewport_changed()
 
 func _animate_zoom(from_start: float, to_start: float, from_bp_per_px: float, to_bp_per_px: float, duration: float) -> void:
 	if _zoom_tween and _zoom_tween.is_running():
 		_zoom_tween.kill()
+	_end_motion_read_layer()
+	var actual_duration := _effective_animation_duration(duration)
+	if actual_duration <= 0.0:
+		bp_per_px = clampf(to_bp_per_px, min_bp_per_px, _max_allowed_bp_per_px())
+		view_start_bp = _clamp_start(to_start)
+		_layout_all_read_scrollbars()
+		queue_redraw()
+		_emit_viewport_changed()
+		return
 	_zoom_from_start_bp = from_start
 	_zoom_to_start_bp = to_start
 	_zoom_from_bp_per_px = from_bp_per_px
@@ -874,17 +1038,31 @@ func _animate_zoom(from_start: float, to_start: float, from_bp_per_px: float, to
 	_zoom_tween = create_tween()
 	_zoom_tween.set_trans(Tween.TRANS_CUBIC)
 	_zoom_tween.set_ease(Tween.EASE_OUT)
-	_zoom_tween.tween_method(_set_zoom_progress, 0.0, 1.0, duration)
+	_zoom_tween.tween_method(_set_zoom_progress, 0.0, 1.0, actual_duration)
 	_zoom_tween.finished.connect(_on_zoom_finished, CONNECT_ONE_SHOT)
 
 func _set_zoom_progress(t: float) -> void:
 	bp_per_px = clampf(lerpf(_zoom_from_bp_per_px, _zoom_to_bp_per_px, t), min_bp_per_px, _max_allowed_bp_per_px())
 	view_start_bp = _clamp_start(lerpf(_zoom_from_start_bp, _zoom_to_start_bp, t))
+	_layout_all_read_scrollbars()
 	queue_redraw()
 	_emit_viewport_changed()
 
 func _on_zoom_finished() -> void:
 	_emit_viewport_changed()
+
+
+func _on_pan_finished() -> void:
+	_end_motion_read_layer()
+	_emit_viewport_changed()
+
+
+func _effective_animation_duration(base_duration: float) -> float:
+	if base_duration <= 0.0:
+		return 0.0
+	if _pan_zoom_animation_speed >= 3.0:
+		return 0.0
+	return base_duration / clampf(_pan_zoom_animation_speed, 1.0, 2.0)
 
 func _max_allowed_bp_per_px() -> float:
 	var plot_w := _plot_width()
@@ -971,9 +1149,9 @@ func _draw_region_selection(track_rects: Dictionary) -> void:
 	var x0 := clampf(_bp_to_screen_edge(bp0), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
 	var x1 := clampf(_bp_to_screen_edge(bp1), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
 	var w := maxf(1.0, x1 - x0)
-	var fill: Color = palette.get("genome", Color(0.25, 0.45, 0.75))
+	var fill: Color = palette.get("region_select_fill", palette.get("genome", Color(0.25, 0.45, 0.75)))
 	fill.a = 0.28
-	var border: Color = palette["text"]
+	var border: Color = palette.get("region_select_outline", palette["text"])
 	border.a = 0.55
 	var selection_spans := _region_selection_spans(track_rects)
 	for span_any in selection_spans:
@@ -1016,12 +1194,61 @@ func _track_index_for_y(y: float) -> int:
 
 func _draw_read_tracks(area: Rect2) -> void:
 	_read_renderer.draw_read_tracks(area)
+	if is_motion_read_layer_active() and _read_view_mode == READ_VIEW_STRAND:
+		var content_top := read_content_top_for_area(area)
+		var content_bottom := read_content_bottom_for_area(area)
+		var strand_split_y := _strand_split_y_for_area(area, _reads_scrollbar.value)
+		if strand_split_y >= content_top and strand_split_y <= content_bottom:
+			draw_line(Vector2(0.0, strand_split_y), Vector2(size.x, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
+
+
+func is_motion_read_layer_active() -> bool:
+	return _motion_read_layer_active and _motion_read_layer != null and _motion_read_layer.visible
+
+
+func _has_visible_read_tracks() -> bool:
+	for track_id_any in _track_order:
+		var track_id := str(track_id_any)
+		if _is_read_track(track_id) and is_track_visible(track_id):
+			return true
+	return false
+
+
+func _activate_motion_read_layer(render_start: float, render_end: float) -> void:
+	if _motion_read_layer == null:
+		return
+	if not _has_visible_read_tracks():
+		return
+	if bp_per_px > DETAILED_READ_MAX_BP_PER_PX:
+		return
+	render_start = clampf(render_start, 0.0, float(chromosome_length))
+	render_end = clampf(render_end, render_start, float(chromosome_length))
+	var content_width_px := TRACK_LEFT_PAD + ((render_end - render_start) / bp_per_px) + TRACK_RIGHT_PAD
+	_motion_read_layer_start_bp = render_start
+	_motion_read_layer_end_bp = render_end
+	_motion_read_layer_bp_per_px = bp_per_px
+	_motion_read_layer.activate(render_start, render_end, bp_per_px, content_width_px)
+	_motion_read_layer_active = true
+	_update_motion_read_layer_offset()
+
+
+func _update_motion_read_layer_offset() -> void:
+	if not is_motion_read_layer_active():
+		return
+	var offset_px := maxf(0.0, (view_start_bp - _motion_read_layer_start_bp) / _motion_read_layer_bp_per_px)
+	_motion_read_layer.set_offset_px(offset_px)
+
+
+func _end_motion_read_layer() -> void:
+	_motion_read_layer_active = false
+	if _motion_read_layer != null:
+		_motion_read_layer.deactivate()
 
 func _read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:
 	return _read_renderer.read_y_for_area(read, content_top, content_bottom, scroll_px, strand_split_y)
 
 func _draw_pair_connector(read: Dictionary, y: float) -> void:
-	_read_renderer.draw_pair_connector(read, y)
+	_read_renderer.draw_pair_connector(read, y, palette["read"])
 
 func _can_draw_read_snp_letters() -> bool:
 	return _read_renderer.can_draw_read_snp_letters()
@@ -1033,7 +1260,7 @@ func _draw_indel_markers(read: Dictionary, y: float) -> void:
 	_read_renderer.draw_indel_markers(read, y)
 
 func _draw_mate_block(read: Dictionary, y: float) -> void:
-	_read_renderer.draw_mate_block(read, y)
+	_read_renderer.draw_mate_block(read, y, palette["read"])
 
 func _mate_rect_for_read(read: Dictionary, y: float) -> Rect2:
 	return _read_renderer.mate_rect_for_read(read, y)
@@ -1326,6 +1553,7 @@ func set_selected_read(read: Dictionary, read_index: int, track_id: String, togg
 	_selected_read_index = read_index
 	_selected_read_track_id = track_id
 	_selected_read_pair_name = str(read.get("name", ""))
+	_selected_read_flags = int(read.get("flags", 0))
 	var a_start := int(read.get("start", 0))
 	var a_end := int(read.get("end", a_start))
 	var b_start := int(read.get("mate_start", -1))
@@ -1346,6 +1574,7 @@ func clear_selected_read() -> void:
 	_selected_read_index = -1
 	_selected_read_track_id = ""
 	_selected_read_pair_name = ""
+	_selected_read_flags = 0
 	_selected_read_pair_a_start = -1
 	_selected_read_pair_a_end = -1
 	_selected_read_pair_b_start = -1
@@ -1372,7 +1601,7 @@ func _can_draw_aa_letters() -> bool:
 func _can_draw_aa_letters_without_reference() -> bool:
 	if _zoom_tween != null and _zoom_tween.is_running():
 		return false
-	var font := get_theme_default_font()
+	var font := sequence_letter_font()
 	var nuc_font_size := _font_size_large
 	var nuc_char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, nuc_font_size).x
 	if nuc_char_px <= 0.0:
@@ -1389,7 +1618,7 @@ func _can_draw_aa_letters_without_reference() -> bool:
 	return 3.0 * pixels_per_bp >= min_aa_codon_px
 
 func _can_draw_nucleotide_letters() -> bool:
-	var font := get_theme_default_font()
+	var font := sequence_letter_font()
 	var font_size := _font_size_large
 	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	if char_px <= 0.0:
@@ -1421,12 +1650,8 @@ func _draw_genome_track(area: Rect2) -> void:
 		_draw_ticks(y, line_y)
 	else:
 		_draw_concat_genome_axis(y, line_y)
-	if is_track_visible(TRACK_ID_AA):
-		_draw_genome_feature_tracks(area, line_y)
-		_draw_nucleotide_letters(y, line_y)
-	else:
-		_draw_nucleotide_letters(y, line_y)
-		_draw_genome_feature_tracks(area, line_y)
+	_draw_genome_feature_tracks(area, line_y)
+	_draw_nucleotide_letters(y, line_y)
 
 func _draw_map_track(area: Rect2) -> void:
 	if area.size.y <= 24.0:
@@ -1447,8 +1672,8 @@ func _draw_map_track(area: Rect2) -> void:
 	var seq_top := seq_center_y - MAP_SEQUENCE_H * 0.5
 	var seq_font := get_theme_default_font()
 	var seq_font_size := _font_size_small
-	var base_seq_color: Color = palette["bg"]
-	var alt_seq_color: Color = palette.get("aa_alt_bg", base_seq_color)
+	var base_seq_color: Color = palette.get("map_contig", palette["bg"])
+	var alt_seq_color: Color = palette.get("map_contig_alt", palette.get("aa_alt_bg", base_seq_color))
 	if concat_segments.is_empty():
 		var seq_rect := Rect2(axis_left, seq_top, axis_right - axis_left, MAP_SEQUENCE_H)
 		draw_rect(seq_rect, base_seq_color, true)
@@ -1485,10 +1710,10 @@ func _draw_map_track(area: Rect2) -> void:
 			var label_y := _text_baseline_for_center(seq_rect.get_center().y, seq_font, seq_font_size)
 			draw_string(seq_font, Vector2(seq_rect.position.x + 5.0, label_y), label, HORIZONTAL_ALIGNMENT_LEFT, seq_rect.size.x - 10.0, seq_font_size, palette["text"])
 	if has_loaded_genome:
-		var fill: Color = palette.get("genome", Color(0.25, 0.45, 0.75))
+		var fill: Color = palette.get("map_view_fill", palette.get("genome", Color(0.25, 0.45, 0.75)))
 		fill.a = 0.5
 		draw_rect(viewport_rect, fill, true)
-		draw_rect(viewport_rect, palette["text"], false, 1.5)
+		draw_rect(viewport_rect, palette.get("map_view_outline", palette["text"]), false, 1.5)
 
 func _draw_concat_genome_axis(top_y: float, line_y: float) -> void:
 	var axis_left := TRACK_LEFT_PAD
@@ -1650,7 +1875,7 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 		return
 	if not _can_draw_nucleotide_letters():
 		return
-	var font := get_theme_default_font()
+	var font := sequence_letter_font()
 	var font_size := _font_size_large
 
 	var base_count: int = reference_sequence.length()
@@ -1668,8 +1893,10 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 		return
 	if i_end - i_start + 1 > NUC_TEXT_MAX_BASES:
 		i_end = i_start + NUC_TEXT_MAX_BASES - 1
-	var fwd_y := line_y - 12.0
-	var rev_y := line_y + 38.0
+	var fwd_center_y := _text_center_y(font, font_size, line_y - 12.0)
+	var rev_center_y := _text_center_y(font, font_size, line_y + 38.0)
+	var fwd_y := _text_baseline_for_center(fwd_center_y, font, font_size)
+	var rev_y := _text_baseline_for_center(rev_center_y, font, font_size)
 	var base_colors := {
 		"A": Color("2b9348"),
 		"C": Color("1d4ed8"),
@@ -1770,8 +1997,10 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		var read_rect := _any_read_track_rect_at_point(mouse_pos)
 		var aa_rect := _track_rect(TRACK_ID_AA)
+		var genome_rect := _track_rect(TRACK_ID_GENOME)
 		var in_reads := read_rect.size.x > 0.0 and read_rect.has_point(mouse_pos)
 		var in_aa := aa_rect.has_point(mouse_pos)
+		var in_genome := genome_rect.has_point(mouse_pos)
 		var hit_feature := false
 		var hit_read := false
 		if in_reads:
@@ -1786,6 +2015,9 @@ func _gui_input(event: InputEvent) -> void:
 					if mb.double_click:
 						emit_signal("read_activated", read_hit["read"])
 					accept_event()
+					return
+			clear_selected_read()
+			accept_event()
 			return
 		if in_aa:
 			for hit in _feature_hitboxes:
@@ -1799,6 +2031,12 @@ func _gui_input(event: InputEvent) -> void:
 						emit_signal("feature_activated", hit["feature"])
 					accept_event()
 					return
+			if mb.double_click and mouse_pos.x >= TRACK_LEFT_PAD and mouse_pos.x <= size.x - TRACK_RIGHT_PAD:
+				clear_selected_read()
+				clear_selected_feature()
+				emit_signal("center_jump_requested", _x_to_bp(mouse_pos.x))
+				accept_event()
+				return
 		if not in_reads:
 			for i in range(_read_hitboxes.size() - 1, -1, -1):
 				var read_hit_any: Dictionary = _read_hitboxes[i]
@@ -1824,6 +2062,12 @@ func _gui_input(event: InputEvent) -> void:
 						emit_signal("feature_activated", hit_any["feature"])
 					accept_event()
 					return
+			if mb.double_click and (in_aa or in_genome) and mouse_pos.x >= TRACK_LEFT_PAD and mouse_pos.x <= size.x - TRACK_RIGHT_PAD:
+				clear_selected_read()
+				clear_selected_feature()
+				emit_signal("center_jump_requested", _x_to_bp(mouse_pos.x))
+				accept_event()
+				return
 			if _can_start_region_selection(mouse_pos):
 				clear_selected_read()
 				clear_selected_feature()
@@ -1931,20 +2175,6 @@ func clear_region_selection() -> void:
 	emit_signal("region_selection_changed", false, 0, 0)
 	queue_redraw()
 
-func auto_scroll_bp(delta_bp: float) -> bool:
-	if _plot_width() <= 0:
-		return true
-	if is_zero_approx(delta_bp):
-		return false
-	var prev_start := view_start_bp
-	var next_start := _clamp_start(view_start_bp + delta_bp)
-	var moved := absf(next_start - prev_start) > 1e-9
-	var reached_boundary := not moved
-	view_start_bp = next_start
-	queue_redraw()
-	_emit_viewport_changed()
-	return reached_boundary
-
 func get_visible_span_bp() -> float:
 	return _plot_width() * bp_per_px
 
@@ -1992,16 +2222,19 @@ func _format_bp(value: int) -> String:
 	return "%d" % value
 
 func _format_axis_bp(value: int, step: int) -> String:
+	var display_value := maxi(1, value + 1)
 	if step < 1000:
-		return _format_int_with_commas(value) if _axis_coords_with_commas else str(value)
+		return _format_int_with_commas(display_value) if _axis_coords_with_commas else str(display_value)
+	if value == 0:
+		return "1"
 	if step < 1000000:
-		var kb := float(value) / 1000.0
+		var kb := float(display_value) / 1000.0
 		if step < 10000:
 			return "%.2f kb" % kb
 		if step < 100000:
 			return "%.1f kb" % kb
 		return "%.0f kb" % kb
-	var mb := float(value) / 1000000.0
+	var mb := float(display_value) / 1000000.0
 	if step < 10000000:
 		return "%.2f Mb" % mb
 	if step < 100000000:
@@ -2084,10 +2317,7 @@ func _map_track_rect() -> Rect2:
 	return _track_rect(TRACK_ID_MAP)
 
 func _jump_map_view_to(bp_center: float) -> void:
-	var target_start := _clamp_start(bp_center - get_visible_span_bp() * 0.5)
-	view_start_bp = target_start
-	queue_redraw()
-	_emit_viewport_changed()
+	emit_signal("map_jump_requested", bp_center)
 
 func _generate_mock_data() -> void:
 	reads.clear()
@@ -2260,18 +2490,23 @@ func _region_selection_spans(track_rects: Dictionary) -> Array[Rect2]:
 	return spans
 
 func _layout_reads() -> void:
+	var preferred_rows := {}
+	if absf(_last_layout_bp_per_px - bp_per_px) < 0.000001:
+		preferred_rows = _read_layout_helper.preferred_row_map(_laid_out_reads, _read_view_mode, int(view_start_bp), int(_viewport_end_bp()))
 	var layout := _read_layout_helper.build_layout(
 		reads,
 		_read_view_mode,
 		_fragment_log_scale,
 		_read_row_limit,
 		int(view_start_bp),
-		int(_viewport_end_bp())
+		int(_viewport_end_bp()),
+		preferred_rows
 	)
 	_laid_out_reads = layout.get("laid_out_reads", [])
 	_read_row_count = int(layout.get("read_row_count", 0))
 	_strand_forward_rows = int(layout.get("strand_forward_rows", 0))
 	_strand_reverse_rows = int(layout.get("strand_reverse_rows", 0))
+	_last_layout_bp_per_px = bp_per_px
 
 func _ensure_read_track_state(track_id: String) -> void:
 	if not _is_read_track(track_id):
@@ -2301,6 +2536,9 @@ func _ensure_read_track_state(track_id: String) -> void:
 		"fragment_log_scale": true,
 		"read_row_h": READ_ROW_H,
 		"auto_expand_snp_text": false,
+		"show_soft_clips": false,
+		"show_pileup_logo": false,
+		"color_by_mate_contig": false,
 		"read_row_limit": 0,
 		"scrollbar": sb
 	}
@@ -2328,6 +2566,9 @@ func _activate_read_track(track_id: String) -> void:
 	_fragment_log_scale = bool(state.get("fragment_log_scale", true))
 	_read_row_h = float(state.get("read_row_h", READ_ROW_H))
 	_auto_expand_snp_text = bool(state.get("auto_expand_snp_text", false))
+	_show_soft_clips = bool(state.get("show_soft_clips", false))
+	_show_pileup_logo = bool(state.get("show_pileup_logo", false))
+	_color_by_mate_contig = bool(state.get("color_by_mate_contig", false))
 	_read_row_limit = int(state.get("read_row_limit", 0))
 	_reads_scrollbar = state.get("scrollbar", _reads_scrollbar)
 
@@ -2359,6 +2600,9 @@ func _persist_active_read_track() -> void:
 		"fragment_log_scale": _fragment_log_scale,
 		"read_row_h": _read_row_h,
 		"auto_expand_snp_text": _auto_expand_snp_text,
+		"show_soft_clips": _show_soft_clips,
+		"show_pileup_logo": _show_pileup_logo,
+		"color_by_mate_contig": _color_by_mate_contig,
 		"read_row_limit": _read_row_limit,
 		"scrollbar": _reads_scrollbar
 	}
@@ -2399,14 +2643,14 @@ func _layout_read_scrollbar() -> void:
 		return
 	var row_h := current_read_row_h()
 	var row_step := row_h + READ_ROW_GAP
-	var content_h := maxf(1.0, read_area.size.y - 34.0)
+	var content_h := maxf(1.0, read_content_bottom_for_area(read_area) - read_content_top_for_area(read_area))
 	var visible_rows := maxf(1.0, floor(content_h / row_step))
 	var max_rows := maxi(_read_row_count, 0)
 	if _read_view_mode == READ_VIEW_STRAND:
 		var step_px := row_step
 		var split_gap := _strand_split_gap_px()
-		var content_top := read_area.position.y + 30.0
-		var content_bottom := read_area.position.y + read_area.size.y - 4.0
+		var content_top := read_content_top_for_area(read_area)
+		var content_bottom := read_content_bottom_for_area(read_area)
 		var forward_extent := 0.0
 		var reverse_extent := 0.0
 		if _strand_forward_rows > 0:
@@ -2467,15 +2711,18 @@ func _on_read_scrollbar_gui_input(event: InputEvent, sb: VScrollBar) -> void:
 			_dragging_scrollbar = null
 
 func _strand_split_gap_px() -> float:
-	return 12.0
+	var gap := 12.0
+	if _read_view_mode == READ_VIEW_STRAND and should_show_pileup_logo():
+		gap = maxf(gap, pileup_logo_height() * 2.0 + 6.0)
+	return gap
 
 func _strand_split_y_for_area(area: Rect2, scroll_value: float) -> float:
 	var row_h := current_read_row_h()
 	var row_step := current_read_row_step()
 	var step_px := row_step
 	var split_gap := _strand_split_gap_px()
-	var content_top := area.position.y + 30.0
-	var content_bottom := area.position.y + area.size.y - 4.0
+	var content_top := read_content_top_for_area(area)
+	var content_bottom := read_content_bottom_for_area(area)
 	var forward_extent := 0.0
 	var reverse_extent := 0.0
 	if _strand_forward_rows > 0:

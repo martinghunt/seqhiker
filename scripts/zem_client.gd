@@ -20,6 +20,7 @@ const MSG_SEARCH_DNA_EXACT := 16
 const MSG_GET_STRAND_COVERAGE_TILE := 17
 const MSG_DOWNLOAD_GENOME := 18
 const MSG_GET_VERSION := 19
+const MSG_GENERATE_TEST_DATA := 20
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -292,6 +293,19 @@ func get_server_version() -> Dictionary:
 	resp["version"] = _decode_ack_message(resp.get("payload", PackedByteArray()))
 	return resp
 
+func generate_test_data(root_dir: String) -> Dictionary:
+	var root_bytes := root_dir.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(2 + root_bytes.size())
+	payload.encode_u16(0, root_bytes.size())
+	for i in range(root_bytes.size()):
+		payload[2 + i] = root_bytes[i]
+	var resp := _send_request(MSG_GENERATE_TEST_DATA, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["files"] = _parse_string_list(resp.get("payload", PackedByteArray()))
+	return resp
+
 func connection_info() -> Dictionary:
 	return {"host": _host, "port": _port}
 
@@ -442,7 +456,7 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 	var count := payload.decode_u32(9)
 	var off := 13
 	for i in range(count):
-		if off + 26 > payload.size():
+		if off + 38 > payload.size():
 			break
 		var start_bp := payload.decode_u32(off)
 		var end_bp := payload.decode_u32(off + 4)
@@ -452,8 +466,11 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 		var mate_start_u := payload.decode_u32(off + 12)
 		var mate_end_u := payload.decode_u32(off + 16)
 		var fragment_len := int(payload.decode_u32(off + 20))
-		var name_len := payload.decode_u16(off + 24)
-		off += 26
+		var mate_raw_start_u := payload.decode_u32(off + 24)
+		var mate_raw_end_u := payload.decode_u32(off + 28)
+		var mate_ref_id_u := payload.decode_u32(off + 32)
+		var name_len := payload.decode_u16(off + 36)
+		off += 38
 		if off + name_len > payload.size():
 			break
 		var read_name := _decode_wire_text(payload.slice(off, off + name_len))
@@ -466,6 +483,22 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 			break
 		var cigar := _decode_wire_text(payload.slice(off, off + cigar_len))
 		off += cigar_len
+		if off + 2 > payload.size():
+			break
+		var soft_left_len := payload.decode_u16(off)
+		off += 2
+		if off + soft_left_len > payload.size():
+			break
+		var soft_clip_left := _decode_wire_text(payload.slice(off, off + soft_left_len))
+		off += soft_left_len
+		if off + 2 > payload.size():
+			break
+		var soft_right_len := payload.decode_u16(off)
+		off += 2
+		if off + soft_right_len > payload.size():
+			break
+		var soft_clip_right := _decode_wire_text(payload.slice(off, off + soft_right_len))
+		off += soft_right_len
 		var snps := PackedInt32Array()
 		var snp_bases := PackedByteArray()
 		if off + 2 <= payload.size():
@@ -489,10 +522,15 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 			"flags": int(flags),
 			"name": read_name,
 			"cigar": cigar,
+			"soft_clip_left": soft_clip_left,
+			"soft_clip_right": soft_clip_right,
 			"snps": snps,
 			"snp_bases": snp_bases,
 			"mate_start": -1 if mate_start_u == 0xFFFFFFFF else int(mate_start_u),
 			"mate_end": -1 if mate_end_u == 0xFFFFFFFF else int(mate_end_u),
+			"mate_raw_start": -1 if mate_raw_start_u == 0xFFFFFFFF else int(mate_raw_start_u),
+			"mate_raw_end": -1 if mate_raw_end_u == 0xFFFFFFFF else int(mate_raw_end_u),
+			"mate_ref_id": -1 if mate_ref_id_u == 0xFFFFFFFF else int(mate_ref_id_u),
 			"fragment_len": fragment_len,
 			"row": i % 12
 		})

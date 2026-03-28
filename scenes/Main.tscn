@@ -209,18 +209,21 @@ shortcut_in_tooltip = false
 text = "D"
 
 [node name="PlayLeftButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+visible = false
 layout_mode = 2
 tooltip_text = "Autoscroll to the left"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "B"
 
 [node name="StopButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+visible = false
 layout_mode = 2
 tooltip_text = "Stop autoscrolling"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "F"
 
 [node name="PlayButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+visible = false
 layout_mode = 2
 tooltip_text = "Autoscroll to the right"
 theme_override_fonts/font = ExtResource("2_0bbpv")
@@ -380,6 +383,20 @@ text = "Theme"
 [node name="ThemeOption" type="OptionButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 
+[node name="UIFontLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+text = "UI Font"
+
+[node name="UIFontOption" type="OptionButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+
+[node name="SequenceLetterFontLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+text = "Sequence Letter Font"
+
+[node name="SequenceLetterFontOption" type="OptionButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+
 [node name="UIScaleLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 text = "UI Scale"
@@ -498,6 +515,18 @@ value = 0.3
 layout_mode = 2
 text = "0.30"
 
+[node name="AnimatePanZoomLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+text = "Pan/Zoom Animation Speed"
+
+[node name="AnimatePanZoomSlider" type="HSlider" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 3.0
+step = 0.05
+value = 1.5
+
 [node name="BAMCoverageCutoffLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 tooltip_text = "If the genome is shorter than this
@@ -515,6 +544,52 @@ layout_mode = 2
 max_value = 5e+08
 step = 1e+06
 value = 1.5e+07
+
+[node name="GenomeCacheLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+text = "Genome Cache Max (MB)"
+
+[node name="GenomeCacheSpin" type="SpinBox" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+min_value = 1.0
+max_value = 100000.0
+step = 10.0
+value = 51.0
+
+[node name="ClearGenomeCacheButton" type="Button" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Clear Genome Cache"
+
+[node name="UseTestDataButton" type="Button" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Use test data"
+
+[node name="OpenUserDataDirButton" type="Button" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Open user data directory"
+
+[node name="DebugToggle" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+text = "Debug"
+
+[node name="DebugStatsLabel" type="RichTextLabel" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 2
+fit_content = true
+scroll_active = false
+selection_enabled = true
+
+[node name="DebugLoadedFilesLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+autowrap_mode = 3
 
 [node name="FeaturePanel" parent="Root/ContentMargin/ViewportLayer" instance=ExtResource("3_30wbj")]
 layout_mode = 1

@@ -19,7 +19,10 @@ func on_feature_clicked(feature: Dictionary) -> void:
 	host.feature_name_label.visible = true
 	host.feature_name_label.text = "Name: %s" % str(feature.get("name", "-"))
 	host.feature_type_label.text = "Type: %s" % str(feature.get("type", "-"))
-	host.feature_range_label.text = "Range: %d - %d" % [int(feature.get("start", 0)), int(feature.get("end", 0))]
+	host.feature_range_label.text = "Range: %d - %d" % [
+		_display_range_start_bp(int(feature.get("start", 0))),
+		_display_range_end_bp(int(feature.get("end", 0)))
+	]
 	host.feature_strand_label.text = "Strand: %s" % str(feature.get("strand", "."))
 	var feature_id := str(feature.get("id", "")).strip_edges()
 	if feature_id.is_empty():
@@ -27,6 +30,28 @@ func on_feature_clicked(feature: Dictionary) -> void:
 	else:
 		host.feature_source_label.text = "Source: %s | ID=%s" % [str(feature.get("source", "-")), feature_id]
 	var seq_text := "Sequence: %s" % str(feature.get("seq_name", host._current_chr_name))
+	var cds_parts_any: Variant = feature.get("cds_parts", [])
+	if cds_parts_any is Array and (cds_parts_any as Array).size() > 1:
+		var cds_parts: Array = cds_parts_any
+		seq_text += "\n\nExons / CDS Parts"
+		for i in range(cds_parts.size()):
+			var part_any: Variant = cds_parts[i]
+			if typeof(part_any) != TYPE_DICTIONARY:
+				continue
+			var part: Dictionary = part_any
+			var part_id := str(part.get("id", "")).strip_edges()
+			var part_name := str(part.get("name", "-"))
+			var part_source := str(part.get("source", "-"))
+			seq_text += "\n\nPart %d\nName: %s\nRange: %d - %d\nStrand: %s\nSource: %s" % [
+				i + 1,
+				part_name,
+				_display_range_start_bp(int(part.get("start", 0))),
+				_display_range_end_bp(int(part.get("end", 0))),
+				str(part.get("strand", ".")),
+				part_source
+			]
+			if not part_id.is_empty():
+				seq_text += "\nID: %s" % part_id
 	var paired_cds: Dictionary = feature.get("paired_cds", {})
 	if not paired_cds.is_empty():
 		var cds_id := str(paired_cds.get("id", "")).strip_edges()
@@ -34,8 +59,8 @@ func on_feature_clicked(feature: Dictionary) -> void:
 		var cds_name := str(paired_cds.get("name", "-"))
 		seq_text += "\n\nCDS\nName: %s\nRange: %d - %d\nStrand: %s\nSource: %s" % [
 			cds_name,
-			int(paired_cds.get("start", 0)),
-			int(paired_cds.get("end", 0)),
+			_display_range_start_bp(int(paired_cds.get("start", 0))),
+			_display_range_end_bp(int(paired_cds.get("end", 0))),
 			str(paired_cds.get("strand", ".")),
 			cds_source
 		]
@@ -77,32 +102,119 @@ func on_read_clicked(read: Dictionary) -> void:
 	var strand := "-" if bool(read.get("reverse", false)) else "+"
 	var mate_start := int(read.get("mate_start", -1))
 	var mate_end := int(read.get("mate_end", -1))
+	var mate_raw_start := int(read.get("mate_raw_start", -1))
+	var mate_raw_end := int(read.get("mate_raw_end", -1))
+	var mate_ref_id := int(read.get("mate_ref_id", -1))
 	var mate_text := "Mate: unavailable"
+	var read_range_text := _format_read_range(start_bp, end_bp)
 	if mate_start >= 0 and mate_end > mate_start:
-		mate_text = "Mate: %d - %d" % [mate_start, mate_end]
+		mate_text = "Mate: %s" % _format_read_range(mate_start, mate_end)
+	elif mate_ref_id >= 0 and mate_raw_start >= 0 and mate_raw_end > mate_raw_start:
+		var mate_chr_name := _chrom_name_for_id(mate_ref_id)
+		if mate_chr_name.is_empty():
+			mate_chr_name = "chr%d" % mate_ref_id
+		mate_text = "Mate: %s:%d - %d" % [
+			mate_chr_name,
+			_display_range_start_bp(mate_raw_start),
+			_display_range_end_bp(mate_raw_end)
+		]
 	var frag_len := int(read.get("fragment_len", 0))
 	host.feature_name_label.text = "Read: %s" % read_name
-	host.feature_type_label.text = "Range: %d - %d (%d bp)" % [start_bp, end_bp, read_len]
+	host.feature_type_label.text = "Range: %s (%d bp)" % [read_range_text, read_len]
 	host.feature_range_label.text = "CIGAR: %s" % cigar
 	host.feature_strand_label.text = "Strand: %s | MAPQ: %d | Flags: %d" % [strand, mapq, flags]
 	host.feature_source_label.text = "%s | Fragment: %d bp" % [mate_text, frag_len]
 	host.feature_seq_label.text = "Flags:\n%s" % format_read_flags(flags)
 	if mate_start >= 0 and mate_end > mate_start:
-		if host._read_mate_jump_button == null:
-			host._read_mate_jump_button = Button.new()
-			host._read_mate_jump_button.text = "Jump to mate"
-			host._read_mate_jump_button.size_flags_horizontal = Control.SIZE_FILL
-			host.feature_content.add_child(host._read_mate_jump_button)
-			host._read_mate_jump_button.pressed.connect(func() -> void:
-				jump_to_mate(host.read_mate_jump_start, host.read_mate_jump_end)
-			)
-		host._read_mate_jump_button.visible = true
-		host.read_mate_jump_start = mate_start
-		host.read_mate_jump_end = mate_end
-	elif host._read_mate_jump_button != null:
-		host._read_mate_jump_button.visible = false
+		_show_mate_jump_button(mate_start, mate_end, -1)
+	elif mate_ref_id >= 0 and mate_raw_start >= 0 and mate_raw_end > mate_raw_start:
+		_show_mate_jump_button(mate_raw_start, mate_raw_end, mate_ref_id)
+	else:
+		_hide_mate_jump_button()
 	host._feature_panel_open = true
 	host._slide_feature_panel(true, true)
+
+func _chrom_name_for_id(chr_id: int) -> String:
+	for c_any in host._chromosomes:
+		var c: Dictionary = c_any
+		if int(c.get("id", -1)) == chr_id:
+			return str(c.get("name", ""))
+	return ""
+
+
+func _concat_segment_for_bp(bp: int) -> Dictionary:
+	for seg_any in host._concat_segments:
+		var seg: Dictionary = seg_any
+		var start_bp := int(seg.get("start", 0))
+		var end_bp := int(seg.get("end", start_bp))
+		if bp >= start_bp and bp < end_bp:
+			return seg
+	return {}
+
+
+func _format_read_range(start_bp: int, end_bp: int) -> String:
+	if host._seq_view_mode != host.SEQ_VIEW_CONCAT:
+		return "%d - %d" % [_display_range_start_bp(start_bp), _display_range_end_bp(end_bp)]
+	if end_bp <= start_bp:
+		var point_seg := _concat_segment_for_bp(start_bp)
+		if point_seg.is_empty():
+			return "%d - %d" % [_display_range_start_bp(start_bp), _display_range_end_bp(end_bp)]
+		var point_name := str(point_seg.get("name", ""))
+		var point_local := start_bp - int(point_seg.get("start", 0))
+		return "%s:%d" % [point_name, _display_point_bp(point_local)]
+	var start_seg := _concat_segment_for_bp(start_bp)
+	var end_seg := _concat_segment_for_bp(end_bp - 1)
+	if start_seg.is_empty() or end_seg.is_empty():
+		return "%d - %d" % [_display_range_start_bp(start_bp), _display_range_end_bp(end_bp)]
+	var start_name := str(start_seg.get("name", ""))
+	var start_local := start_bp - int(start_seg.get("start", 0))
+	var end_local := end_bp - int(end_seg.get("start", 0))
+	if start_name == str(end_seg.get("name", "")):
+		return "%s:%d - %d" % [start_name, _display_range_start_bp(start_local), _display_range_end_bp(end_local)]
+	return "%s:%d - %s:%d" % [
+		start_name,
+		_display_range_start_bp(start_local),
+		str(end_seg.get("name", "")),
+		_display_range_end_bp(end_local)
+	]
+
+
+func _display_point_bp(bp: int) -> int:
+	return bp + 1
+
+
+func _display_range_start_bp(start_bp: int) -> int:
+	return start_bp + 1
+
+
+func _display_range_end_bp(end_bp: int) -> int:
+	return end_bp
+
+
+func _ensure_mate_jump_button() -> void:
+	if host._read_mate_jump_button != null:
+		return
+	host._read_mate_jump_button = Button.new()
+	host._read_mate_jump_button.text = "Jump to mate"
+	host._read_mate_jump_button.size_flags_horizontal = Control.SIZE_FILL
+	host.feature_content.add_child(host._read_mate_jump_button)
+	host._read_mate_jump_button.pressed.connect(func() -> void:
+		jump_to_mate(host.read_mate_jump_start, host.read_mate_jump_end, host.read_mate_jump_ref_id)
+	)
+
+
+func _show_mate_jump_button(start_bp: int, end_bp: int, ref_id: int) -> void:
+	_ensure_mate_jump_button()
+	host._read_mate_jump_button.visible = true
+	host.read_mate_jump_start = start_bp
+	host.read_mate_jump_end = end_bp
+	host.read_mate_jump_ref_id = ref_id
+
+
+func _hide_mate_jump_button() -> void:
+	if host._read_mate_jump_button != null:
+		host._read_mate_jump_button.visible = false
+	host.read_mate_jump_ref_id = -1
 
 
 func on_read_selected(read: Dictionary) -> void:
@@ -111,20 +223,46 @@ func on_read_selected(read: Dictionary) -> void:
 	on_read_clicked(read)
 
 
-func jump_to_mate(start_bp: int, end_bp: int) -> void:
-	if host._current_chr_len <= 0:
-		return
+func jump_to_mate(start_bp: int, end_bp: int, mate_ref_id: int = -1) -> void:
 	if start_bp < 0 or end_bp <= start_bp:
 		return
-	var width_px := maxf(1.0, host.genome_view.size.x)
+	if host._seq_view_mode == host.SEQ_VIEW_CONCAT:
+		var target_start_bp := start_bp
+		var target_end_bp := end_bp
+		if mate_ref_id >= 0:
+			var seg := _concat_segment_for_chr_id(mate_ref_id)
+			if seg.is_empty():
+				return
+			target_start_bp = int(seg.get("start", 0)) + start_bp
+			target_end_bp = int(seg.get("start", 0)) + end_bp
+		_jump_to_range(target_start_bp, target_end_bp)
+		return
+	if mate_ref_id >= 0 and mate_ref_id != host._selected_seq_id:
+		if host._seq_view_mode != host.SEQ_VIEW_SINGLE:
+			host._seq_view_option.select(host.SEQ_VIEW_SINGLE)
+			host._on_seq_view_selected(host.SEQ_VIEW_SINGLE)
+		for i in range(host._seq_option.item_count):
+			if int(host._seq_option.get_item_id(i)) == mate_ref_id:
+				host._seq_option.select(i)
+				host._on_seq_selected(i)
+				break
+	_jump_to_range(start_bp, end_bp)
+
+
+func _jump_to_range(start_bp: int, end_bp: int) -> void:
+	if host._current_chr_len <= 0:
+		return
 	var current_bp_per_px := clampf(host._last_bp_per_px, host.genome_view.min_bp_per_px, host.genome_view.max_bp_per_px)
-	var view_span_bp := int(ceil(current_bp_per_px * width_px))
-	var center_bp := 0.5 * float(start_bp + end_bp)
-	var target_start := maxi(0, int(floor(center_bp - 0.5 * float(view_span_bp))))
-	host.genome_view.set_view_state(float(target_start), current_bp_per_px)
+	host._navigate_to_centered_range(start_bp, end_bp, current_bp_per_px)
 	host.genome_view.clear_region_selection()
-	host._invalidate_viewport_cache()
-	host._schedule_fetch()
+
+
+func _concat_segment_for_chr_id(chr_id: int) -> Dictionary:
+	for seg_any in host._concat_segments:
+		var seg: Dictionary = seg_any
+		if int(seg.get("id", -1)) == chr_id:
+			return seg
+	return {}
 
 
 func format_read_flags(flags: int) -> String:

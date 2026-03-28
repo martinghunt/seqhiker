@@ -9,6 +9,7 @@ const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
 const GoPanelScene = preload("res://scenes/GoPanel.tscn")
+const ReadTrackSettingsPanelScene = preload("res://scenes/ReadTrackSettingsPanel.tscn")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const ZEM_BIN_SUBDIR := "bin"
 const ZEM_DEFAULT_PORT := 9000
@@ -50,14 +51,6 @@ const READS_TRACK_MIN_HEIGHT := 140.0
 const DEFAULT_UI_FONT_SIZE := 15
 const MIN_UI_FONT_SIZE := 8
 const MAX_UI_FONT_SIZE := 26
-const DEPTH_SERIES_COLORS := [
-	Color("345995"),
-	Color("2a9d8f"),
-	Color("e76f51"),
-	Color("6d597a"),
-	Color("4f772d"),
-	Color("b56576")
-]
 const VIEW_SLOT_COUNT := 9
 const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
 const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
@@ -136,7 +129,10 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var pan_step_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepRow/PanStepValue
 @onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedSlider
 @onready var play_speed_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedValue
+@onready var animate_pan_zoom_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/AnimatePanZoomSlider
 @onready var theme_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ThemeOption
+@onready var ui_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UIFontOption
+@onready var sequence_letter_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/SequenceLetterFontOption
 @onready var settings_scroll: ScrollContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll
 @onready var settings_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent
 @onready var _track_order_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityLabel
@@ -148,6 +144,13 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var _track_visibility_map: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowMapTrack
 @onready var _bam_cov_cutoff_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffLabel
 @onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffSpin
+@onready var _genome_cache_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/GenomeCacheSpin
+@onready var _genome_cache_clear_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ClearGenomeCacheButton
+@onready var _generate_test_data_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UseTestDataButton
+@onready var _open_user_data_dir_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/OpenUserDataDirButton
+@onready var _debug_toggle: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/DebugToggle
+@onready var _debug_stats_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/DebugStatsLabel
+@onready var _debug_loaded_files_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/DebugLoadedFilesLabel
 @onready var close_settings_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader/CloseSettingsButton
 
 var _settings_open := false
@@ -162,7 +165,6 @@ var _fetch_in_progress := false
 var _fetch_pending := false
 var tile_fetch_serial := 0
 var _tile_cache_generation := 0
-var pending_tile_apply: Dictionary = {}
 
 var _zem: RefCounted
 var _tile_controller: RefCounted
@@ -211,6 +213,7 @@ var _theme_error_color: Color = Color("8b0000")
 var _themes_lib: RefCounted
 var _auto_play_enabled := false
 var _auto_play_direction := 1.0
+var _auto_play_tween_active := false
 var _read_view_label: Label
 var _read_view_option: OptionButton
 var _fragment_log_checkbox: CheckBox
@@ -221,10 +224,19 @@ var _track_order_list: ItemList
 var _read_mate_jump_button: Button
 var read_mate_jump_start := -1
 var read_mate_jump_end := -1
+var read_mate_jump_ref_id := -1
 var _ui_font_size := DEFAULT_UI_FONT_SIZE
+var _ui_font_name := "Noto Sans"
+var _sequence_letter_font_name := "Anonymous Pro"
 var _track_dragging := false
 var _track_drag_index := -1
 var _track_drop_index := -1
+var _pending_pan_target_start := -1.0
+var _pending_pan_target_end := -1
+var _pending_pan_bp_per_px := -1.0
+var _pending_pan_duration := 0.35
+var _pending_pan_active := false
+var _pending_pan_linear := false
 var _seq_view_label: Label
 var _seq_view_option: OptionButton
 var _seq_option_label: Label
@@ -251,17 +263,14 @@ var _depth_plot_height := DEFAULT_PLOT_HEIGHT
 var _chromosomes: Array[Dictionary] = []
 var _concat_segments: Array[Dictionary] = []
 var _track_settings_box: VBoxContainer
+var _read_track_settings_panel: VBoxContainer
 var _track_settings_open := false
 var _active_track_settings_id := ""
 var _debug_enabled := false
-var _debug_toggle: CheckButton
-var _debug_stats_label: RichTextLabel
-var _debug_loaded_files_label: Label
 var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
 var _genome_cache_max_mb := GENOME_CACHE_MAX_MB_DEFAULT
-var _genome_cache_label: Label
-var _genome_cache_spin: SpinBox
-var _genome_cache_clear_button: Button
+var _generate_test_data_thread: Thread
+var _generate_test_data_in_progress := false
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
 var _annotation_counts_by_chr := {}
 var _dbg_ann_tile_requests := 0
@@ -296,6 +305,8 @@ func _ready() -> void:
 	_disable_button_focus()
 	_setup_settings_toggle_icon()
 	_setup_theme_selector()
+	_setup_ui_font_selector()
+	_setup_sequence_letter_font_selector()
 	_setup_font_size_control()
 	_setup_read_view_controls()
 	_setup_sequence_controls()
@@ -379,8 +390,32 @@ func _setup_theme_selector() -> void:
 	for theme_name in _themes_lib.theme_names():
 		theme_option.add_item(theme_name)
 	for i in range(theme_option.item_count):
-		if theme_option.get_item_text(i) == "Light":
+		if theme_option.get_item_text(i) == "Slate":
 			theme_option.select(i)
+			break
+
+
+func _setup_ui_font_selector() -> void:
+	ui_font_option.clear()
+	ui_font_option.add_item("Noto Sans")
+	ui_font_option.add_item("DejaVu Sans")
+	ui_font_option.add_item("Courier New")
+	ui_font_option.add_item("Anonymous Pro")
+	for i in range(ui_font_option.item_count):
+		if ui_font_option.get_item_text(i) == _ui_font_name:
+			ui_font_option.select(i)
+			break
+
+
+func _setup_sequence_letter_font_selector() -> void:
+	sequence_letter_font_option.clear()
+	sequence_letter_font_option.add_item("Noto Sans")
+	sequence_letter_font_option.add_item("DejaVu Sans")
+	sequence_letter_font_option.add_item("Anonymous Pro")
+	sequence_letter_font_option.add_item("Courier New")
+	for i in range(sequence_letter_font_option.item_count):
+		if sequence_letter_font_option.get_item_text(i) == _sequence_letter_font_name:
+			sequence_letter_font_option.select(i)
 			break
 
 func _setup_font_size_control() -> void:
@@ -394,10 +429,10 @@ func _setup_font_size_control() -> void:
 func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
 	close_settings_button.pressed.connect(_close_settings)
-	pan_left_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(-_pan_step_percent / 100.0))
-	jump_start_button.pressed.connect(func() -> void: genome_view.jump_to_start())
-	pan_right_button.pressed.connect(func() -> void: genome_view.pan_by_fraction(_pan_step_percent / 100.0))
-	jump_end_button.pressed.connect(func() -> void: genome_view.jump_to_end())
+	pan_left_button.pressed.connect(func() -> void: _pan_view_by_fraction(-_pan_step_percent / 100.0))
+	jump_start_button.pressed.connect(func() -> void: _navigate_to_boundary(false))
+	pan_right_button.pressed.connect(func() -> void: _pan_view_by_fraction(_pan_step_percent / 100.0))
+	jump_end_button.pressed.connect(func() -> void: _navigate_to_boundary(true))
 	zoom_in_button.pressed.connect(func() -> void: genome_view.zoom_by(0.78))
 	zoom_out_button.pressed.connect(func() -> void: genome_view.zoom_by(1.28))
 	play_button.pressed.connect(_start_auto_play)
@@ -407,6 +442,8 @@ func _connect_ui() -> void:
 	go_button.pressed.connect(_toggle_go_panel)
 	download_button.pressed.connect(_toggle_download_panel)
 	genome_view.viewport_changed.connect(_on_viewport_changed)
+	genome_view.map_jump_requested.connect(_on_map_jump_requested)
+	genome_view.center_jump_requested.connect(_on_center_jump_requested)
 	genome_view.feature_clicked.connect(_on_feature_selected)
 	genome_view.feature_activated.connect(_on_feature_clicked)
 	genome_view.read_clicked.connect(_on_read_selected)
@@ -425,7 +462,10 @@ func _connect_ui() -> void:
 	mouse_wheel_pan_slider.value_changed.connect(_on_mouse_wheel_pan_changed)
 	pan_step_slider.value_changed.connect(_on_pan_step_changed)
 	play_speed_slider.value_changed.connect(_on_play_speed_changed)
+	animate_pan_zoom_slider.value_changed.connect(_on_animate_pan_zoom_speed_changed)
 	theme_option.item_selected.connect(_on_theme_selected)
+	ui_font_option.item_selected.connect(_on_ui_font_selected)
+	sequence_letter_font_option.item_selected.connect(_on_sequence_letter_font_selected)
 	feature_close_button.pressed.connect(_close_feature_panel)
 	_show_full_region_checkbox.toggled.connect(_on_show_full_region_toggled)
 	if _track_order_list != null:
@@ -433,6 +473,52 @@ func _connect_ui() -> void:
 	_seq_view_option.item_selected.connect(_on_seq_view_selected)
 	_seq_option.item_selected.connect(_on_seq_selected)
 	_concat_gap_spin.value_changed.connect(_on_concat_gap_changed)
+
+func _pan_view_by_fraction(fraction: float, duration: float = 0.35, linear: bool = false) -> void:
+	var plot_w := maxf(1.0, genome_view.size.x - genome_view.TRACK_LEFT_PAD - genome_view.TRACK_RIGHT_PAD)
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	var span := plot_w * current_bp_per_px
+	var max_start := maxf(0.0, float(_current_chr_len) - span)
+	var target_start := clampf(genome_view.view_start_bp + span * fraction, 0.0, max_start)
+	var target_end := int(minf(float(_current_chr_len), target_start + span))
+	var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
+	var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
+	var need_reference: bool = bool(genome_view.needs_reference_data(show_aa, show_genome))
+	var zoom := _compute_tile_zoom(current_bp_per_px)
+	var mode := 0 if (_has_bam_loaded and _any_visible_read_track() and current_bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
+	var annotations_ready := _is_viewport_cached(int(target_start), target_end, zoom, mode, need_reference, _scope_cache_key())
+	var reads_ready := true
+	if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px):
+		_annotation_cache_controller.prefetch_detailed_read_target(int(target_start), target_end, current_bp_per_px)
+		reads_ready = _annotation_cache_controller.detailed_read_target_ready(int(target_start), target_end, current_bp_per_px)
+	if not annotations_ready:
+		_annotation_cache_controller.prefetch_visible_target(int(target_start), target_end, current_bp_per_px)
+	if linear and _auto_play_enabled:
+		var next_target_start := clampf(target_start + span * fraction, 0.0, max_start)
+		var next_target_end := int(minf(float(_current_chr_len), next_target_start + span))
+		if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px):
+			_annotation_cache_controller.prefetch_detailed_read_target(int(next_target_start), next_target_end, current_bp_per_px)
+		var next_annotations_ready := _is_viewport_cached(int(next_target_start), next_target_end, zoom, mode, need_reference, _scope_cache_key())
+		if not next_annotations_ready:
+			_annotation_cache_controller.prefetch_visible_target(int(next_target_start), next_target_end, current_bp_per_px)
+	if reads_ready and annotations_ready:
+		_pending_pan_active = false
+		if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px):
+			_annotation_cache_controller.apply_detailed_read_span(int(minf(genome_view.view_start_bp, target_start)), int(maxf(_last_end, target_end)), current_bp_per_px)
+		if linear:
+			genome_view.pan_to_start_linear(target_start, duration)
+		else:
+			genome_view.pan_to_start(target_start, duration)
+		return
+	if _annotation_cache_controller.detailed_read_strips_enabled(current_bp_per_px) or not annotations_ready:
+		_pending_pan_target_start = target_start
+		_pending_pan_target_end = target_end
+		_pending_pan_bp_per_px = current_bp_per_px
+		_pending_pan_duration = duration
+		_pending_pan_linear = linear
+		_pending_pan_active = true
+		return
+	genome_view.pan_by_fraction(fraction, duration)
 
 func _disable_button_focus() -> void:
 	var controls := [
@@ -457,7 +543,8 @@ func _disable_button_focus() -> void:
 		mouse_wheel_zoom_slider,
 		mouse_wheel_pan_slider,
 		pan_step_slider,
-		play_speed_slider
+		play_speed_slider,
+		animate_pan_zoom_slider
 	]
 	for c in controls:
 		if c != null:
@@ -515,10 +602,11 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 			_schedule_fetch()
 		return
 	if _current_chr_len > 0:
+		_annotation_cache_controller.update_detailed_read_strips(start_bp, end_bp, bp_per_px)
 		var zoom := _compute_tile_zoom(bp_per_px)
 		var mode := 0 if (_has_bam_loaded and _any_visible_read_track() and bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
 		var needs_fetch := not _is_viewport_cached(start_bp, end_bp, zoom, mode, need_reference, _scope_cache_key())
-		if _is_near_cache_edge(start_bp, end_bp):
+		if _auto_play_enabled and _is_near_cache_edge(start_bp, end_bp):
 			needs_fetch = true
 		if needs_fetch:
 			_schedule_fetch()
@@ -530,33 +618,47 @@ func _format_viewport_label(start_bp: int, end_bp: int, _bp_per_px: float) -> St
 	var coord_end := end_bp
 	var span_bp := maxi(0, end_bp - start_bp)
 	var span_text := "visible"
+	var coord_end_inclusive := false
 	if _selection_active:
 		coord_start = _selection_start
 		coord_end = _selection_end
 		span_bp = maxi(0, _selection_end - _selection_start + 1)
 		span_text = "selected"
+		coord_end_inclusive = true
 	if _seq_view_mode != SEQ_VIEW_CONCAT:
-		return "%s:%d - %d bp  |  %d bp %s" % [_current_chr_name, coord_start, coord_end, span_bp, span_text]
-	var overlaps := _segments_overlapping(coord_start, coord_end)
+		return "%s:%d - %d bp  |  %d bp %s" % [
+			_current_chr_name,
+			_display_range_start_bp(coord_start),
+			_display_range_end_bp(coord_end, coord_end_inclusive),
+			span_bp,
+			span_text
+		]
+	var overlap_end := coord_end + 1 if coord_end_inclusive else coord_end
+	var overlaps := _segments_overlapping(coord_start, overlap_end)
 	if overlaps.is_empty():
-		return "concat:%d - %d bp  |  %d bp %s" % [coord_start, coord_end, span_bp, span_text]
+		return "concat:%d - %d bp  |  %d bp %s" % [
+			_display_range_start_bp(coord_start),
+			_display_range_end_bp(coord_end, coord_end_inclusive),
+			span_bp,
+			span_text
+		]
 	if overlaps.size() == 1:
 		var seg := overlaps[0]
 		return "%s:%d - %d bp  |  %d bp %s" % [
 			str(seg.get("name", "chr")),
-			int(seg.get("local_start", 0)),
-			int(seg.get("local_end", 0)),
+			_display_range_start_bp(int(seg.get("local_start", 0))),
+			_display_range_end_bp(int(seg.get("local_end", 0))),
 			span_bp, span_text
 		]
 	var first := overlaps[0]
 	var last := overlaps[overlaps.size() - 1]
 	var prefix := "%s:%d-%d | %s:%d-%d" % [
 		str(first.get("name", "chr")),
-		int(first.get("local_start", 0)),
-		int(first.get("local_end", 0)),
+		_display_range_start_bp(int(first.get("local_start", 0))),
+		_display_range_end_bp(int(first.get("local_end", 0))),
 		str(last.get("name", "chr")),
-		int(last.get("local_start", 0)),
-		int(last.get("local_end", 0))
+		_display_range_start_bp(int(last.get("local_start", 0))),
+		_display_range_end_bp(int(last.get("local_end", 0)))
 	]
 	if overlaps.size() > 2:
 		prefix += " (+%d)" % (overlaps.size() - 2)
@@ -677,6 +779,12 @@ func _on_pan_step_changed(value: float) -> void:
 func _on_play_speed_changed(value: float) -> void:
 	play_speed_value.text = "%.2f" % value
 
+func _on_animate_pan_zoom_speed_changed(value: float) -> void:
+	var speed := clampf(value, 1.0, 3.0)
+	if animate_pan_zoom_slider != null and absf(animate_pan_zoom_slider.value - speed) > 0.0001:
+		animate_pan_zoom_slider.value = speed
+	genome_view.set_pan_zoom_animation_speed(speed)
+
 func _on_font_size_drag_ended(_value_changed: bool) -> void:
 	_on_font_size_changed(_font_size_slider.value)
 
@@ -692,6 +800,7 @@ func _start_auto_play() -> void:
 		return
 	_auto_play_enabled = true
 	_auto_play_direction = 1.0
+	_auto_play_tween_active = false
 
 func _start_auto_play_left() -> void:
 	if _current_chr_len <= 0:
@@ -699,12 +808,121 @@ func _start_auto_play_left() -> void:
 		return
 	_auto_play_enabled = true
 	_auto_play_direction = -1.0
+	_auto_play_tween_active = false
 
 func _stop_auto_play() -> void:
 	_auto_play_enabled = false
+	_auto_play_tween_active = false
+	genome_view.end_motion_read_layer()
+	_apply_settled_detailed_reads_if_needed()
+
+
+func _cancel_motion_navigation() -> void:
+	_auto_play_enabled = false
+	_auto_play_tween_active = false
+	_pending_pan_active = false
+	genome_view.end_motion_read_layer()
+	_annotation_cache_controller.cancel_all_requests()
+
+
+func _navigate_to_view(target_start: float, target_bp_per_px: float) -> void:
+	_cancel_motion_navigation()
+	genome_view.set_view_state(target_start, target_bp_per_px)
+	_invalidate_viewport_cache()
+	_schedule_fetch()
+
+
+func _navigate_to_centered_range(start_bp: int, end_bp: int, target_bp_per_px: float) -> void:
+	var width_px := maxf(1.0, genome_view.size.x)
+	var view_span_bp := int(ceil(target_bp_per_px * width_px))
+	var center_bp := 0.5 * float(start_bp + end_bp)
+	var target_start := maxi(0, int(floor(center_bp - 0.5 * float(view_span_bp))))
+	_navigate_to_view(float(target_start), target_bp_per_px)
+
+
+func _navigate_to_boundary(at_end: bool) -> void:
+	if _current_chr_len <= 0:
+		return
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	var target_start := float(_current_chr_len) if at_end else 0.0
+	_navigate_to_view(target_start, current_bp_per_px)
+
+
+func _start_next_auto_play_segment() -> void:
+	if not _auto_play_enabled or _current_chr_len <= 0:
+		return
+	if _auto_play_tween_active:
+		return
+	var target_fraction := 0.75 * _auto_play_direction
+	var duration := 0.75 / maxf(0.05, play_speed_slider.value)
+	_auto_play_tween_active = true
+	_pan_view_by_fraction(target_fraction, duration, true)
+
+
+func _prepare_auto_play_motion() -> void:
+	if _current_chr_len <= 0:
+		return
+	var bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	if not _annotation_cache_controller.detailed_read_strips_enabled(bp_per_px):
+		genome_view.end_motion_read_layer()
+		return
+	var visible_span := maxi(1, _last_end - _last_start)
+	var render_start := _last_start
+	var render_end := _last_end
+	if _auto_play_direction >= 0.0:
+		render_start = maxi(0, _last_start - int(round(float(visible_span) * 0.75)))
+		render_end = mini(_current_chr_len, _last_end + int(round(float(visible_span) * 3.0)))
+	else:
+		render_start = maxi(0, _last_start - int(round(float(visible_span) * 3.0)))
+		render_end = mini(_current_chr_len, _last_end + int(round(float(visible_span) * 0.75)))
+	var refresh_margin_bp := float(visible_span)
+	if genome_view.motion_read_layer_has_autoplay_margin(float(_last_start), float(_last_end), _auto_play_direction, refresh_margin_bp):
+		return
+	_annotation_cache_controller.prefetch_detailed_read_target(render_start, render_end, bp_per_px)
+	if _annotation_cache_controller.detailed_read_target_ready(render_start, render_end, bp_per_px):
+		_annotation_cache_controller.apply_detailed_read_span(render_start, render_end, bp_per_px)
+		genome_view.begin_motion_read_layer_for_range(float(render_start), float(render_end))
+
+
+func _apply_settled_detailed_reads_if_needed() -> void:
+	if _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
+		_annotation_cache_controller.apply_detailed_read_span(_last_start, _last_end, _last_bp_per_px)
 
 func _on_theme_selected(index: int) -> void:
+	_apply_classic_font_defaults_for_theme(theme_option.get_item_text(index))
 	_apply_theme(theme_option.get_item_text(index))
+
+
+func _on_ui_font_selected(index: int) -> void:
+	if index < 0 or index >= ui_font_option.item_count:
+		return
+	_ui_font_name = ui_font_option.get_item_text(index)
+	_apply_theme(theme_option.get_item_text(theme_option.selected))
+	_save_config()
+
+
+func _on_sequence_letter_font_selected(index: int) -> void:
+	if index < 0 or index >= sequence_letter_font_option.item_count:
+		return
+	_sequence_letter_font_name = sequence_letter_font_option.get_item_text(index)
+	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
+	_save_config()
+
+
+func _apply_classic_font_defaults_for_theme(theme_name: String) -> void:
+	if theme_name != "Classic":
+		return
+	_ui_font_name = "Courier New"
+	for i in range(ui_font_option.item_count):
+		if ui_font_option.get_item_text(i) == _ui_font_name:
+			ui_font_option.select(i)
+			break
+	_sequence_letter_font_name = "Courier New"
+	for i in range(sequence_letter_font_option.item_count):
+		if sequence_letter_font_option.get_item_text(i) == _sequence_letter_font_name:
+			sequence_letter_font_option.select(i)
+			break
+	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
 
 func _setup_read_view_controls() -> void:
 	_read_view_label = Label.new()
@@ -773,43 +991,29 @@ func _setup_debug_controls() -> void:
 	_bam_cov_cutoff_spin.allow_lesser = false
 	if not _bam_cov_cutoff_spin.value_changed.is_connected(_on_bam_cov_cutoff_changed):
 		_bam_cov_cutoff_spin.value_changed.connect(_on_bam_cov_cutoff_changed)
-	_genome_cache_label = Label.new()
-	_genome_cache_label.text = "Genome Cache Max (MB)"
-	settings_content.add_child(_genome_cache_label)
-	_genome_cache_spin = SpinBox.new()
 	_genome_cache_spin.min_value = 1
 	_genome_cache_spin.max_value = 100000
 	_genome_cache_spin.step = 10
 	_genome_cache_spin.value = _genome_cache_max_mb
 	_genome_cache_spin.allow_greater = false
 	_genome_cache_spin.allow_lesser = false
-	_genome_cache_spin.value_changed.connect(_on_genome_cache_max_changed)
-	settings_content.add_child(_genome_cache_spin)
-	_genome_cache_clear_button = Button.new()
-	_genome_cache_clear_button.text = "Clear Genome Cache"
-	_genome_cache_clear_button.size_flags_horizontal = Control.SIZE_FILL
-	_genome_cache_clear_button.pressed.connect(_clear_genome_cache)
-	settings_content.add_child(_genome_cache_clear_button)
-	_debug_toggle = CheckButton.new()
-	_debug_toggle.text = "Debug"
+	if not _genome_cache_spin.value_changed.is_connected(_on_genome_cache_max_changed):
+		_genome_cache_spin.value_changed.connect(_on_genome_cache_max_changed)
+	if not _genome_cache_clear_button.pressed.is_connected(_clear_genome_cache):
+		_genome_cache_clear_button.pressed.connect(_clear_genome_cache)
+	if not _generate_test_data_button.pressed.is_connected(_start_generate_test_data):
+		_generate_test_data_button.pressed.connect(_start_generate_test_data)
+	if not _open_user_data_dir_button.pressed.is_connected(_open_user_data_dir):
+		_open_user_data_dir_button.pressed.connect(_open_user_data_dir)
 	_debug_toggle.button_pressed = _debug_enabled
-	_debug_toggle.toggled.connect(_on_debug_toggled)
-	settings_content.add_child(_debug_toggle)
-	_debug_stats_label = RichTextLabel.new()
+	if not _debug_toggle.toggled.is_connected(_on_debug_toggled):
+		_debug_toggle.toggled.connect(_on_debug_toggled)
 	_debug_stats_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
-	_debug_stats_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_debug_stats_label.fit_content = true
-	_debug_stats_label.scroll_active = false
-	_debug_stats_label.selection_enabled = true
 	_debug_stats_label.visible = _debug_enabled
 	_debug_stats_label.text = ""
-	settings_content.add_child(_debug_stats_label)
-	_debug_loaded_files_label = Label.new()
 	_debug_loaded_files_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
-	_debug_loaded_files_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_debug_loaded_files_label.visible = _debug_enabled
 	_debug_loaded_files_label.text = ""
-	settings_content.add_child(_debug_loaded_files_label)
 	_update_loaded_files_debug_label()
 
 func _on_bam_cov_cutoff_changed(value: float) -> void:
@@ -833,6 +1037,72 @@ func _clear_genome_cache() -> void:
 		_set_status("Failed to clear genome cache.", true)
 		return
 	_set_status("Genome cache cleared.")
+
+func _generated_test_data_dir() -> String:
+	return OS.get_user_data_dir().path_join("generated_test_data")
+
+func _set_generate_test_data_controls_enabled(enabled: bool) -> void:
+	if _generate_test_data_button != null:
+		_generate_test_data_button.disabled = not enabled
+
+func _open_user_data_dir() -> void:
+	var user_dir := ProjectSettings.globalize_path("user://")
+	if user_dir.strip_edges() == "":
+		_set_status("Could not resolve user data directory.", true)
+		return
+	var err := OS.shell_open(user_dir)
+	if err != OK:
+		_set_status("Could not open user data directory.", true)
+
+func _start_generate_test_data() -> void:
+	if _generate_test_data_in_progress:
+		return
+	if not _session_loader.ensure_server_connected():
+		return
+	var out_dir := _generated_test_data_dir()
+	var mk_err := DirAccess.make_dir_recursive_absolute(out_dir)
+	if mk_err != OK and not DirAccess.dir_exists_absolute(out_dir):
+		_set_status("Could not create generated test data directory.", true)
+		return
+	var conn: Dictionary = _zem.connection_info()
+	_generate_test_data_thread = Thread.new()
+	var err := _generate_test_data_thread.start(
+		Callable(self, "_generate_test_data_thread_main").bind(
+			str(conn.get("host", "127.0.0.1")),
+			int(conn.get("port", ZEM_DEFAULT_PORT)),
+			out_dir
+		)
+	)
+	if err != OK:
+		_generate_test_data_thread = null
+		_set_status("Could not start test-data thread: %s" % error_string(err), true)
+		return
+	_generate_test_data_in_progress = true
+	_set_generate_test_data_controls_enabled(false)
+	_set_status("Generating built-in test data...")
+
+func _generate_test_data_thread_main(host_ip: String, port: int, out_dir: String) -> Dictionary:
+	var client = ZemClientScript.new()
+	if not client.connect_to_server(host_ip, port, 2000):
+		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
+	return client.generate_test_data(out_dir)
+
+func _finish_generate_test_data(result_any: Variant) -> void:
+	_generate_test_data_in_progress = false
+	_set_generate_test_data_controls_enabled(true)
+	var result: Dictionary = result_any if result_any is Dictionary else {}
+	if result.is_empty() or not result.get("ok", false):
+		_set_status("Generate test data failed: %s" % result.get("error", "error"), true)
+		return
+	var files: PackedStringArray = result.get("files", PackedStringArray())
+	if files.is_empty():
+		_set_status("Generate test data failed: no files returned.", true)
+		return
+	var load_resp: Dictionary = _session_loader.load_server_paths(files)
+	if not load_resp.get("ok", false):
+		_set_status("Generate test data load failed: %s" % load_resp.get("error", "error"), true)
+		return
+	_set_status("Generated and loaded test data.")
 
 func _delete_dir_contents_absolute(dir_path: String) -> bool:
 	var dir := DirAccess.open(dir_path)
@@ -871,6 +1141,42 @@ func _setup_track_settings_panel() -> void:
 	_track_settings_box = VBoxContainer.new()
 	_track_settings_box.visible = false
 	feature_content.add_child(_track_settings_box)
+	_read_track_settings_panel = ReadTrackSettingsPanelScene.instantiate() as VBoxContainer
+	if _read_track_settings_panel != null:
+		_read_track_settings_panel.visible = false
+		_track_settings_box.add_child(_read_track_settings_panel)
+		var read_view_option := _read_track_settings_panel.get_node("ReadViewOption") as OptionButton
+		if read_view_option != null and read_view_option.item_count == 0:
+			read_view_option.add_item("Stack", 0)
+			read_view_option.add_item("Strand Stack", 1)
+			read_view_option.add_item("Paired", 2)
+			read_view_option.add_item("Fragment Size", 3)
+		if read_view_option != null and not read_view_option.item_selected.is_connected(_on_active_read_track_view_selected):
+			read_view_option.item_selected.connect(_on_active_read_track_view_selected)
+		var frag_cb := _read_track_settings_panel.get_node("FragmentLogScale") as CheckButton
+		if frag_cb != null and not frag_cb.toggled.is_connected(_on_active_read_track_fragment_log_toggled):
+			frag_cb.toggled.connect(_on_active_read_track_fragment_log_toggled)
+		var thickness_spin := _read_track_settings_panel.get_node("ReadThicknessSpin") as SpinBox
+		if thickness_spin != null and not thickness_spin.value_changed.is_connected(_on_active_read_track_thickness_changed):
+			thickness_spin.value_changed.connect(_on_active_read_track_thickness_changed)
+		var auto_expand_snp_cb := _read_track_settings_panel.get_node("AutoExpandSNPText") as CheckButton
+		if auto_expand_snp_cb != null and not auto_expand_snp_cb.toggled.is_connected(_on_active_read_track_auto_expand_snp_toggled):
+			auto_expand_snp_cb.toggled.connect(_on_active_read_track_auto_expand_snp_toggled)
+		var show_soft_clips_cb := _read_track_settings_panel.get_node("ShowSoftClips") as CheckButton
+		if show_soft_clips_cb != null and not show_soft_clips_cb.toggled.is_connected(_on_active_read_track_show_soft_clips_toggled):
+			show_soft_clips_cb.toggled.connect(_on_active_read_track_show_soft_clips_toggled)
+		var show_pileup_logo_cb := _read_track_settings_panel.get_node("ShowPileupLogo") as CheckButton
+		if show_pileup_logo_cb != null and not show_pileup_logo_cb.toggled.is_connected(_on_active_read_track_show_pileup_logo_toggled):
+			show_pileup_logo_cb.toggled.connect(_on_active_read_track_show_pileup_logo_toggled)
+		var mate_contig_color_cb := _read_track_settings_panel.get_node("MateContigColor") as CheckButton
+		if mate_contig_color_cb != null and not mate_contig_color_cb.toggled.is_connected(_on_active_read_track_mate_contig_color_toggled):
+			mate_contig_color_cb.toggled.connect(_on_active_read_track_mate_contig_color_toggled)
+		var max_rows_spin := _read_track_settings_panel.get_node("MaxRowsSpin") as SpinBox
+		if max_rows_spin != null and not max_rows_spin.value_changed.is_connected(_on_active_read_track_max_rows_changed):
+			max_rows_spin.value_changed.connect(_on_active_read_track_max_rows_changed)
+		var mapq_spin := _read_track_settings_panel.get_node("MapQSpin") as SpinBox
+		if mapq_spin != null and not mapq_spin.value_changed.is_connected(_on_active_read_track_min_mapq_changed):
+			mapq_spin.value_changed.connect(_on_active_read_track_min_mapq_changed)
 	_search_controller.setup(feature_content, {
 		"get_zem": Callable(self, "_search_get_zem"),
 		"get_chromosomes": Callable(self, "_search_get_chromosomes"),
@@ -997,6 +1303,70 @@ func _update_window_min_height() -> void:
 	var w := get_window()
 	if w != null:
 		w.min_size.y = maxi(200, ceili(min_h))
+
+func _update_active_bam_track(mutator: Callable) -> void:
+	if not _active_track_settings_id.begins_with("reads:"):
+		return
+	for i in range(_bam_tracks.size()):
+		var t: Dictionary = _bam_tracks[i]
+		if str(t.get("track_id", "")) != _active_track_settings_id:
+			continue
+		mutator.call(t)
+		_bam_tracks[i] = t
+		if _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
+			_annotation_cache_controller.apply_detailed_read_span(_last_start, _last_end, _last_bp_per_px)
+		_schedule_fetch()
+		return
+
+func _on_active_read_track_view_selected(index: int) -> void:
+	if _read_track_settings_panel == null:
+		return
+	var frag_cb := _read_track_settings_panel.get_node("FragmentLogScale") as CheckButton
+	if frag_cb != null:
+		frag_cb.visible = index == 3
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["view_mode"] = index
+	)
+
+func _on_active_read_track_fragment_log_toggled(enabled: bool) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["fragment_log"] = enabled
+	)
+
+func _on_active_read_track_thickness_changed(value: float) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["thickness"] = clampf(value, 2.0, 24.0)
+	)
+
+func _on_active_read_track_auto_expand_snp_toggled(enabled: bool) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["auto_expand_snp_text"] = enabled
+	)
+
+func _on_active_read_track_show_soft_clips_toggled(enabled: bool) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["show_soft_clips"] = enabled
+	)
+
+func _on_active_read_track_show_pileup_logo_toggled(enabled: bool) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["show_pileup_logo"] = enabled
+	)
+
+func _on_active_read_track_mate_contig_color_toggled(enabled: bool) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["color_by_mate_contig"] = enabled
+	)
+
+func _on_active_read_track_max_rows_changed(value: float) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["max_rows"] = maxi(0, int(round(value)))
+	)
+
+func _on_active_read_track_min_mapq_changed(value: float) -> void:
+	_update_active_bam_track(func(t: Dictionary) -> void:
+		t["min_mapq"] = clampi(int(round(value)), 0, 255)
+	)
 
 func _on_debug_toggled(enabled: bool) -> void:
 	_debug_enabled = enabled
@@ -1231,7 +1601,10 @@ func _depth_plot_color_for_track(track_id: String) -> Color:
 		if str(t.get("track_id", "")) == track_id:
 			idx = i
 			break
-	return DEPTH_SERIES_COLORS[idx % DEPTH_SERIES_COLORS.size()]
+	var series_colors: Array = _themes_lib.depth_plot_series(theme_option.get_item_text(theme_option.selected))
+	if series_colors.is_empty():
+		return genome_view.palette.get("depth_plot", genome_view.palette.get("read", Color("808080")))
+	return series_colors[idx % series_colors.size()]
 
 func _existing_bam_source_id(bam_path: String) -> int:
 	for t_any in _bam_tracks:
@@ -1269,6 +1642,13 @@ func _on_track_settings_requested(track_id: String) -> void:
 	feature_name_label.visible = true
 	feature_name_label.text = ""
 	for child in _track_settings_box.get_children():
+		if child == _read_track_settings_panel:
+			child.visible = false
+			var dynamic_options := _read_track_settings_panel.get_node("DynamicOptions") as VBoxContainer
+			if dynamic_options != null:
+				for dynamic_child in dynamic_options.get_children():
+					dynamic_child.queue_free()
+			continue
 		child.queue_free()
 	_track_settings_box.visible = true
 	_track_settings_open = true
@@ -1276,65 +1656,44 @@ func _on_track_settings_requested(track_id: String) -> void:
 	if track_id.begins_with("reads:"):
 		var track_meta := _bam_track_for_id(track_id)
 		var bam_name := str(track_meta.get("label", track_meta.get("path", "BAM")))
-		var bam_label := Label.new()
-		bam_label.text = "BAM: %s" % bam_name
-		bam_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		bam_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_track_settings_box.add_child(bam_label)
-		var view_label := Label.new()
-		view_label.text = "Read View"
-		var view_option := OptionButton.new()
-		view_option.add_item("Stack", 0)
-		view_option.add_item("Strand Stack", 1)
-		view_option.add_item("Paired", 2)
-		view_option.add_item("Fragment Size", 3)
-		view_option.select(int(track_meta.get("view_mode", 0)))
-		_track_settings_box.add_child(view_label)
-		_track_settings_box.add_child(view_option)
-		var frag_cb := CheckBox.new()
-		frag_cb.text = "Log fragment Y scale"
-		frag_cb.button_pressed = bool(track_meta.get("fragment_log", true))
-		frag_cb.visible = view_option.selected == 3
-		_track_settings_box.add_child(frag_cb)
-		var thickness_label := Label.new()
-		thickness_label.text = "Read Thickness"
-		var thickness_spin := SpinBox.new()
-		thickness_spin.min_value = 2
-		thickness_spin.max_value = 24
-		thickness_spin.step = 1
-		thickness_spin.value = float(track_meta.get("thickness", DEFAULT_READ_THICKNESS))
-		var max_rows_label := Label.new()
-		max_rows_label.text = "Max Visible Rows (0 = unlimited)"
-		var max_rows_spin := SpinBox.new()
-		max_rows_spin.min_value = 0
-		max_rows_spin.max_value = 5000
-		max_rows_spin.step = 10
-		max_rows_spin.allow_greater = false
-		max_rows_spin.allow_lesser = false
-		max_rows_spin.value = float(int(track_meta.get("max_rows", DEFAULT_READ_MAX_ROWS)))
-		var filter_title := Label.new()
-		filter_title.text = "Filter Reads"
-		var mapq_label := Label.new()
-		mapq_label.text = "Minimum MAPQ"
-		var mapq_spin := SpinBox.new()
-		mapq_spin.min_value = 0
-		mapq_spin.max_value = 255
-		mapq_spin.step = 1
-		mapq_spin.allow_greater = false
-		mapq_spin.allow_lesser = false
-		mapq_spin.value = float(int(track_meta.get("min_mapq", DEFAULT_READ_MIN_MAPQ)))
+		var bam_label := _read_track_settings_panel.get_node("BAMLabel") as Label
+		var view_option := _read_track_settings_panel.get_node("ReadViewOption") as OptionButton
+		var frag_cb := _read_track_settings_panel.get_node("FragmentLogScale") as CheckButton
+		var thickness_spin := _read_track_settings_panel.get_node("ReadThicknessSpin") as SpinBox
+		var auto_expand_snp_cb := _read_track_settings_panel.get_node("AutoExpandSNPText") as CheckButton
+		var show_soft_clips_cb := _read_track_settings_panel.get_node("ShowSoftClips") as CheckButton
+		var show_pileup_logo_cb := _read_track_settings_panel.get_node("ShowPileupLogo") as CheckButton
+		var mate_contig_color_cb := _read_track_settings_panel.get_node("MateContigColor") as CheckButton
+		var max_rows_spin := _read_track_settings_panel.get_node("MaxRowsSpin") as SpinBox
+		var mapq_spin := _read_track_settings_panel.get_node("MapQSpin") as SpinBox
+		var dynamic_options := _read_track_settings_panel.get_node("DynamicOptions") as VBoxContainer
+		if _read_track_settings_panel != null:
+			_read_track_settings_panel.visible = true
+		if bam_label != null:
+			bam_label.text = "BAM: %s" % bam_name
+		if view_option != null:
+			view_option.select(int(track_meta.get("view_mode", 0)))
+		if frag_cb != null:
+			frag_cb.button_pressed = bool(track_meta.get("fragment_log", true))
+			frag_cb.visible = view_option != null and view_option.selected == 3
+		if thickness_spin != null:
+			thickness_spin.value = float(track_meta.get("thickness", DEFAULT_READ_THICKNESS))
+		if auto_expand_snp_cb != null:
+			auto_expand_snp_cb.button_pressed = bool(track_meta.get("auto_expand_snp_text", true))
+		if show_soft_clips_cb != null:
+			show_soft_clips_cb.button_pressed = bool(track_meta.get("show_soft_clips", false))
+		if show_pileup_logo_cb != null:
+			show_pileup_logo_cb.button_pressed = bool(track_meta.get("show_pileup_logo", false))
+		if mate_contig_color_cb != null:
+			mate_contig_color_cb.button_pressed = bool(track_meta.get("color_by_mate_contig", false))
+		if max_rows_spin != null:
+			max_rows_spin.value = float(int(track_meta.get("max_rows", DEFAULT_READ_MAX_ROWS)))
+		if mapq_spin != null:
+			mapq_spin.value = float(int(track_meta.get("min_mapq", DEFAULT_READ_MIN_MAPQ)))
+		if dynamic_options != null:
+			for child in dynamic_options.get_children():
+				child.queue_free()
 		var hidden_flags := int(track_meta.get("hidden_flags", DEFAULT_READ_HIDDEN_FLAGS))
-		var auto_expand_snp_cb := CheckButton.new()
-		auto_expand_snp_cb.text = "Auto-expand to fit SNP letters"
-		auto_expand_snp_cb.button_pressed = bool(track_meta.get("auto_expand_snp_text", true))
-		_track_settings_box.add_child(thickness_label)
-		_track_settings_box.add_child(thickness_spin)
-		_track_settings_box.add_child(auto_expand_snp_cb)
-		_track_settings_box.add_child(max_rows_label)
-		_track_settings_box.add_child(max_rows_spin)
-		_track_settings_box.add_child(filter_title)
-		_track_settings_box.add_child(mapq_label)
-		_track_settings_box.add_child(mapq_spin)
 		for entry_any in READ_FILTER_FLAG_LABELS:
 			var entry: Dictionary = entry_any
 			var flag_bit := int(entry.get("bit", 0))
@@ -1356,7 +1715,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 					break
 				_schedule_fetch()
 			)
-			_track_settings_box.add_child(flag_cb)
+			dynamic_options.add_child(flag_cb)
 			if flag_bit == 2:
 				var improper_pair_cb := CheckBox.new()
 				improper_pair_cb.text = "Hide improper pair"
@@ -1371,7 +1730,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 						break
 					_schedule_fetch()
 				)
-				_track_settings_box.add_child(improper_pair_cb)
+				dynamic_options.add_child(improper_pair_cb)
 			elif flag_bit == 8:
 				var mate_forward_cb := CheckBox.new()
 				mate_forward_cb.text = "Hide mate forward strand"
@@ -1386,7 +1745,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 						break
 					_schedule_fetch()
 				)
-				_track_settings_box.add_child(mate_forward_cb)
+				dynamic_options.add_child(mate_forward_cb)
 			elif flag_bit == 16:
 				var forward_cb := CheckBox.new()
 				forward_cb.text = "Hide forward strand"
@@ -1401,62 +1760,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 						break
 					_schedule_fetch()
 				)
-				_track_settings_box.add_child(forward_cb)
-		view_option.item_selected.connect(func(index: int) -> void:
-			frag_cb.visible = index == 3
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["view_mode"] = index
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		frag_cb.toggled.connect(func(enabled: bool) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["fragment_log"] = enabled
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		thickness_spin.value_changed.connect(func(value: float) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["thickness"] = clampf(value, 2.0, 24.0)
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		auto_expand_snp_cb.toggled.connect(func(enabled: bool) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["auto_expand_snp_text"] = enabled
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		max_rows_spin.value_changed.connect(func(value: float) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["max_rows"] = maxi(0, int(round(value)))
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
-		mapq_spin.value_changed.connect(func(value: float) -> void:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				if str(t.get("track_id", "")) == track_id:
-					t["min_mapq"] = clampi(int(round(value)), 0, 255)
-					_bam_tracks[i] = t
-					break
-			_schedule_fetch()
-		)
+				dynamic_options.add_child(forward_cb)
 	elif track_id == "aa":
 		var region_cb := CheckButton.new()
 		region_cb.text = "Show full-length region annotations"
@@ -1688,12 +1992,8 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 			_seq_option.select(i)
 			_on_seq_selected(i)
 			break
-	var width_px := maxf(1.0, genome_view.size.x)
 	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
-	var view_span_bp := int(ceil(current_bp_per_px * width_px))
-	var center_bp := 0.5 * float(start_bp + end_bp)
-	var target_start := maxi(0, int(floor(center_bp - 0.5 * float(view_span_bp))))
-	genome_view.set_view_state(float(target_start), current_bp_per_px)
+	_navigate_to_centered_range(start_bp, end_bp, current_bp_per_px)
 	if hit_kind == "dna":
 		_pending_annotation_highlight = {}
 		genome_view.clear_selected_feature()
@@ -1701,8 +2001,17 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	else:
 		_pending_annotation_highlight = hit.duplicate(true)
 		genome_view.clear_region_selection()
-	_invalidate_viewport_cache()
-	_schedule_fetch()
+
+
+func _on_map_jump_requested(bp_center: float) -> void:
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	var target_start := maxi(0, int(floor(bp_center - genome_view.get_visible_span_bp() * 0.5)))
+	_navigate_to_view(float(target_start), current_bp_per_px)
+
+func _on_center_jump_requested(bp_center: float) -> void:
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	var target_start := maxi(0, int(floor(bp_center - genome_view.get_visible_span_bp() * 0.5)))
+	_navigate_to_view(float(target_start), current_bp_per_px)
 
 func _refresh_go_chromosomes() -> void:
 	if _go_chr_option == null:
@@ -1735,6 +2044,15 @@ func _set_go_status(message: String, is_error: bool = false) -> void:
 	if is_error:
 		_set_status(message, true)
 
+func _display_point_bp(bp: int) -> int:
+	return bp + 1
+
+func _display_range_start_bp(start_bp: int) -> int:
+	return start_bp + 1
+
+func _display_range_end_bp(end_bp: int, is_inclusive: bool = false) -> int:
+	return end_bp + 1 if is_inclusive else end_bp
+
 func _parse_go_bp(text: String) -> int:
 	var clean := text.strip_edges().replace(",", "").replace(" ", "")
 	if clean.is_empty():
@@ -1742,7 +2060,7 @@ func _parse_go_bp(text: String) -> int:
 	if not clean.is_valid_int():
 		return -1
 	var value := int(clean)
-	if value < 0:
+	if value < 1:
 		return -1
 	return value
 
@@ -1764,20 +2082,20 @@ func _apply_go_request() -> void:
 	if chr_len <= 0:
 		_set_go_status("Chromosome length unavailable.", true)
 		return
-	var start_bp := _parse_go_bp(_go_start_edit.text)
-	if start_bp < 0:
+	var start_display := _parse_go_bp(_go_start_edit.text)
+	if start_display < 1:
 		_set_go_status("Enter a valid start position.", true)
 		return
-	var end_bp := _parse_go_bp(_go_end_edit.text) if _go_end_edit != null else -1
-	if start_bp > chr_len:
+	var end_display := _parse_go_bp(_go_end_edit.text) if _go_end_edit != null else -1
+	if start_display > chr_len:
 		_set_go_status("Start position beyond chromosome length.", true)
 		return
-	if end_bp >= 0 and end_bp < start_bp:
-		var swap := start_bp
-		start_bp = end_bp
-		end_bp = swap
-	if end_bp > chr_len:
-		end_bp = chr_len
+	if end_display >= 0 and end_display < start_display:
+		var swap := start_display
+		start_display = end_display
+		end_display = swap
+	if end_display > chr_len:
+		end_display = chr_len
 	if _seq_view_mode != SEQ_VIEW_SINGLE:
 		_seq_view_option.select(SEQ_VIEW_SINGLE)
 		_on_seq_view_selected(SEQ_VIEW_SINGLE)
@@ -1788,20 +2106,19 @@ func _apply_go_request() -> void:
 			break
 	var width_px := maxf(1.0, genome_view.size.x)
 	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
-	if end_bp >= 0:
+	if end_display >= 0:
+		var start_bp := start_display - 1
+		var end_bp := end_display
 		var span_bp := maxi(1, end_bp - start_bp)
 		var bp_per_px := clampf(float(span_bp) / width_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
-		genome_view.set_view_state(float(start_bp), bp_per_px)
+		_navigate_to_view(float(start_bp), bp_per_px)
 		genome_view.clear_region_selection()
-		_set_go_status("%s:%d-%d" % [chr_name, start_bp, end_bp])
+		_set_go_status("%s:%d-%d" % [chr_name, start_display, end_display])
 	else:
-		var view_span_bp := int(ceil(current_bp_per_px * width_px))
-		var target_start := maxi(0, int(floor(float(start_bp) - 0.5 * float(view_span_bp))))
-		genome_view.set_view_state(float(target_start), current_bp_per_px)
+		var point_bp := start_display - 1
+		_navigate_to_centered_range(point_bp, point_bp + 1, current_bp_per_px)
 		genome_view.clear_region_selection()
-		_set_go_status("%s:%d" % [chr_name, start_bp])
-	_invalidate_viewport_cache()
-	_schedule_fetch()
+		_set_go_status("%s:%d" % [chr_name, start_display])
 	_close_feature_panel()
 
 func _search_get_zem() -> RefCounted:
@@ -1923,7 +2240,7 @@ func _apply_theme(theme_name: String) -> void:
 	if not _themes_lib.has_theme(theme_name):
 		return
 	var palette: Dictionary = _themes_lib.palette(theme_name)
-	self.theme = _themes_lib.make_theme(theme_name, _ui_font_size)
+	self.theme = _themes_lib.make_theme(theme_name, _ui_font_size, _ui_font_name)
 	_theme_text_color = palette["text"]
 	_theme_error_color = palette["status_error"]
 	background.color = palette["bg"]
@@ -2103,6 +2420,9 @@ func _exit_tree() -> void:
 	if _download_thread != null and _download_thread.is_started():
 		_download_thread.wait_to_finish()
 		_download_thread = null
+	if _generate_test_data_thread != null and _generate_test_data_thread.is_started():
+		_generate_test_data_thread.wait_to_finish()
+		_generate_test_data_thread = null
 	if _local_zem_manager != null:
 		_local_zem_manager.shutdown_on_exit()
 
@@ -2150,12 +2470,20 @@ func _apply_pending_annotation_highlight(features: Array[Dictionary]) -> void:
 
 func _collapse_gene_cds_features(features_in: Array[Dictionary]) -> Array[Dictionary]:
 	var gene_index_by_key := {}
+	var gene_index_by_id := {}
+	var feature_index_by_id := {}
 	for i in range(features_in.size()):
 		var feature: Dictionary = features_in[i]
+		var feature_id := str(feature.get("id", "")).strip_edges()
+		if not feature_id.is_empty():
+			feature_index_by_id[feature_id] = i
 		if str(feature.get("type", "")).to_lower() != "gene":
 			continue
 		gene_index_by_key[_feature_pair_key(feature)] = i
+		if not feature_id.is_empty():
+			gene_index_by_id[feature_id] = i
 	var drop_indexes := {}
+	var cds_parts_by_gene := {}
 	for i in range(features_in.size()):
 		var feature: Dictionary = features_in[i]
 		if str(feature.get("type", "")).to_lower() != "cds":
@@ -2163,16 +2491,61 @@ func _collapse_gene_cds_features(features_in: Array[Dictionary]) -> Array[Dictio
 		var parent_id := str(feature.get("parent", "")).strip_edges()
 		if parent_id.is_empty():
 			continue
-		var pair_key := _feature_pair_key(feature)
-		if not gene_index_by_key.has(pair_key):
-			continue
-		var gene_idx := int(gene_index_by_key[pair_key])
-		var gene_feature: Dictionary = features_in[gene_idx]
-		if parent_id != str(gene_feature.get("id", "")).strip_edges():
-			continue
-		gene_feature["paired_cds"] = feature.duplicate(true)
-		features_in[gene_idx] = gene_feature
+		var gene_idx := -1
+		if gene_index_by_id.has(parent_id):
+			gene_idx = int(gene_index_by_id[parent_id])
+		elif feature_index_by_id.has(parent_id):
+			var parent_feature: Dictionary = features_in[int(feature_index_by_id[parent_id])]
+			var grandparent_id := str(parent_feature.get("parent", "")).strip_edges()
+			if gene_index_by_id.has(grandparent_id):
+				gene_idx = int(gene_index_by_id[grandparent_id])
+		if gene_idx < 0:
+			var pair_key := _feature_pair_key(feature)
+			if not gene_index_by_key.has(pair_key):
+				continue
+			gene_idx = int(gene_index_by_key[pair_key])
+		var parts: Array = cds_parts_by_gene.get(gene_idx, [])
+		parts.append(feature.duplicate(true))
+		cds_parts_by_gene[gene_idx] = parts
 		drop_indexes[i] = true
+	for gene_idx_any in cds_parts_by_gene.keys():
+		var gene_idx := int(gene_idx_any)
+		var gene_feature: Dictionary = features_in[gene_idx]
+		var parts: Array = cds_parts_by_gene[gene_idx]
+		parts.sort_custom(func(a_any: Variant, b_any: Variant) -> bool:
+			var a: Dictionary = a_any
+			var b: Dictionary = b_any
+			return int(a.get("start", 0)) < int(b.get("start", 0))
+		)
+		gene_feature["cds_parts"] = parts
+		if parts.size() == 1:
+			gene_feature["paired_cds"] = parts[0]
+		features_in[gene_idx] = gene_feature
+	var multipart_gene_ids := {}
+	for gene_idx_any in cds_parts_by_gene.keys():
+		var gene_idx := int(gene_idx_any)
+		var gene_feature: Dictionary = features_in[gene_idx]
+		var gene_id := str(gene_feature.get("id", "")).strip_edges()
+		var parts: Array = cds_parts_by_gene[gene_idx]
+		if parts.size() > 1 and not gene_id.is_empty():
+			multipart_gene_ids[gene_id] = true
+	for i in range(features_in.size()):
+		if drop_indexes.get(i, false):
+			continue
+		var feature: Dictionary = features_in[i]
+		if str(feature.get("type", "")).to_lower() == "gene":
+			continue
+		var parent_id := str(feature.get("parent", "")).strip_edges()
+		if parent_id.is_empty():
+			continue
+		if multipart_gene_ids.has(parent_id):
+			drop_indexes[i] = true
+			continue
+		if feature_index_by_id.has(parent_id):
+			var parent_feature: Dictionary = features_in[int(feature_index_by_id[parent_id])]
+			var grandparent_id := str(parent_feature.get("parent", "")).strip_edges()
+			if multipart_gene_ids.has(grandparent_id):
+				drop_indexes[i] = true
 	var out: Array[Dictionary] = []
 	for i in range(features_in.size()):
 		if drop_indexes.get(i, false):
@@ -2359,9 +2732,7 @@ func _load_view_slot(slot_idx: int) -> void:
 				_seq_option.select(i)
 				_on_seq_selected(i)
 				break
-	genome_view.set_view_state(float(slot.get("start_bp", _last_start)), float(slot.get("bp_per_px", _last_bp_per_px)))
-	_invalidate_viewport_cache()
-	_schedule_fetch()
+	_navigate_to_view(float(slot.get("start_bp", _last_start)), float(slot.get("bp_per_px", _last_bp_per_px)))
 	_set_status("Loaded view slot %d." % slot_idx)
 
 func _is_viewport_cached(start_bp: int, end_bp: int, zoom: int, mode: int, need_reference: bool, scope_key: String) -> bool:
@@ -2419,6 +2790,32 @@ func _load_or_init_config() -> void:
 	_ui_font_size = clampi(int(cfg.get_value("ui", "font_size", DEFAULT_UI_FONT_SIZE)), MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
 	if _font_size_slider != null:
 		_font_size_slider.value = _ui_font_size
+	_ui_font_name = str(cfg.get_value("ui", "font_name", "Noto Sans"))
+	for i in range(ui_font_option.item_count):
+		if ui_font_option.get_item_text(i) == _ui_font_name:
+			ui_font_option.select(i)
+			break
+	_sequence_letter_font_name = str(cfg.get_value("ui", "sequence_letter_font", "Anonymous Pro"))
+	for i in range(sequence_letter_font_option.item_count):
+		if sequence_letter_font_option.get_item_text(i) == _sequence_letter_font_name:
+			sequence_letter_font_option.select(i)
+			break
+	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
+	var default_anim_speed := 1.5
+	if cfg.has_section_key("ui", "animate_pan_zoom_speed"):
+		default_anim_speed = float(cfg.get_value("ui", "animate_pan_zoom_speed", 1.0))
+		if default_anim_speed <= 0.0:
+			default_anim_speed = 3.0
+		elif default_anim_speed < 1.0:
+			default_anim_speed = 1.0
+		elif default_anim_speed > 3.0:
+			default_anim_speed = 3.0
+	elif cfg.has_section_key("ui", "animate_pan_zoom"):
+		default_anim_speed = 1.5 if bool(cfg.get_value("ui", "animate_pan_zoom", true)) else 0.0
+		if default_anim_speed <= 0.0:
+			default_anim_speed = 3.0
+	animate_pan_zoom_slider.value = clampf(default_anim_speed, 1.0, 3.0)
+	_on_animate_pan_zoom_speed_changed(animate_pan_zoom_slider.value)
 
 	var theme_name := str(cfg.get_value("ui", "theme", theme_option.get_item_text(theme_option.selected)))
 	_select_theme_option(theme_name)
@@ -2476,8 +2873,11 @@ func _save_config() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("ui", "scale", ui_scale_slider.value)
 	cfg.set_value("ui", "play_speed_widths_per_sec", play_speed_slider.value)
+	cfg.set_value("ui", "animate_pan_zoom_speed", animate_pan_zoom_slider.value)
 	cfg.set_value("ui", "theme", theme_option.get_item_text(theme_option.selected))
+	cfg.set_value("ui", "font_name", _ui_font_name)
 	cfg.set_value("ui", "font_size", _ui_font_size)
+	cfg.set_value("ui", "sequence_letter_font", _sequence_letter_font_name)
 	cfg.set_value("ui", "sequence_view_mode", _seq_view_mode)
 	cfg.set_value("ui", "concat_gap_bp", _concat_gap_bp)
 	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)
@@ -2525,25 +2925,57 @@ func _format_read_flags(flags: int) -> String:
 func _close_feature_panel() -> void:
 	_feature_panel_controller.close_feature_panel()
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	_drain_tile_fetch_result()
+	if _pending_pan_active:
+		var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
+		var show_genome: bool = bool(genome_view.is_track_visible(TRACK_GENOME))
+		var need_reference: bool = bool(genome_view.needs_reference_data(show_aa, show_genome))
+		var zoom := _compute_tile_zoom(_pending_pan_bp_per_px)
+		var mode := 0 if (_has_bam_loaded and _any_visible_read_track() and _pending_pan_bp_per_px <= READ_RENDER_MAX_BP_PER_PX) else 1
+		var annotations_ready := _is_viewport_cached(int(_pending_pan_target_start), _pending_pan_target_end, zoom, mode, need_reference, _scope_cache_key())
+		var reads_ready := true
+		if _annotation_cache_controller.detailed_read_strips_enabled(_pending_pan_bp_per_px):
+			reads_ready = _annotation_cache_controller.detailed_read_target_ready(int(_pending_pan_target_start), _pending_pan_target_end, _pending_pan_bp_per_px)
+		if reads_ready and annotations_ready:
+			_pending_pan_active = false
+			if _annotation_cache_controller.detailed_read_strips_enabled(_pending_pan_bp_per_px):
+				_annotation_cache_controller.apply_detailed_read_span(int(minf(genome_view.view_start_bp, _pending_pan_target_start)), int(maxf(_last_end, _pending_pan_target_end)), _pending_pan_bp_per_px)
+			if _pending_pan_linear:
+				genome_view.pan_to_start_linear(_pending_pan_target_start, _pending_pan_duration)
+			else:
+				genome_view.pan_to_start(_pending_pan_target_start, _pending_pan_duration)
+			if _auto_play_enabled:
+				_auto_play_tween_active = false
+	elif _auto_play_enabled and _auto_play_tween_active and not genome_view.is_pan_animating():
+		_auto_play_tween_active = false
 	if _download_thread != null and _download_thread.is_started() and not _download_thread.is_alive():
 		var download_result: Variant = _download_thread.wait_to_finish()
 		_download_thread = null
 		_finish_download_genome(download_result)
+	if _generate_test_data_thread != null and _generate_test_data_thread.is_started() and not _generate_test_data_thread.is_alive():
+		var generate_result: Variant = _generate_test_data_thread.wait_to_finish()
+		_generate_test_data_thread = null
+		_finish_generate_test_data(generate_result)
 	if not _auto_play_enabled:
 		return
 	if _current_chr_len <= 0:
 		_auto_play_enabled = false
+		_auto_play_tween_active = false
+		genome_view.end_motion_read_layer()
+		_apply_settled_detailed_reads_if_needed()
 		return
-	var bp_delta: float = play_speed_slider.value * genome_view.get_visible_span_bp() * delta * _auto_play_direction
-	var reached_end: bool = genome_view.auto_scroll_bp(bp_delta)
-	if reached_end:
+	if (_auto_play_direction > 0.0 and _last_end >= _current_chr_len) or (_auto_play_direction < 0.0 and _last_start <= 0):
 		_auto_play_enabled = false
+		_auto_play_tween_active = false
+		genome_view.end_motion_read_layer()
+		_apply_settled_detailed_reads_if_needed()
 		if _auto_play_direction < 0.0:
 			_set_status("Reached start of sequence. Autoplay stopped.")
 		else:
 			_set_status("Reached end of sequence. Autoplay stopped.")
+		return
+	_start_next_auto_play_segment()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("seqhiker_close_right_panel"):

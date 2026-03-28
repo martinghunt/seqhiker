@@ -8,6 +8,23 @@ func configure(next_view: GenomeView) -> void:
 	view = next_view
 
 
+func draw_quadratic_bezier(target: CanvasItem, p0: Vector2, p1: Vector2, p2: Vector2, color: Color, width: float, segments: int = 12) -> void:
+	var prev := p0
+	for i in range(1, segments + 1):
+		var t := float(i) / float(segments)
+		var u := 1.0 - t
+		var point := u * u * p0 + 2.0 * u * t * p1 + t * t * p2
+		target.draw_line(prev, point, color, width)
+		prev = point
+
+
+func draw_exon_connector_curve(target: CanvasItem, from_point: Vector2, to_point: Vector2, color: Color, width: float) -> void:
+	var dx := maxf(0.0, to_point.x - from_point.x)
+	var curve_lift := minf(10.0, maxf(4.0, dx * 0.12))
+	var control := Vector2(0.5 * (from_point.x + to_point.x), minf(from_point.y, to_point.y) - curve_lift)
+	draw_quadratic_bezier(target, from_point, control, to_point, color, width)
+
+
 func draw_aa_tracks(area: Rect2) -> void:
 	var t0 := Time.get_ticks_usec()
 	var seen := 0
@@ -17,7 +34,9 @@ func draw_aa_tracks(area: Rect2) -> void:
 	var area_start := area.position.y
 	var show_aa_letters := view._can_draw_aa_letters()
 	var show_feature_detail := view.bp_per_px <= view.FEATURE_DETAIL_MAX_BP_PER_PX
-	var aa_feature_height := view.AA_ROW_H - 6.0
+	var aa_feature_height := view.AA_ROW_H - 2.0
+	var visible_start_bp := int(floor(view.view_start_bp - view.TRACK_LEFT_PAD * view.bp_per_px))
+	var visible_end_bp := int(ceil(view.view_start_bp + view.size.x * view.bp_per_px))
 	var frame_label_boxes: Array = []
 	var pending_labels: Array[Dictionary] = []
 	frame_label_boxes.resize(6)
@@ -39,12 +58,106 @@ func draw_aa_tracks(area: Rect2) -> void:
 		seen += 1
 		if is_hidden_full_length_region(feature):
 			continue
+		var cds_parts_any: Variant = feature.get("cds_parts", [])
+		if cds_parts_any is Array and (cds_parts_any as Array).size() > 1:
+			var cds_parts: Array = cds_parts_any
+			var part_rects: Array[Rect2] = []
+			var part_hitboxes: Array[Rect2] = []
+			var selected_border_rects: Array[Rect2] = []
+			for part_any in cds_parts:
+				if typeof(part_any) != TYPE_DICTIONARY:
+					continue
+				var part: Dictionary = part_any
+				var frame_part := feature_to_frame(part)
+				if frame_part < 0 or frame_part > 5:
+					continue
+				var p_start: int = part["start"]
+				var p_end: int = part["end"]
+				var row_center_y_part := aa_frame_row_center_y(area_start, frame_part)
+				var fy_part := row_center_y_part - aa_feature_height * 0.5
+				var fx0_part := view.TRACK_LEFT_PAD + view._bp_to_x(p_start)
+				var fx1_part := view.TRACK_LEFT_PAD + view._bp_to_x(p_end)
+				var feature_w_part := fx1_part - fx0_part
+				if feature_w_part < view.FEATURE_MIN_DRAW_PX:
+					continue
+				var rect_part := Rect2(Vector2(fx0_part, fy_part), Vector2(feature_w_part, aa_feature_height))
+				var feature_col_part: Color = view.palette["feature"]
+				feature_col_part.a = 1.0
+				view.draw_rect(rect_part, feature_col_part, true)
+				var key_part := view._feature_key(feature)
+				if not view._selected_feature_key.is_empty() and key_part == view._selected_feature_key:
+					selected_border_rects.append(rect_part.grow(1.5))
+				part_rects.append(rect_part)
+				part_hitboxes.append(rect_part.grow(3.0) if show_feature_detail else rect_part)
+				drawn += 1
+				if not show_aa_letters:
+					var label_x_min_part := maxf(rect_part.position.x + 4.0, view.TRACK_LEFT_PAD + 2.0)
+					var label_x_max_part := minf(rect_part.position.x + rect_part.size.x - 4.0, view.size.x - view.TRACK_RIGHT_PAD - 2.0)
+					var label_w_part := maxf(0.0, label_x_max_part - label_x_min_part)
+					var label_part := feature_annotation_label(part, label_w_part)
+					if not label_part.is_empty():
+						var font_part := view.get_theme_default_font()
+						var font_size_part := view._font_size_small
+						var text_w_part := font_part.get_string_size(label_part, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size_part).x
+						var draw_w_part := minf(label_w_part, text_w_part)
+						var label_rect_part := Rect2(Vector2(label_x_min_part, rect_part.position.y + 2.0), Vector2(draw_w_part, view.AA_ROW_H - 8.0))
+						var frame_part_boxes: Array = frame_label_boxes[frame_part]
+						if not intersects_any(label_rect_part, frame_part_boxes):
+							var ann_text_col_part: Color = view.palette.get("feature_text", view._axis_text_color())
+							var label_center_y_part := rect_part.position.y + rect_part.size.y * 0.5
+							pending_labels.append({
+								"pos": Vector2(label_x_min_part, text_baseline_for_center(label_center_y_part, font_part, font_size_part)),
+								"text": label_part,
+								"max_w": label_w_part,
+								"font_size": font_size_part,
+								"color": ann_text_col_part
+							})
+							frame_part_boxes.append(label_rect_part)
+							frame_label_boxes[frame_part] = frame_part_boxes
+							labels += 1
+			if part_rects.size() >= 2:
+				var connector_col: Color = view.palette["feature"]
+				connector_col.a = 0.95
+				var selected_connector_col: Color = view.palette.get("feature_text", view._axis_text_color())
+				var draw_selected_connector := not view._selected_feature_key.is_empty() and view._feature_key(feature) == view._selected_feature_key
+				var selected_connector_segments: Array[Dictionary] = []
+				for i in range(part_rects.size() - 1):
+					var left_rect: Rect2 = part_rects[i]
+					var right_rect: Rect2 = part_rects[i + 1]
+					var from_point := Vector2(left_rect.end.x, left_rect.position.y + left_rect.size.y * 0.5)
+					var to_point := Vector2(right_rect.position.x, right_rect.position.y + right_rect.size.y * 0.5)
+					draw_exon_connector_curve(view, from_point, to_point, connector_col, 8.0)
+					if draw_selected_connector:
+						selected_connector_segments.append({
+							"from": from_point,
+							"to": to_point
+						})
+				if draw_selected_connector:
+					for seg_any in selected_connector_segments:
+						var seg: Dictionary = seg_any
+						draw_exon_connector_curve(
+							view,
+							seg.get("from", Vector2.ZERO),
+							seg.get("to", Vector2.ZERO),
+							selected_connector_col,
+							2.0
+						)
+			if not selected_border_rects.is_empty():
+				var border_col_part: Color = view.palette.get("feature_text", view._axis_text_color())
+				for border_rect in selected_border_rects:
+					view.draw_rect(border_rect, border_col_part, false, 2.0)
+			for hitbox in part_hitboxes:
+				view._feature_hitboxes.append({
+					"rect": hitbox,
+					"feature": feature
+				})
+			continue
 		var frame := feature_to_frame(feature)
 		if frame < 0 or frame > 5:
 			continue
 		var f_start: int = feature["start"]
 		var f_end: int = feature["end"]
-		if f_end < int(view.view_start_bp) or f_start > int(view._viewport_end_bp()):
+		if f_end < visible_start_bp or f_start > visible_end_bp:
 			continue
 		var row_center_y := aa_frame_row_center_y(area_start, frame)
 		var fy := row_center_y - aa_feature_height * 0.5
@@ -116,12 +229,99 @@ func draw_aa_tracks(area: Rect2) -> void:
 
 func draw_genome_feature_tracks(area: Rect2, line_y: float) -> void:
 	var show_feature_labels := not view._can_draw_nucleotide_letters()
-	var row_height := view.AA_ROW_H - 6.0
+	var row_height := view.AA_ROW_H - 2.0
+	var exon_row_height := row_height
+	var visible_start_bp := int(floor(view.view_start_bp - view.TRACK_LEFT_PAD * view.bp_per_px))
+	var visible_end_bp := int(ceil(view.view_start_bp + view.size.x * view.bp_per_px))
 	var row_label_boxes: Array = [[], [], []]
 	var pending_labels: Array[Dictionary] = []
 	var text_col: Color = view.palette.get("feature_text", view._axis_text_color())
 	for feature in view.features:
 		if is_hidden_full_length_region(feature):
+			continue
+		var cds_parts_any: Variant = feature.get("cds_parts", [])
+		if cds_parts_any is Array and (cds_parts_any as Array).size() > 1:
+			var row_multi := feature_to_genome_row(feature)
+			if row_multi < 0 or row_multi > 2:
+				continue
+			var f_start_multi := int(feature.get("start", 0))
+			var f_end_multi := int(feature.get("end", f_start_multi))
+			if f_end_multi < visible_start_bp or f_start_multi > visible_end_bp:
+				continue
+			var fx0_multi := view.TRACK_LEFT_PAD + view._bp_to_x(f_start_multi)
+			var fx1_multi := view.TRACK_LEFT_PAD + view._bp_to_x(f_end_multi)
+			var feature_w_multi := fx1_multi - fx0_multi
+			if feature_w_multi < view.FEATURE_MIN_DRAW_PX:
+				continue
+			var row_center_y_multi := genome_feature_row_center_y(area, line_y, row_multi)
+			var gene_rect := Rect2(
+				Vector2(fx0_multi, row_center_y_multi - row_height * 0.5),
+				Vector2(feature_w_multi, row_height)
+			)
+			var cds_parts: Array = cds_parts_any
+			var exon_rects: Array[Rect2] = []
+			var exon_col: Color = view.palette["feature"]
+			exon_col.a = 0.95
+			for part_any in cds_parts:
+				if typeof(part_any) != TYPE_DICTIONARY:
+					continue
+				var part: Dictionary = part_any
+				var p_start_multi := int(part.get("start", 0))
+				var p_end_multi := int(part.get("end", p_start_multi))
+				var px0_multi := view.TRACK_LEFT_PAD + view._bp_to_x(p_start_multi)
+				var px1_multi := view.TRACK_LEFT_PAD + view._bp_to_x(p_end_multi)
+				var part_w_multi := px1_multi - px0_multi
+				if part_w_multi < view.FEATURE_MIN_DRAW_PX:
+					continue
+				var exon_rect := Rect2(
+					Vector2(px0_multi, row_center_y_multi - exon_row_height * 0.5),
+					Vector2(part_w_multi, exon_row_height)
+				)
+				exon_rects.append(exon_rect)
+			if exon_rects.size() >= 2:
+				var intron_col: Color = view.palette["feature"]
+				intron_col.a = 0.95
+				var intron_h := maxf(3.0, exon_row_height * 0.35)
+				for i in range(exon_rects.size() - 1):
+					var left_rect_multi: Rect2 = exon_rects[i]
+					var right_rect_multi: Rect2 = exon_rects[i + 1]
+					var intron_x0 := left_rect_multi.end.x
+					var intron_x1 := right_rect_multi.position.x
+					if intron_x1 > intron_x0:
+						var intron_rect := Rect2(
+							Vector2(intron_x0, row_center_y_multi - intron_h * 0.5),
+							Vector2(intron_x1 - intron_x0, intron_h)
+						)
+						view.draw_rect(intron_rect, intron_col, true)
+			for exon_rect in exon_rects:
+				view.draw_rect(exon_rect, exon_col, true)
+			var key_multi := view._feature_key(feature)
+			if not view._selected_feature_key.is_empty() and key_multi == view._selected_feature_key:
+				view.draw_rect(gene_rect.grow(1.5), text_col, false, 2.0)
+			view._feature_hitboxes.append({
+				"rect": gene_rect.grow(3.0),
+				"feature": feature
+			})
+			if show_feature_labels:
+				var label_x_min_multi := maxf(gene_rect.position.x + 4.0, view.TRACK_LEFT_PAD + 2.0)
+				var label_x_max_multi := minf(gene_rect.position.x + gene_rect.size.x - 4.0, view.size.x - view.TRACK_RIGHT_PAD - 2.0)
+				var label_w_multi := maxf(0.0, label_x_max_multi - label_x_min_multi)
+				var label_multi := feature_annotation_label(feature, label_w_multi)
+				if not label_multi.is_empty():
+					var font_multi := view.get_theme_default_font()
+					var font_size_multi := view._font_size_small
+					var text_w_multi := font_multi.get_string_size(label_multi, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size_multi).x
+					var draw_w_multi := minf(label_w_multi, text_w_multi)
+					var label_rect_multi := Rect2(Vector2(label_x_min_multi, gene_rect.position.y + 2.0), Vector2(draw_w_multi, row_height - 4.0))
+					if not intersects_any(label_rect_multi, row_label_boxes[row_multi]):
+						pending_labels.append({
+							"pos": Vector2(label_x_min_multi, text_baseline_for_center(row_center_y_multi, font_multi, font_size_multi)),
+							"text": label_multi,
+							"max_w": label_w_multi,
+							"font_size": font_size_multi,
+							"color": text_col
+						})
+						row_label_boxes[row_multi].append(label_rect_multi)
 			continue
 		if feature_shows_in_aa_track(feature):
 			continue
@@ -130,7 +330,7 @@ func draw_genome_feature_tracks(area: Rect2, line_y: float) -> void:
 			continue
 		var f_start := int(feature.get("start", 0))
 		var f_end := int(feature.get("end", f_start))
-		if f_end < int(view.view_start_bp) or f_start > int(view._viewport_end_bp()):
+		if f_end < visible_start_bp or f_start > visible_end_bp:
 			continue
 		var fx0 := view.TRACK_LEFT_PAD + view._bp_to_x(f_start)
 		var fx1 := view.TRACK_LEFT_PAD + view._bp_to_x(f_end)
@@ -199,8 +399,7 @@ func text_baseline_for_center(center_y: float, font: Font, font_size: int) -> fl
 
 
 func aa_frame_row_center_y(area_start: float, frame: int) -> float:
-	var font := view.get_theme_default_font()
-	return text_center_y(font, view._font_size_medium, area_start + frame * (view.AA_ROW_H + view.AA_ROW_GAP) + 17.0)
+	return area_start + frame * (view.AA_ROW_H + view.AA_ROW_GAP) + view.AA_ROW_H * 0.5
 
 
 func genome_feature_row_center_y(area: Rect2, line_y: float, row: int) -> float:
@@ -223,7 +422,7 @@ func annotation_debug_stats() -> Dictionary:
 func draw_aa_translation_letters(area_start: float) -> void:
 	if not view._can_draw_aa_letters():
 		return
-	var font := view.get_theme_default_font()
+	var font := view.sequence_letter_font()
 	var aa_font_size := view._font_size_medium
 	var aa_char_px := font.get_string_size("M", HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size).x
 
@@ -264,14 +463,16 @@ func draw_aa_translation_letters(area_start: float) -> void:
 			var aa_fwd := view._translate_codon(codon)
 			if not aa_fwd.is_empty():
 				var x := view.TRACK_LEFT_PAD + view._bp_to_x(float(bp) + 1.5) - aa_char_px * 0.5
-				var y := area_start + frame * (view.AA_ROW_H + view.AA_ROW_GAP) + 17.0
+				var center_y := aa_frame_row_center_y(area_start, frame)
+				var y := text_baseline_for_center(center_y, font, aa_font_size)
 				view.draw_string(font, Vector2(x, y), aa_fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, view.palette["text"])
 
 			var rev_codon := view._complement_base(b2) + view._complement_base(b1) + view._complement_base(b0)
 			var aa_rev := view._translate_codon(rev_codon)
 			if not aa_rev.is_empty():
 				var rx := view.TRACK_LEFT_PAD + view._bp_to_x(float(bp) + 1.5) - aa_char_px * 0.5
-				var ry := area_start + (3 + frame) * (view.AA_ROW_H + view.AA_ROW_GAP) + 17.0
+				var rev_center_y := aa_frame_row_center_y(area_start, 3 + frame)
+				var ry := text_baseline_for_center(rev_center_y, font, aa_font_size)
 				view.draw_string(font, Vector2(rx, ry), aa_rev, HORIZONTAL_ALIGNMENT_LEFT, -1, aa_font_size, view.palette["text"])
 
 

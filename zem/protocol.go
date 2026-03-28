@@ -26,6 +26,7 @@ const (
 	MsgGetStrandCoverageTile uint16 = 17
 	MsgDownloadGenome        uint16 = 18
 	MsgGetVersion            uint16 = 19
+	MsgGenerateTestData      uint16 = 20
 )
 
 type FrameHeader struct {

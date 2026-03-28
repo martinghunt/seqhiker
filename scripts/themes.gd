@@ -1,7 +1,156 @@
 extends RefCounted
 class_name ThemesLib
 
+const ANONYMOUS_PRO_FONT := preload("res://fonts/Anonymous-Pro/Anonymous_Pro.ttf")
+const COURIER_NEW_FONT := preload("res://fonts/Courier-New/couriernew.ttf")
+const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
+
+
+# Key explanations:
+#  - bg: main app background
+#  - panel: panel/container background
+#  - panel_alt: alternate panel/control background
+#  - grid: gridlines and light guide lines
+#  - border: general panel/control borders
+#  - text: main text color
+#  - scrollbar_outline: scrollbar grabber outline
+#  - text_muted: secondary/de-emphasized text
+#  - text_inverse: text on dark/accent fills
+#  - button_bg: normal button fill
+#  - button_hover: hovered button fill
+#  - button_pressed: pressed button fill
+#  - field_bg: text/input field background
+#  - field_border: text/input field border
+#  - field_focus: focused input/control outline
+#  - accent: primary accent color
+#  - status_error: error/status text color
+#  - aa_alt_bg: alternating AA row background
+#  - map_contig: primary contig fill in map track
+#  - map_contig_alt: alternating contig fill in map track
+#  - map_view_fill: map viewport/drag selection fill
+#  - map_view_outline: map viewport/drag selection outline
+#  - region_select_fill: genome-track dragged region fill
+#  - region_select_outline: genome-track dragged region outline
+#  - genome: genome axis/main genome highlight color
+#  - read: default read/depth-summary color
+#  - gc_plot: GC plot color
+#  - depth_plot: depth plot color
+#  - depth_plot_series: per-BAM depth plot series colors
+#  - pileup_logo_bases: per-base colors for pileup logo A/C/G/T/D
+#  - snp: SNP marker fill
+#  - snp_text: text drawn on SNP markers
+#  - aa_forward: forward-frame AA summary/read-derived accent
+#  - aa_reverse: reverse-frame AA summary/read-derived accent
+#  - feature: annotation feature box fill
+#  - feature_accent: subtle annotation sub-feature accent
+#  - feature_text: annotation feature label/border color
+
+
 const THEMES := {
+	"Classic": {
+		"bg": Color("ffffff"),
+		"panel": Color("ffffff"),
+		"panel_alt": Color("efefef"),
+		"grid": Color("c8c8c8"),
+		"border": Color8(115, 137, 189),
+		"text": Color("000000"),
+		"scrollbar_outline": Color8(115, 137, 189),
+		"text_muted": Color("7d7d7d"),
+		"text_inverse": Color("ffffff"),
+		"button_bg": Color("f2f2f2"),
+		"button_hover": Color("e6e6e6"),
+		"button_pressed": Color("dcdcdc"),
+		"field_bg": Color("ffffff"),
+		"field_border": Color8(115, 137, 189),
+		"field_focus": Color("0000ff"),
+		"accent": Color("0000ff"),
+		"status_error": Color("ff0000"),
+		"aa_alt_bg": Color("f5f5f5"),
+		"map_contig": Color8(192, 152, 107),
+		"map_contig_alt": Color8(239, 181, 70),
+		"map_view_fill": Color8(243, 178, 177),
+		"map_view_outline": Color8(243, 178, 177),
+		"region_select_fill": Color8(236, 103, 101),
+		"region_select_outline": Color8(236, 103, 101),
+		"genome": Color("000000"),
+		"read": Color8(25, 7, 244),
+		"gc_plot": Color("000000"),
+		"depth_plot": Color("000000"),
+		"depth_plot_series": [
+			Color("000000"),
+			Color("3f3f3f"),
+			Color("6a6a6a"),
+			Color("8f8f8f"),
+			Color("b5b5b5"),
+			Color("d0d0d0")
+		],
+		"pileup_logo_bases": {
+			"A": Color("2b9348"),
+			"C": Color("1d4ed8"),
+			"G": Color("a16207"),
+			"T": Color("b91c1c"),
+			"D": Color("4a4a4a")
+		},
+		"snp": Color("ff0000"),
+		"snp_text": Color("ffffff"),
+		"aa_forward": Color("0000ff"),
+		"aa_reverse": Color("00aa00"),
+		"feature": Color8(116, 250, 252),
+		"feature_accent": Color8(36, 164, 166),
+		"feature_text": Color("000000")
+	},
+	"Monochrome Light": {
+		"bg": Color("fcfcfc"),
+		"panel": Color("ffffff"),
+		"panel_alt": Color("f0f0f0"),
+		"grid": Color("cfcfcf"),
+		"border": Color("c8c8c8"),
+		"text": Color("202020"),
+		"scrollbar_outline": Color("7a7a7a"),
+		"text_muted": Color("6f6f6f"),
+		"text_inverse": Color("ffffff"),
+		"button_bg": Color("efefef"),
+		"button_hover": Color("e2e2e2"),
+		"button_pressed": Color("d6d6d6"),
+		"field_bg": Color("ffffff"),
+		"field_border": Color("bbbbbb"),
+		"field_focus": Color("666666"),
+		"accent": Color("555555"),
+		"status_error": Color("444444"),
+		"aa_alt_bg": Color("f5f5f5"),
+		"map_contig": Color("fafafa"),
+		"map_contig_alt": Color("ececec"),
+		"map_view_fill": Color("666666"),
+		"map_view_outline": Color("303030"),
+		"region_select_fill": Color("666666"),
+		"region_select_outline": Color("303030"),
+		"genome": Color("575757"),
+		"read": Color("686868"),
+		"gc_plot": Color("7e7e7e"),
+		"depth_plot": Color("444444"),
+		"depth_plot_series": [
+			Color("444444"),
+			Color("5c5c5c"),
+			Color("747474"),
+			Color("8c8c8c"),
+			Color("a4a4a4"),
+			Color("bcbcbc")
+		],
+		"pileup_logo_bases": {
+			"A": Color("4c4c4c"),
+			"C": Color("666666"),
+			"G": Color("808080"),
+			"T": Color("9a9a9a"),
+			"D": Color("2f2f2f")
+		},
+		"snp": Color("2f2f2f"),
+		"snp_text": Color("ffffff"),
+		"aa_forward": Color("5f5f5f"),
+		"aa_reverse": Color("8a8a8a"),
+		"feature": Color("d9d9d9"),
+		"feature_accent": Color("8c8c8c"),
+		"feature_text": Color("242424")
+	},
 	"Light": {
 		"bg": Color("ffffff"),
 		"panel": Color("ffffff"),
@@ -9,6 +158,7 @@ const THEMES := {
 		"grid": Color("d0d0d0"),
 		"border": Color("d0d0d0"),
 		"text": Color("111111"),
+		"scrollbar_outline": Color("5a5a5a"),
 		"text_muted": Color("4a4a4a"),
 		"text_inverse": Color("ffffff"),
 		"button_bg": Color("efefef"),
@@ -20,15 +170,37 @@ const THEMES := {
 		"accent": Color("3f5a7a"),
 		"status_error": Color("8b0000"),
 		"aa_alt_bg": Color("efefef"),
+		"map_contig": Color("ffffff"),
+		"map_contig_alt": Color("efefef"),
+		"map_view_fill": Color("3f5a7a"),
+		"map_view_outline": Color("111111"),
+		"region_select_fill": Color("3f5a7a"),
+		"region_select_outline": Color("111111"),
 		"genome": Color("3f5a7a"),
 		"read": Color("0f8b8d"),
 		"gc_plot": Color("2aa198"),
 		"depth_plot": Color("345995"),
+		"depth_plot_series": [
+			Color("345995"),
+			Color("2a9d8f"),
+			Color("e76f51"),
+			Color("6d597a"),
+			Color("4f772d"),
+			Color("b56576")
+		],
+		"pileup_logo_bases": {
+			"A": Color("2b9348"),
+			"C": Color("1d4ed8"),
+			"G": Color("a16207"),
+			"T": Color("b91c1c"),
+			"D": Color("4a5568")
+		},
 		"snp": Color("b11f47"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("8a4fff"),
 		"aa_reverse": Color("f39237"),
 		"feature": Color("dce8f7"),
+		"feature_accent": Color("7f9cc3"),
 		"feature_text": Color("1e3557")
 	},
 	"Forest": {
@@ -38,6 +210,7 @@ const THEMES := {
 		"grid": Color("b8d1ad"),
 		"border": Color("b8d1ad"),
 		"text": Color("20301f"),
+		"scrollbar_outline": Color("566653"),
 		"text_muted": Color("41513f"),
 		"text_inverse": Color("ffffff"),
 		"button_bg": Color("dcebd5"),
@@ -49,15 +222,37 @@ const THEMES := {
 		"accent": Color("386641"),
 		"status_error": Color("8b1f1f"),
 		"aa_alt_bg": Color("dfe8d8"),
+		"map_contig": Color("eaf4e5"),
+		"map_contig_alt": Color("dfe8d8"),
+		"map_view_fill": Color("386641"),
+		"map_view_outline": Color("20301f"),
+		"region_select_fill": Color("386641"),
+		"region_select_outline": Color("20301f"),
 		"genome": Color("386641"),
 		"read": Color("6a994e"),
 		"gc_plot": Color("2a9d8f"),
 		"depth_plot": Color("386641"),
+		"depth_plot_series": [
+			Color("386641"),
+			Color("2a9d8f"),
+			Color("bc4749"),
+			Color("588157"),
+			Color("6a994e"),
+			Color("7f5539")
+		],
+		"pileup_logo_bases": {
+			"A": Color("4f8a3f"),
+			"C": Color("2f6f99"),
+			"G": Color("8f6a1b"),
+			"T": Color("9a3d32"),
+			"D": Color("4f5f4d")
+		},
 		"snp": Color("7a143a"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("588157"),
 		"aa_reverse": Color("bc4749"),
 		"feature": Color("c8dfc0"),
+		"feature_accent": Color("6e9662"),
 		"feature_text": Color("1f3a24")
 	},
 	"Slate": {
@@ -67,6 +262,7 @@ const THEMES := {
 		"grid": Color("b6c3cf"),
 		"border": Color("b6c3cf"),
 		"text": Color("1f2933"),
+		"scrollbar_outline": Color("5f6d79"),
 		"text_muted": Color("4d5a67"),
 		"text_inverse": Color("ffffff"),
 		"button_bg": Color("dde6ee"),
@@ -78,15 +274,37 @@ const THEMES := {
 		"accent": Color("345995"),
 		"status_error": Color("8b1f1f"),
 		"aa_alt_bg": Color("dde3ea"),
+		"map_contig": Color("e8edf2"),
+		"map_contig_alt": Color("dde3ea"),
+		"map_view_fill": Color("345995"),
+		"map_view_outline": Color("1f2933"),
+		"region_select_fill": Color("345995"),
+		"region_select_outline": Color("1f2933"),
 		"genome": Color("345995"),
 		"read": Color("2d7dd2"),
 		"gc_plot": Color("2d7dd2"),
 		"depth_plot": Color("345995"),
+		"depth_plot_series": [
+			Color("345995"),
+			Color("2d7dd2"),
+			Color("f4a259"),
+			Color("5c6784"),
+			Color("7d8597"),
+			Color("8d99ae")
+		],
+		"pileup_logo_bases": {
+			"A": Color("2b9348"),
+			"C": Color("1d4ed8"),
+			"G": Color("a16207"),
+			"T": Color("b91c1c"),
+			"D": Color("4b5563")
+		},
 		"snp": Color("d7263d"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("5c6784"),
 		"aa_reverse": Color("f4a259"),
 		"feature": Color("c6d6ec"),
+		"feature_accent": Color("6f93c7"),
 		"feature_text": Color("1f3654")
 	},
 	"Dark": {
@@ -96,6 +314,7 @@ const THEMES := {
 		"grid": Color("3a434f"),
 		"border": Color("3a434f"),
 		"text": Color("e6edf3"),
+		"scrollbar_outline": Color("9fb0bc"),
 		"text_muted": Color("aab6c2"),
 		"text_inverse": Color("111111"),
 		"button_bg": Color("2f3742"),
@@ -107,16 +326,90 @@ const THEMES := {
 		"accent": Color("58a6ff"),
 		"status_error": Color("ff7b72"),
 		"aa_alt_bg": Color("2c333d"),
+		"map_contig": Color("1a1d22"),
+		"map_contig_alt": Color("2c333d"),
+		"map_view_fill": Color("7aa2f7"),
+		"map_view_outline": Color("e6edf3"),
+		"region_select_fill": Color("7aa2f7"),
+		"region_select_outline": Color("e6edf3"),
 		"genome": Color("7aa2f7"),
 		"read": Color("4fb6c2"),
 		"gc_plot": Color("58a6ff"),
 		"depth_plot": Color("7aa2f7"),
+		"depth_plot_series": [
+			Color("7aa2f7"),
+			Color("58a6ff"),
+			Color("4fb6c2"),
+			Color("b392f0"),
+			Color("ffb86b"),
+			Color("8ec07c")
+		],
+		"pileup_logo_bases": {
+			"A": Color("5ac26b"),
+			"C": Color("73b7ff"),
+			"G": Color("d3a34a"),
+			"T": Color("ff7b72"),
+			"D": Color("aab6c2")
+		},
 		"snp": Color("ff7b72"),
 		"snp_text": Color("111111"),
 		"aa_forward": Color("b392f0"),
 		"aa_reverse": Color("ffb86b"),
 		"feature": Color("2e466e"),
+		"feature_accent": Color("6e8dbb"),
 		"feature_text": Color("eaf2ff")
+	},
+	"Monochrome Dark": {
+		"bg": Color("171717"),
+		"panel": Color("202020"),
+		"panel_alt": Color("2b2b2b"),
+		"grid": Color("444444"),
+		"border": Color("4b4b4b"),
+		"text": Color("e6e6e6"),
+		"scrollbar_outline": Color("9f9f9f"),
+		"text_muted": Color("acacac"),
+		"text_inverse": Color("111111"),
+		"button_bg": Color("303030"),
+		"button_hover": Color("3a3a3a"),
+		"button_pressed": Color("464646"),
+		"field_bg": Color("232323"),
+		"field_border": Color("5a5a5a"),
+		"field_focus": Color("9a9a9a"),
+		"accent": Color("b5b5b5"),
+		"status_error": Color("c7c7c7"),
+		"aa_alt_bg": Color("303030"),
+		"map_contig": Color("1a1a1a"),
+		"map_contig_alt": Color("2c2c2c"),
+		"map_view_fill": Color("9d9d9d"),
+		"map_view_outline": Color("e0e0e0"),
+		"region_select_fill": Color("9d9d9d"),
+		"region_select_outline": Color("e0e0e0"),
+		"genome": Color("b0b0b0"),
+		"read": Color("9a9a9a"),
+		"gc_plot": Color("7f7f7f"),
+		"depth_plot": Color("c8c8c8"),
+		"depth_plot_series": [
+			Color("c8c8c8"),
+			Color("b0b0b0"),
+			Color("989898"),
+			Color("808080"),
+			Color("686868"),
+			Color("505050")
+		],
+		"pileup_logo_bases": {
+			"A": Color("d0d0d0"),
+			"C": Color("b0b0b0"),
+			"G": Color("909090"),
+			"T": Color("707070"),
+			"D": Color("f0f0f0")
+		},
+		"snp": Color("f0f0f0"),
+		"snp_text": Color("111111"),
+		"aa_forward": Color("bababa"),
+		"aa_reverse": Color("727272"),
+		"feature": Color("505050"),
+		"feature_accent": Color("9a9a9a"),
+		"feature_text": Color("f0f0f0")
 	},
 	"Solarized Light": {
 		"bg": Color("fdf6e3"),
@@ -125,6 +418,7 @@ const THEMES := {
 		"grid": Color("93a1a1"),
 		"border": Color("93a1a1"),
 		"text": Color("657b83"),
+		"scrollbar_outline": Color("8f9ea2"),
 		"text_muted": Color("93a1a1"),
 		"text_inverse": Color("fdf6e3"),
 		"button_bg": Color("eee8d5"),
@@ -136,15 +430,37 @@ const THEMES := {
 		"accent": Color("268bd2"),
 		"status_error": Color("dc322f"),
 		"aa_alt_bg": Color("eee8d5"),
+		"map_contig": Color("fdf6e3"),
+		"map_contig_alt": Color("eee8d5"),
+		"map_view_fill": Color("268bd2"),
+		"map_view_outline": Color("657b83"),
+		"region_select_fill": Color("268bd2"),
+		"region_select_outline": Color("657b83"),
 		"genome": Color("268bd2"),
 		"read": Color("2aa198"),
 		"gc_plot": Color("2aa198"),
 		"depth_plot": Color("268bd2"),
+		"depth_plot_series": [
+			Color("268bd2"),
+			Color("2aa198"),
+			Color("cb4b16"),
+			Color("6c71c4"),
+			Color("859900"),
+			Color("d33682")
+		],
+		"pileup_logo_bases": {
+			"A": Color("859900"),
+			"C": Color("268bd2"),
+			"G": Color("b58900"),
+			"T": Color("dc322f"),
+			"D": Color("657b83")
+		},
 		"snp": Color("d33682"),
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
 		"aa_reverse": Color("cb4b16"),
 		"feature": Color("dcecf6"),
+		"feature_accent": Color("7eb6d6"),
 		"feature_text": Color("1f5d85")
 	},
 	"Solarized Dark": {
@@ -154,6 +470,7 @@ const THEMES := {
 		"grid": Color("586e75"),
 		"border": Color("586e75"),
 		"text": Color("839496"),
+		"scrollbar_outline": Color("839193"),
 		"text_muted": Color("657b83"),
 		"text_inverse": Color("002b36"),
 		"button_bg": Color("073642"),
@@ -165,24 +482,63 @@ const THEMES := {
 		"accent": Color("268bd2"),
 		"status_error": Color("dc322f"),
 		"aa_alt_bg": Color("073642"),
+		"map_contig": Color("002b36"),
+		"map_contig_alt": Color("073642"),
+		"map_view_fill": Color("268bd2"),
+		"map_view_outline": Color("839496"),
+		"region_select_fill": Color("268bd2"),
+		"region_select_outline": Color("839496"),
 		"genome": Color("268bd2"),
 		"read": Color("2aa198"),
 		"gc_plot": Color("2aa198"),
 		"depth_plot": Color("268bd2"),
+		"depth_plot_series": [
+			Color("268bd2"),
+			Color("2aa198"),
+			Color("cb4b16"),
+			Color("6c71c4"),
+			Color("859900"),
+			Color("d33682")
+		],
+		"pileup_logo_bases": {
+			"A": Color("859900"),
+			"C": Color("268bd2"),
+			"G": Color("b58900"),
+			"T": Color("dc322f"),
+			"D": Color("839496")
+		},
 		"snp": Color("d33682"),
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
 		"aa_reverse": Color("cb4b16"),
 		"feature": Color("12455f"),
+		"feature_accent": Color("5190ad"),
 		"feature_text": Color("dceef8")
 	}
 }
 
+const THEME_ORDER := [
+	"Slate",
+	"Light",
+	"Dark",
+	"Solarized Light",
+	"Solarized Dark",
+	"Monochrome Light",
+	"Monochrome Dark",
+	"Forest",
+	"Classic"
+]
+
 func theme_names() -> PackedStringArray:
 	var names := PackedStringArray()
+	for key in THEME_ORDER:
+		if THEMES.has(key):
+			names.append(key)
 	for key in THEMES.keys():
-		names.append(str(key))
-	names.sort()
+		var theme_name := str(key)
+		if names.has(theme_name):
+			continue
+		names.append(theme_name)
 	return names
 
 func has_theme(theme_name: String) -> bool:
@@ -191,7 +547,7 @@ func has_theme(theme_name: String) -> bool:
 func palette(theme_name: String) -> Dictionary:
 	var resolved := _resolve_theme_name(theme_name)
 	if not THEMES.has(resolved):
-		resolved = "Light"
+		resolved = "Slate"
 	return (THEMES[resolved] as Dictionary).duplicate(true)
 
 func genome_palette(theme_name: String) -> Dictionary:
@@ -202,23 +558,65 @@ func genome_palette(theme_name: String) -> Dictionary:
 		"grid": p["grid"],
 		"text": p["text"],
 		"aa_alt_bg": p["aa_alt_bg"],
+		"map_contig": p["map_contig"],
+		"map_contig_alt": p["map_contig_alt"],
+		"map_view_fill": p["map_view_fill"],
+		"map_view_outline": p["map_view_outline"],
+		"region_select_fill": p["region_select_fill"],
+		"region_select_outline": p["region_select_outline"],
 		"genome": p["genome"],
 		"read": p["read"],
 		"gc_plot": p["gc_plot"],
 		"depth_plot": p["depth_plot"],
+		"depth_plot_series": p.get("depth_plot_series", [p["depth_plot"]]),
+		"pileup_logo_bases": p.get("pileup_logo_bases", {}),
 		"snp": p["snp"],
 		"snp_text": p["snp_text"],
 		"aa_forward": p["aa_forward"],
 		"aa_reverse": p["aa_reverse"],
 		"feature": p["feature"],
+		"feature_accent": p["feature_accent"],
 		"feature_text": p["feature_text"]
 	}
 
-func make_theme(theme_name: String, font_size: int) -> Theme:
+func depth_plot_series(theme_name: String) -> Array:
+	var p := palette(theme_name)
+	var colors_any: Variant = p.get("depth_plot_series", [p["depth_plot"]])
+	var colors: Array = []
+	for color_any in colors_any:
+		if color_any is Color:
+			colors.append(color_any)
+	return colors
+
+func ui_font(font_name: String) -> Font:
+	match font_name:
+		"Anonymous Pro":
+			return ANONYMOUS_PRO_FONT
+		"Courier New":
+			return COURIER_NEW_FONT
+		"DejaVu Sans":
+			return _load_dejavu_sans_font()
+		_:
+			return ThemeDB.fallback_font
+
+
+func _load_dejavu_sans_font() -> Font:
+	if _dejavu_sans_font != null:
+		return _dejavu_sans_font
+	var font := FontFile.new()
+	var err := font.load_dynamic_font(DEJAVU_SANS_FONT_PATH)
+	if err != OK:
+		return ThemeDB.fallback_font
+	_dejavu_sans_font = font
+	return _dejavu_sans_font
+
+
+func make_theme(theme_name: String, font_size: int, font_name: String = "Noto Sans") -> Theme:
 	var p := palette(theme_name)
 	var t := Theme.new()
 	var fs := maxi(8, font_size)
 	t.default_font_size = fs
+	t.default_font = ui_font(font_name)
 
 	_set_font_colors(t, p)
 	_set_panel_styles(t, p)
@@ -417,8 +815,8 @@ func _set_checkbox_styles(theme: Theme, p: Dictionary) -> void:
 func _set_check_button_styles(theme: Theme, p: Dictionary) -> void:
 	var toggle_w := 40
 	var toggle_h := 22
-	var off_icon := _make_toggle_icon(toggle_w, toggle_h, p["panel_alt"], p["field_border"], p["button_bg"], false)
-	var on_icon := _make_toggle_icon(toggle_w, toggle_h, p["panel_alt"], p["field_border"], p["accent"], true)
+	var off_icon := _make_toggle_icon(toggle_w, toggle_h, p["button_hover"], p["field_border"], p["button_bg"], false)
+	var on_icon := _make_toggle_icon(toggle_w, toggle_h, p["button_hover"], p["field_border"], p["accent"], true)
 	theme.set_icon("off", "CheckButton", off_icon)
 	theme.set_icon("off_disabled", "CheckButton", off_icon)
 	theme.set_icon("on", "CheckButton", on_icon)
@@ -463,7 +861,9 @@ func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	theme.set_icon("grabber_disabled", "Slider", grabber)
 
 	var track := StyleBoxFlat.new()
-	track.bg_color = p["panel_alt"]
+	track.bg_color = p["button_hover"]
+	track.border_color = p["button_hover"]
+	track.set_border_width_all(1)
 	track.set_corner_radius_all(4)
 	track.content_margin_top = 4
 	track.content_margin_bottom = 4
@@ -478,7 +878,9 @@ func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	theme.set_constant("grabber_size", "VSlider", grabber_size)
 
 	var sb_scroll := StyleBoxFlat.new()
-	sb_scroll.bg_color = p["panel_alt"]
+	sb_scroll.bg_color = p["field_bg"]
+	sb_scroll.border_color = p["border"]
+	sb_scroll.set_border_width_all(1)
 	sb_scroll.set_corner_radius_all(5)
 	sb_scroll.content_margin_left = 2
 	sb_scroll.content_margin_right = 2
@@ -486,16 +888,18 @@ func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 	sb_scroll.content_margin_bottom = 2
 
 	var sb_grabber := StyleBoxFlat.new()
-	sb_grabber.bg_color = p["button_bg"]
-	sb_grabber.border_color = p["field_border"]
-	sb_grabber.set_border_width_all(1)
+	sb_grabber.bg_color = p["button_hover"]
+	sb_grabber.border_color = p.get("scrollbar_outline", p["text"])
+	sb_grabber.set_border_width_all(2)
 	sb_grabber.set_corner_radius_all(5)
 
 	var sb_grabber_h := sb_grabber.duplicate()
-	sb_grabber_h.bg_color = p["button_hover"]
+	sb_grabber_h.bg_color = p["button_pressed"]
+	sb_grabber_h.border_color = p.get("scrollbar_outline", p["text"])
 
 	var sb_grabber_p := sb_grabber.duplicate()
-	sb_grabber_p.bg_color = p["button_pressed"]
+	sb_grabber_p.bg_color = p["accent"]
+	sb_grabber_p.border_color = p.get("scrollbar_outline", p["text"])
 
 	theme.set_stylebox("scroll", "VScrollBar", sb_scroll)
 	theme.set_stylebox("scroll_focus", "VScrollBar", sb_scroll)
@@ -591,3 +995,4 @@ func _make_arrow_icon(width: int, height: int, color: Color) -> ImageTexture:
 			if x >= 0 and x < width:
 				img.set_pixel(x, y, color)
 	return ImageTexture.create_from_image(img)
+var _dejavu_sans_font: FontFile = null

@@ -59,8 +59,6 @@ func connect_with_local_fallback(host: String, port: int, connect_timeout_ms: in
 	return false
 
 func ensure_local_zem_installed() -> bool:
-	if _local_zem_install_checked and not _local_zem_path.is_empty() and FileAccess.file_exists(_local_zem_path) and _installed_binary_version_matches(_local_zem_path):
-		return true
 	_local_zem_install_checked = true
 	var bin_name := _zem_binary_name()
 	var user_bin_dir_abs := OS.get_user_data_dir().path_join(_bin_subdir)
@@ -79,6 +77,14 @@ func ensure_local_zem_installed() -> bool:
 		return false
 	var expected_version := _expected_zem_version()
 	var target_matches_version := FileAccess.file_exists(target_abs) and _installed_binary_version_matches(target_abs)
+	var src_hash := ""
+	var dst_hash := ""
+	if FileAccess.file_exists(target_abs):
+		src_hash = FileAccess.get_sha256(source)
+		dst_hash = FileAccess.get_sha256(target_abs)
+	if FileAccess.file_exists(target_abs) and target_matches_version and not src_hash.is_empty() and src_hash == dst_hash:
+		_last_connect_error = ""
+		return true
 	if not FileAccess.file_exists(target_abs):
 		if not _copy_file_any_to_abs(source, target_abs):
 			_last_connect_error = "Failed to copy zem into %s" % target_abs
@@ -88,8 +94,6 @@ func ensure_local_zem_installed() -> bool:
 			_last_connect_error = "Failed to replace zem in %s" % target_abs
 			return false
 	else:
-		var src_hash := FileAccess.get_sha256(source)
-		var dst_hash := FileAccess.get_sha256(target_abs)
 		if src_hash.is_empty() or dst_hash.is_empty() or src_hash != dst_hash:
 			if not _copy_file_any_to_abs(source, target_abs):
 				_last_connect_error = "Failed to update zem in %s" % target_abs
