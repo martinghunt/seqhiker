@@ -164,10 +164,29 @@ jobs:
       - export-macos
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download built artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+
+      - name: Resolve release title from annotated tag
+        id: release_title
+        run: |
+          set -euo pipefail
+          title="$(git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format='%(contents:subject)' | head -n1)"
+          if [[ -z "${title}" ]]; then
+            title="${GITHUB_REF_NAME}"
+          fi
+          {
+            echo "title<<EOF"
+            echo "${title}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Create checksums
         run: |
@@ -177,6 +196,7 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ steps.release_title.outputs.title }}
           generate_release_notes: true
           files: |
             release-assets/**/*
