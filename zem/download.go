@@ -228,6 +228,9 @@ func pruneGenomeCache(rootDir string, maxCacheBytes int64, protectedDir string) 
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ModTime.Equal(entries[j].ModTime) {
+			return entries[i].Path < entries[j].Path
+		}
 		return entries[i].ModTime.Before(entries[j].ModTime)
 	})
 	for _, entry := range entries {
@@ -267,6 +270,9 @@ func pruneGenomeCacheForIncoming(rootDir string, maxCacheBytes int64, incomingBy
 		return nil
 	}
 	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ModTime.Equal(entries[j].ModTime) {
+			return entries[i].Path < entries[j].Path
+		}
 		return entries[i].ModTime.Before(entries[j].ModTime)
 	})
 	for _, entry := range entries {

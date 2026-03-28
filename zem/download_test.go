@@ -106,21 +106,26 @@ func TestPruneGenomeCacheKeepsProtectedLargeEntry(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldDir := filepath.Join(tmpDir, "old")
 	protectedDir := filepath.Join(tmpDir, "new")
+	oldFile := filepath.Join(oldDir, "a.bin")
+	protectedFile := filepath.Join(protectedDir, "b.bin")
 	if err := os.MkdirAll(oldDir, 0o755); err != nil {
 		t.Fatalf("mkdir old: %v", err)
 	}
 	if err := os.MkdirAll(protectedDir, 0o755); err != nil {
 		t.Fatalf("mkdir new: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(oldDir, "a.bin"), make([]byte, 8), 0o644); err != nil {
+	if err := os.WriteFile(oldFile, make([]byte, 8), 0o644); err != nil {
 		t.Fatalf("write old: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(protectedDir, "b.bin"), make([]byte, 60), 0o644); err != nil {
+	if err := os.WriteFile(protectedFile, make([]byte, 60), 0o644); err != nil {
 		t.Fatalf("write protected: %v", err)
 	}
 	past := time.Now().Add(-time.Hour)
 	if err := os.Chtimes(oldDir, past, past); err != nil {
 		t.Fatalf("chtimes old: %v", err)
+	}
+	if err := os.Chtimes(oldFile, past, past); err != nil {
+		t.Fatalf("chtimes old file: %v", err)
 	}
 
 	if err := pruneGenomeCache(tmpDir, 50, protectedDir); err != nil {
@@ -156,21 +161,26 @@ func TestPruneGenomeCacheForIncomingRemovesOldEntriesBeforeInstall(t *testing.T)
 	tmpDir := t.TempDir()
 	oldDir := filepath.Join(tmpDir, "old")
 	newerDir := filepath.Join(tmpDir, "newer")
+	oldFile := filepath.Join(oldDir, "a.bin")
+	newerFile := filepath.Join(newerDir, "b.bin")
 	if err := os.MkdirAll(oldDir, 0o755); err != nil {
 		t.Fatalf("mkdir old: %v", err)
 	}
 	if err := os.MkdirAll(newerDir, 0o755); err != nil {
 		t.Fatalf("mkdir newer: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(oldDir, "a.bin"), make([]byte, 30), 0o644); err != nil {
+	if err := os.WriteFile(oldFile, make([]byte, 30), 0o644); err != nil {
 		t.Fatalf("write old: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(newerDir, "b.bin"), make([]byte, 30), 0o644); err != nil {
+	if err := os.WriteFile(newerFile, make([]byte, 30), 0o644); err != nil {
 		t.Fatalf("write newer: %v", err)
 	}
 	past := time.Now().Add(-time.Hour)
 	if err := os.Chtimes(oldDir, past, past); err != nil {
 		t.Fatalf("chtimes old: %v", err)
+	}
+	if err := os.Chtimes(oldFile, past, past); err != nil {
+		t.Fatalf("chtimes old file: %v", err)
 	}
 
 	if err := pruneGenomeCacheForIncoming(tmpDir, 70, 25); err != nil {
