@@ -171,6 +171,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Download built artifacts
         uses: actions/download-artifact@v4
@@ -187,7 +188,12 @@ jobs:
         id: release_title
         run: |
           set -euo pipefail
-          title="$(git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format='%(contents:subject)' | head -n1)"
+          git fetch --force --tags
+          object_type="$(git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format='%(objecttype)' | head -n1)"
+          title=""
+          if [[ "${object_type}" == "tag" ]]; then
+            title="$(git cat-file tag "${GITHUB_REF_NAME}" | sed '1,/^$/d' | head -n1)"
+          fi
           if [[ -z "${title}" ]]; then
             title="${GITHUB_REF_NAME}"
           fi
@@ -207,6 +213,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ steps.release_title.outputs.title }}
-          generate_release_notes: true
+          body: ""
           files: |
             release-assets/**/*
