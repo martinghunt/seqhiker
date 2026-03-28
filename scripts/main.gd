@@ -183,6 +183,10 @@ var _download_action_button: Button
 var _download_status_label: RichTextLabel
 var _download_thread: Thread
 var _download_in_progress := false
+var _startup_zem_prepare_thread: Thread
+var _startup_zem_connect_thread: Thread
+var _startup_zem_host := "127.0.0.1"
+var _startup_zem_port := ZEM_DEFAULT_PORT
 var _local_zem_manager: RefCounted
 var _connected_zem_version := ""
 var _current_chr_id := -1
@@ -348,35 +352,80 @@ func _ready() -> void:
 
 func _initialize_settings_panel() -> void:
 	_set_status("Disconnected")
+	genome_view.set_empty_state_status("")
 	call_deferred("_update_settings_panel_width")
 	call_deferred("_update_feature_panel_width")
 
 func _startup_connect_local_zem() -> void:
-	var host := "127.0.0.1"
-	var port := ZEM_DEFAULT_PORT
-	if not _local_zem_manager.should_try_local(host):
+	_startup_zem_host = "127.0.0.1"
+	_startup_zem_port = ZEM_DEFAULT_PORT
+	if not _local_zem_manager.should_try_local(_startup_zem_host):
 		return
 	_set_status("Preparing local zem...")
-	await get_tree().process_frame
-	if not _local_zem_manager.ensure_local_zem_installed():
-		var last_error: String = _local_zem_manager.last_error()
+	genome_view.set_empty_state_status("Preparing local zem...")
+	_startup_zem_prepare_thread = Thread.new()
+	var err := _startup_zem_prepare_thread.start(Callable(self, "_startup_prepare_local_zem_worker"))
+	if err != OK:
+		_startup_zem_prepare_thread = null
+		_set_status("Could not start local zem preparation thread: %s" % error_string(err), true)
+		genome_view.set_empty_state_status("Could not start local zem preparation.")
+		return
+
+func _startup_prepare_local_zem_worker() -> Dictionary:
+	var ok: bool = _local_zem_manager.ensure_local_zem_installed()
+	return {
+		"ok": ok,
+		"error": _local_zem_manager.last_error()
+	}
+
+func _finish_startup_prepare_local_zem(result: Variant) -> void:
+	var resp: Dictionary = result if result is Dictionary else {}
+	if not bool(resp.get("ok", false)):
+		var last_error := str(resp.get("error", "")).strip_edges()
 		if not last_error.is_empty():
 			_set_status(last_error, true)
+			genome_view.set_empty_state_status(last_error)
 		else:
 			_set_status("Local zem missing and install failed.", true)
+			genome_view.set_empty_state_status("Local zem missing and install failed.")
 		return
+	genome_view.set_empty_state_status("Starting local zem...")
 	_set_status("Starting local zem...")
-	await get_tree().process_frame
-	# Keep startup connect snappy so first frame/UI does not stall.
-	if _local_zem_manager.connect_with_local_fallback(host, port, 100, 2, 80):
-		var version_resp: Dictionary = _zem.get_server_version()
-		_connected_zem_version = str(version_resp.get("version", "")).strip_edges() if bool(version_resp.get("ok", false)) else ""
-		_set_status("Connected %s:%d" % [host, port])
-		_update_debug_stats_label()
-	else:
-		var last_error: String = _local_zem_manager.last_error()
+	_startup_zem_connect_thread = Thread.new()
+	var err := _startup_zem_connect_thread.start(Callable(self, "_startup_connect_local_zem_worker").bind(_startup_zem_host, _startup_zem_port))
+	if err != OK:
+		_startup_zem_connect_thread = null
+		_set_status("Could not start local zem connection thread: %s" % error_string(err), true)
+		genome_view.set_empty_state_status("Could not start local zem.")
+
+func _startup_connect_local_zem_worker(host: String, port: int) -> Dictionary:
+	var ok: bool = _local_zem_manager.connect_with_local_fallback(host, port, 100, 180, 100)
+	return {
+		"ok": ok,
+		"error": _local_zem_manager.last_error()
+	}
+
+func _finish_startup_connect_local_zem(result: Variant) -> void:
+	var resp: Dictionary = result if result is Dictionary else {}
+	if not bool(resp.get("ok", false)):
+		var last_error := str(resp.get("error", "")).strip_edges()
 		if not last_error.is_empty():
 			_set_status(last_error, true)
+			genome_view.set_empty_state_status(last_error)
+		else:
+			_set_status("Unable to start local zem.", true)
+			genome_view.set_empty_state_status("Unable to start local zem.")
+		return
+	_zem.disconnect_from_server()
+	if not _zem.connect_to_server(_startup_zem_host, _startup_zem_port, 500):
+		_set_status("Local zem started but reconnect failed.", true)
+		genome_view.set_empty_state_status("Local zem started but reconnect failed.")
+		return
+	var version_resp: Dictionary = _zem.get_server_version()
+	_connected_zem_version = str(version_resp.get("version", "")).strip_edges() if bool(version_resp.get("ok", false)) else ""
+	_set_status("Connected %s:%d" % [_startup_zem_host, _startup_zem_port])
+	genome_view.set_empty_state_status("")
+	_update_debug_stats_label()
 
 func _setup_fetch_timer() -> void:
 	_fetch_timer = Timer.new()
@@ -2423,6 +2472,12 @@ func _exit_tree() -> void:
 	if _generate_test_data_thread != null and _generate_test_data_thread.is_started():
 		_generate_test_data_thread.wait_to_finish()
 		_generate_test_data_thread = null
+	if _startup_zem_prepare_thread != null and _startup_zem_prepare_thread.is_started():
+		_startup_zem_prepare_thread.wait_to_finish()
+		_startup_zem_prepare_thread = null
+	if _startup_zem_connect_thread != null and _startup_zem_connect_thread.is_started():
+		_startup_zem_connect_thread.wait_to_finish()
+		_startup_zem_connect_thread = null
 	if _local_zem_manager != null:
 		_local_zem_manager.shutdown_on_exit()
 
@@ -2957,6 +3012,14 @@ func _process(_delta: float) -> void:
 		var generate_result: Variant = _generate_test_data_thread.wait_to_finish()
 		_generate_test_data_thread = null
 		_finish_generate_test_data(generate_result)
+	if _startup_zem_prepare_thread != null and _startup_zem_prepare_thread.is_started() and not _startup_zem_prepare_thread.is_alive():
+		var prepare_result: Variant = _startup_zem_prepare_thread.wait_to_finish()
+		_startup_zem_prepare_thread = null
+		_finish_startup_prepare_local_zem(prepare_result)
+	if _startup_zem_connect_thread != null and _startup_zem_connect_thread.is_started() and not _startup_zem_connect_thread.is_alive():
+		var connect_result: Variant = _startup_zem_connect_thread.wait_to_finish()
+		_startup_zem_connect_thread = null
+		_finish_startup_connect_local_zem(connect_result)
 	if not _auto_play_enabled:
 		return
 	if _current_chr_len <= 0:

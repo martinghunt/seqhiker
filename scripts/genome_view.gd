@@ -232,6 +232,7 @@ var _read_track_states := {}
 var _active_read_track_id := TRACK_ID_READS
 var _dragging_scrollbar: VScrollBar = null
 var _read_loading_message := ""
+var _empty_state_status := ""
 var _map_drag_active := false
 var _map_drag_bp_offset := 0.0
 
@@ -569,6 +570,10 @@ func set_depth_plot_series(next_series: Array[Dictionary]) -> void:
 
 func set_read_loading_message(message: String) -> void:
 	_read_loading_message = message
+	queue_redraw()
+
+func set_empty_state_status(message: String) -> void:
+	_empty_state_status = message
 	queue_redraw()
 
 func set_features(next_features: Array[Dictionary]) -> void:
@@ -1860,15 +1865,21 @@ func _draw_grid(area: Rect2) -> void:
 func _draw_file_status() -> void:
 	if not loaded_files.is_empty():
 		return
-	var genome_area := _track_rect(TRACK_ID_GENOME)
-	if genome_area.size.x <= 0.0 or genome_area.size.y <= 0.0:
+	var view_area := Rect2(Vector2.ZERO, size)
+	if view_area.size.x <= 0.0 or view_area.size.y <= 0.0:
 		return
 	var font := get_theme_default_font()
 	var msg := "Drop genome/BAM/annotation files anywhere to load"
 	var text_w := font.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium).x
-	var x := genome_area.position.x + (genome_area.size.x - text_w) * 0.5
-	var y := genome_area.position.y + genome_area.size.y * 0.5 + _font_size_medium * 0.35
+	var x := view_area.position.x + (view_area.size.x - text_w) * 0.5
+	var y := view_area.position.y + view_area.size.y * 0.62 + _font_size_medium * 0.35
 	draw_string(font, Vector2(x, y), msg, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
+	if _empty_state_status.is_empty():
+		return
+	var status_w := font.get_string_size(_empty_state_status, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium).x
+	var status_x := view_area.position.x + (view_area.size.x - status_w) * 0.5
+	var status_y := view_area.position.y + view_area.size.y * 0.38 + _font_size_medium * 0.35
+	draw_string(font, Vector2(status_x, status_y), _empty_state_status, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_medium, palette["text"])
 
 func _draw_nucleotide_letters(_top_y: float, line_y: float) -> void:
 	if reference_sequence.is_empty():
