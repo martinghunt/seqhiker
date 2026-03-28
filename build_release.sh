@@ -12,6 +12,7 @@ OUTFILE=""
 GODOT_BIN="${DEFAULT_GODOT_BIN}"
 EXPORT_MODE="release"
 SKIP_ZEM=0
+STAGE_DIR=""
 
 usage() {
 	cat <<'EOF'
@@ -116,13 +117,31 @@ if ! grep -q "name=\"${PRESET}\"" "${APP_DIR}/export_presets.cfg"; then
 fi
 
 if [[ "${SKIP_ZEM}" -eq 0 ]]; then
-	echo "[1/2] Building bundled zem for ${TARGET}"
-	"${BUILD_ZEM_SCRIPT}" --target "${TARGET}"
+	STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/seqhiker-export.XXXXXX")"
+	trap '[[ -n "${STAGE_DIR}" && -d "${STAGE_DIR}" ]] && rm -rf "${STAGE_DIR}"' EXIT
+	echo "[1/3] Staging export project in ${STAGE_DIR}"
+	rsync -a \
+		--delete \
+		--exclude ".git" \
+		--exclude "bin" \
+		--exclude ".venv" \
+		--exclude "site" \
+		--exclude "docs/_build" \
+		"${APP_DIR}/" "${STAGE_DIR}/"
+	mkdir -p "${STAGE_DIR}/bin"
+	echo "[2/3] Building bundled zem for ${TARGET}"
+	"${BUILD_ZEM_SCRIPT}" --target "${TARGET}" --out-dir "${STAGE_DIR}/bin"
 else
+	STAGE_DIR="${APP_DIR}"
 	echo "[1/2] Skipping bundled zem build (--skip-zem)"
 fi
 
-echo "[2/2] Exporting seqhiker (${EXPORT_MODE}) preset='${PRESET}' -> ${OUTFILE}"
+step_label="[3/3]"
+if [[ "${SKIP_ZEM}" -eq 1 ]]; then
+	step_label="[2/2]"
+fi
+
+echo "${step_label} Exporting seqhiker (${EXPORT_MODE}) preset='${PRESET}' -> ${OUTFILE}"
 mkdir -p "$(dirname "${OUTFILE}")"
-"${GODOT_BIN}" --headless --path "${APP_DIR}" "--export-${EXPORT_MODE}" "${PRESET}" "${OUTFILE}"
+"${GODOT_BIN}" --headless --path "${STAGE_DIR}" "--export-${EXPORT_MODE}" "${PRESET}" "${OUTFILE}"
 echo "Done: ${OUTFILE}"

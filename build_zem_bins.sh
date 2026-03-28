@@ -9,18 +9,21 @@ TARGETS_DIR="${OUT_DIR}/targets"
 TARGET=""
 BUILD_ALL=0
 VERSION=""
+CUSTOM_OUT_DIR=""
 
 usage() {
 	cat <<'EOF'
 Usage:
   ./build_zem_bins.sh
   ./build_zem_bins.sh --target <os>/<arch>
+  ./build_zem_bins.sh --target <os>/<arch> --out-dir <dir>
   ./build_zem_bins.sh --version <version>
   ./build_zem_bins.sh --all
 
 Examples:
   ./build_zem_bins.sh
   ./build_zem_bins.sh --target darwin/arm64
+  ./build_zem_bins.sh --target linux/amd64 --out-dir /tmp/export/bin
   ./build_zem_bins.sh --version 0.0.1
   ./build_zem_bins.sh --target linux/amd64
   ./build_zem_bins.sh --all
@@ -31,6 +34,7 @@ Notes:
       bin/seqhiker-zem
       bin/seqhiker-zem.exe (on Windows target)
   - --target builds one target and writes canonical bundle filename above.
+  - --out-dir overrides the output directory for the single-target/default build.
   - --all writes multiple artifacts to:
       bin/targets/seqhiker-zem_<os>_<arch>[.exe]
 EOF
@@ -56,6 +60,14 @@ while [[ $# -gt 0 ]]; do
 				exit 1
 			fi
 			VERSION="$2"
+			shift 2
+			;;
+		--out-dir)
+			if [[ $# -lt 2 ]]; then
+				echo "Missing value for --out-dir" >&2
+				exit 1
+			fi
+			CUSTOM_OUT_DIR="$2"
 			shift 2
 			;;
 		-h|--help)
@@ -138,9 +150,15 @@ if [[ -n "${TARGET}" ]]; then
 	fi
 fi
 
+single_out_dir="${OUT_DIR}"
+if [[ -n "${CUSTOM_OUT_DIR}" ]]; then
+	single_out_dir="${CUSTOM_OUT_DIR}"
+fi
+mkdir -p "${single_out_dir}"
+
 out_name="seqhiker-zem"
 if [[ "${host_goos}" == "windows" ]]; then
 	out_name="seqhiker-zem.exe"
 fi
-build_one "${host_goos}" "${host_goarch}" "${OUT_DIR}/${out_name}"
-echo "Done. Bundled binary: ${OUT_DIR}/${out_name}"
+build_one "${host_goos}" "${host_goarch}" "${single_out_dir}/${out_name}"
+echo "Done. Bundled binary: ${single_out_dir}/${out_name}"
