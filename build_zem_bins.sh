@@ -28,11 +28,11 @@ Examples:
 Notes:
   - Default version source is project.godot application/config/version.
   - Default (no args) builds for current host and writes:
-      bin/zem
-      bin/zem.exe (on Windows target)
+      bin/seqhiker-zem
+      bin/seqhiker-zem.exe (on Windows target)
   - --target builds one target and writes canonical bundle filename above.
   - --all writes multiple artifacts to:
-      bin/targets/zem_<os>_<arch>[.exe]
+      bin/targets/seqhiker-zem_<os>_<arch>[.exe]
 EOF
 }
 
@@ -122,7 +122,7 @@ if [[ "${BUILD_ALL}" -eq 1 ]]; then
 		if [[ "${goos}" == "windows" ]]; then
 			ext=".exe"
 		fi
-		out="${TARGETS_DIR}/zem_${goos}_${goarch}${ext}"
+		out="${TARGETS_DIR}/seqhiker-zem_${goos}_${goarch}${ext}"
 		build_one "${goos}" "${goarch}" "${out}"
 	done
 	echo "Done. Artifacts in: ${TARGETS_DIR}"
@@ -138,9 +138,9 @@ if [[ -n "${TARGET}" ]]; then
 	fi
 fi
 
-out_name="zem"
+out_name="seqhiker-zem"
 if [[ "${host_goos}" == "windows" ]]; then
-	out_name="zem.exe"
+	out_name="seqhiker-zem.exe"
 fi
 build_one "${host_goos}" "${host_goarch}" "${OUT_DIR}/${out_name}"
 echo "Done. Bundled binary: ${OUT_DIR}/${out_name}"

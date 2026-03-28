@@ -70,7 +70,12 @@ func ensure_local_zem_installed() -> bool:
 	_local_zem_path = target_abs
 	var source := _find_zem_source(bin_name)
 	if source.is_empty():
+		var legacy_abs := user_bin_dir_abs.path_join(_legacy_zem_binary_name())
 		if FileAccess.file_exists(target_abs):
+			_last_connect_error = ""
+			return true
+		if FileAccess.file_exists(legacy_abs):
+			_local_zem_path = legacy_abs
 			_last_connect_error = ""
 			return true
 		_last_connect_error = "No bundled zem found at res://bin/%s" % bin_name
@@ -143,9 +148,15 @@ func _find_zem_source(bin_name: String) -> String:
 	var packaged := "res://bin/%s" % bin_name
 	if FileAccess.file_exists(packaged):
 		return packaged
+	var packaged_legacy := "res://bin/%s" % _legacy_zem_binary_name()
+	if FileAccess.file_exists(packaged_legacy):
+		return packaged_legacy
 	var dev_abs := ProjectSettings.globalize_path("res://zem/%s" % bin_name)
 	if FileAccess.file_exists(dev_abs):
 		return dev_abs
+	var dev_abs_legacy := ProjectSettings.globalize_path("res://zem/%s" % _legacy_zem_binary_name())
+	if FileAccess.file_exists(dev_abs_legacy):
+		return dev_abs_legacy
 	return ""
 
 func _copy_file_any_to_abs(source: String, target_abs: String) -> bool:
@@ -162,6 +173,11 @@ func _copy_file_any_to_abs(source: String, target_abs: String) -> bool:
 	return true
 
 func _zem_binary_name() -> String:
+	if OS.has_feature("windows"):
+		return "seqhiker-zem.exe"
+	return "seqhiker-zem"
+
+func _legacy_zem_binary_name() -> String:
 	if OS.has_feature("windows"):
 		return "zem.exe"
 	return "zem"
