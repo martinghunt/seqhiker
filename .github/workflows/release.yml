@@ -86,6 +86,7 @@ jobs:
         with:
           name: ${{ matrix.preset }}
           path: ${{ matrix.output }}
+          if-no-files-found: error
 
   export-macos:
     runs-on: macos-latest
@@ -157,6 +158,7 @@ jobs:
         with:
           name: ${{ matrix.preset }}
           path: ${{ matrix.output }}
+          if-no-files-found: error
 
   publish-release:
     runs-on: ubuntu-latest
@@ -175,6 +177,12 @@ jobs:
         with:
           path: release-assets
 
+      - name: Verify downloaded artifacts exist
+        run: |
+          set -euo pipefail
+          test -d release-assets
+          find release-assets -type f | grep -q .
+
       - name: Resolve release title from annotated tag
         id: release_title
         run: |
@@ -192,6 +200,7 @@ jobs:
       - name: Create checksums
         run: |
           set -euo pipefail
+          mkdir -p release-assets
           find release-assets -type f -exec sha256sum {} \; | sed 's#  release-assets/##' > release-assets/SHA256SUMS.txt
 
       - name: Publish GitHub release
