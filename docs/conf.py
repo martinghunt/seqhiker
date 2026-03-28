@@ -20,3 +20,6 @@ exclude_patterns = [
 
 html_theme = "furo"
 html_title = "The Seqhiker's Guide"
+html_static_path = [
+    "_static",
+]

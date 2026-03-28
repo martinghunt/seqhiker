@@ -6,6 +6,20 @@ Currently in beta. It is fairly stable. Feel free to give it a try.
 
 Documentation: https://seqhiker.readthedocs.io/en/
 
+<table>
+  <tr>
+    <td width="50%">
+      <a href="docs/_static/seqhiker_screenshot_1.png">
+        <img src="docs/_static/seqhiker_screenshot_1.png" alt="seqhiker screenshot 1" width="100%">
+      </a>
+    </td>
+    <td width="50%">
+      <a href="docs/_static/seqhiker_screenshot_2.png">
+        <img src="docs/_static/seqhiker_screenshot_2.png" alt="seqhiker screenshot 2" width="100%">
+      </a>
+    </td>
+  </tr>
+</table>
 
 # Quick Start
 

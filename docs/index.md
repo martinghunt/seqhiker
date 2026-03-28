@@ -7,6 +7,23 @@ a try.
 
 This documentation is a quick user guide. Start here if you want to install the app, open your files, and begin exploring a genome.
 
+```{raw} html
+<table>
+  <tr>
+    <td width="50%">
+      <a href="_static/seqhiker_screenshot_1.png">
+        <img src="_static/seqhiker_screenshot_1.png" alt="seqhiker screenshot 1" width="100%">
+      </a>
+    </td>
+    <td width="50%">
+      <a href="_static/seqhiker_screenshot_2.png">
+        <img src="_static/seqhiker_screenshot_2.png" alt="seqhiker screenshot 2" width="100%">
+      </a>
+    </td>
+  </tr>
+</table>
+```
+
 ## Quick start
 
 1. Install the latest release.
