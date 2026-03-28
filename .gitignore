@@ -19,3 +19,4 @@ mono_crash.*.json
 .venv/
 site/
 __pycache__/
+docs/_build/
