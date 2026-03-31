@@ -100,16 +100,16 @@ func TestComparisonBuildsForwardBlocks(t *testing.T) {
 	}
 	found := false
 	for _, block := range blocks {
-		if !block.Summary.SameStrand {
+		if !block.SameStrand {
 			continue
 		}
-		if int(block.Summary.QueryEnd-block.Summary.QueryStart) < 300 {
+		if int(block.QueryEnd-block.QueryStart) < 300 {
 			continue
 		}
-		if int(block.Summary.TargetStart) > 60 {
+		if int(block.TargetStart) > 60 {
 			continue
 		}
-		if int(block.Summary.TargetEnd) < 340 {
+		if int(block.TargetEnd) < 340 {
 			continue
 		}
 		found = true
@@ -141,10 +141,10 @@ func TestComparisonBuildsReverseBlocks(t *testing.T) {
 	}
 	found := false
 	for _, block := range blocks {
-		if block.Summary.SameStrand {
+		if block.SameStrand {
 			continue
 		}
-		if int(block.Summary.QueryEnd-block.Summary.QueryStart) >= 200 {
+		if int(block.QueryEnd-block.QueryStart) >= 200 {
 			found = true
 			break
 		}
@@ -239,16 +239,16 @@ func TestComparisonRepeatsProduceMultipleBlocks(t *testing.T) {
 	foundFirst := false
 	foundSecond := false
 	for _, block := range blocks {
-		if !block.Summary.SameStrand {
+		if !block.SameStrand {
 			continue
 		}
-		if int(block.Summary.QueryEnd-block.Summary.QueryStart) < 250 {
+		if int(block.QueryEnd-block.QueryStart) < 250 {
 			continue
 		}
-		if int(block.Summary.TargetStart) < 50 {
+		if int(block.TargetStart) < 50 {
 			foundFirst = true
 		}
-		if int(block.Summary.TargetStart) > 700 {
+		if int(block.TargetStart) > 700 {
 			foundSecond = true
 		}
 	}
@@ -297,19 +297,13 @@ func TestComparisonSessionRoundTrip(t *testing.T) {
 		Segments: []comparisonSegment{{Name: "chr1", Start: 0, End: 9, FeatureCount: 1}},
 		Features: []Feature{{SeqName: "chr1", Source: "src", Type: "gene", Start: 2, End: 8, Strand: '-', Attributes: "ID=g2"}},
 	}
-	block := comparisonBlockDetail{
-		Summary: ComparisonBlock{
-			QueryStart:       0,
-			QueryEnd:         8,
-			TargetStart:      0,
-			TargetEnd:        9,
-			PercentIdentX100: 7777,
-			SameStrand:       true,
-		},
-		Variants: []comparisonVariant{
-			{Kind: 'X', QueryPos: 2, TargetPos: 2},
-			{Kind: 'I', QueryPos: 4, TargetPos: 4, AltBases: "NN"},
-		},
+	block := ComparisonBlock{
+		QueryStart:       0,
+		QueryEnd:         8,
+		TargetStart:      0,
+		TargetEnd:        9,
+		PercentIdentX100: 7777,
+		SameStrand:       true,
 	}
 
 	e := NewEngine()
@@ -321,7 +315,7 @@ func TestComparisonSessionRoundTrip(t *testing.T) {
 		TopGenomeID:    1,
 		BottomGenomeID: 2,
 		Status:         comparisonStatusReady,
-		Blocks:         []comparisonBlockDetail{block},
+		Blocks:         []ComparisonBlock{block},
 	}
 	e.comparisonPairOrder = []uint16{1}
 	e.nextComparisonGenomeID = 3
@@ -369,8 +363,8 @@ func TestComparisonSessionRoundTrip(t *testing.T) {
 	if len(loaded.comparisonGenomes[1].Features) != 1 {
 		t.Fatalf("expected features to round-trip, got %+v", loaded.comparisonGenomes[1].Features)
 	}
-	if len(loaded.comparisonPairs[1].Blocks[0].Variants) != 2 {
-		t.Fatalf("expected variants to round-trip, got %+v", loaded.comparisonPairs[1].Blocks[0].Variants)
+	if loaded.comparisonPairs[1].Blocks[0].PercentIdentX100 != 7777 {
+		t.Fatalf("expected block summary to round-trip, got %+v", loaded.comparisonPairs[1].Blocks[0])
 	}
 }
 

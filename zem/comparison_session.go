@@ -241,7 +241,7 @@ func writeComparisonPair(w io.Writer, pair *comparisonPair) {
 	writeU8(w, pair.Status)
 	writeU32(w, uint32(len(pair.Blocks)))
 	for _, block := range pair.Blocks {
-		writeComparisonBlockDetail(w, block)
+		writeComparisonBlock(w, block)
 	}
 }
 
@@ -266,9 +266,9 @@ func readComparisonPair(r io.Reader) (*comparisonPair, error) {
 	if err != nil {
 		return nil, err
 	}
-	blocks := make([]comparisonBlockDetail, 0, int(blockCount))
+	blocks := make([]ComparisonBlock, 0, int(blockCount))
 	for i := 0; i < int(blockCount); i++ {
-		block, err := readComparisonBlockDetail(r)
+		block, err := readComparisonBlock(r)
 		if err != nil {
 			return nil, err
 		}
@@ -283,96 +283,51 @@ func readComparisonPair(r io.Reader) (*comparisonPair, error) {
 	}, nil
 }
 
-func writeComparisonBlockDetail(w io.Writer, block comparisonBlockDetail) {
-	writeU32(w, block.Summary.QueryStart)
-	writeU32(w, block.Summary.QueryEnd)
-	writeU32(w, block.Summary.TargetStart)
-	writeU32(w, block.Summary.TargetEnd)
-	writeU16(w, block.Summary.PercentIdentX100)
-	if block.Summary.SameStrand {
+func writeComparisonBlock(w io.Writer, block ComparisonBlock) {
+	writeU32(w, block.QueryStart)
+	writeU32(w, block.QueryEnd)
+	writeU32(w, block.TargetStart)
+	writeU32(w, block.TargetEnd)
+	writeU16(w, block.PercentIdentX100)
+	if block.SameStrand {
 		writeU8(w, 1)
 	} else {
 		writeU8(w, 0)
 	}
-	writeU32(w, uint32(len(block.Variants)))
-	for _, variant := range block.Variants {
-		writeU8(w, variant.Kind)
-		writeU32(w, variant.QueryPos)
-		writeU32(w, variant.TargetPos)
-		writeString(w, variant.RefBases)
-		writeString(w, variant.AltBases)
-	}
 }
 
-func readComparisonBlockDetail(r io.Reader) (comparisonBlockDetail, error) {
+func readComparisonBlock(r io.Reader) (ComparisonBlock, error) {
 	qStart, err := readU32(r)
 	if err != nil {
-		return comparisonBlockDetail{}, err
+		return ComparisonBlock{}, err
 	}
 	qEnd, err := readU32(r)
 	if err != nil {
-		return comparisonBlockDetail{}, err
+		return ComparisonBlock{}, err
 	}
 	tStart, err := readU32(r)
 	if err != nil {
-		return comparisonBlockDetail{}, err
+		return ComparisonBlock{}, err
 	}
 	tEnd, err := readU32(r)
 	if err != nil {
-		return comparisonBlockDetail{}, err
+		return ComparisonBlock{}, err
 	}
 	pid, err := readU16(r)
 	if err != nil {
-		return comparisonBlockDetail{}, err
+		return ComparisonBlock{}, err
 	}
 	sameStrandByte, err := readU8(r)
 	if err != nil {
-		return comparisonBlockDetail{}, err
+		return ComparisonBlock{}, err
 	}
-	variantCount, err := readU32(r)
-	if err != nil {
-		return comparisonBlockDetail{}, err
-	}
-	variants := make([]comparisonVariant, 0, int(variantCount))
-	for i := 0; i < int(variantCount); i++ {
-		kind, err := readU8(r)
-		if err != nil {
-			return comparisonBlockDetail{}, err
-		}
-		qPos, err := readU32(r)
-		if err != nil {
-			return comparisonBlockDetail{}, err
-		}
-		tPos, err := readU32(r)
-		if err != nil {
-			return comparisonBlockDetail{}, err
-		}
-		refBases, err := readString(r)
-		if err != nil {
-			return comparisonBlockDetail{}, err
-		}
-		altBases, err := readString(r)
-		if err != nil {
-			return comparisonBlockDetail{}, err
-		}
-		variants = append(variants, comparisonVariant{
-			Kind:      kind,
-			QueryPos:  qPos,
-			TargetPos: tPos,
-			RefBases:  refBases,
-			AltBases:  altBases,
-		})
-	}
-	return comparisonBlockDetail{
-		Summary: ComparisonBlock{
-			QueryStart:       qStart,
-			QueryEnd:         qEnd,
-			TargetStart:      tStart,
-			TargetEnd:        tEnd,
-			PercentIdentX100: pid,
-			SameStrand:       sameStrandByte != 0,
-		},
-		Variants: variants,
+	return ComparisonBlock{
+		QueryStart:       qStart,
+		QueryEnd:         qEnd,
+		TargetStart:      tStart,
+		TargetEnd:        tEnd,
+		PercentIdentX100: pid,
+		SameStrand:       sameStrandByte != 0,
 	}, nil
 }
 

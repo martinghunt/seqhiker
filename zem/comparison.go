@@ -53,7 +53,7 @@ type comparisonPair struct {
 	TopGenomeID    uint16
 	BottomGenomeID uint16
 	Status         uint8
-	Blocks         []comparisonBlockDetail
+	Blocks         []ComparisonBlock
 }
 
 type minimizerSeed struct {
@@ -238,7 +238,7 @@ func (e *Engine) GetComparisonBlocks(pairID uint16) ([]ComparisonBlock, error) {
 	}
 	out := make([]ComparisonBlock, 0, len(pair.Blocks))
 	for _, block := range pair.Blocks {
-		out = append(out, block.Summary)
+		out = append(out, block)
 	}
 	return out, nil
 }
@@ -247,14 +247,13 @@ func (e *Engine) GetComparisonBlocksByGenomes(queryGenomeID uint16, targetGenome
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	details, storedQueryID, storedTargetID, err := e.getOrBuildComparisonPairLocked(queryGenomeID, targetGenomeID)
+	blocks, storedQueryID, storedTargetID, err := e.getOrBuildComparisonPairLocked(queryGenomeID, targetGenomeID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ComparisonBlock, 0, len(details))
+	out := make([]ComparisonBlock, 0, len(blocks))
 	reverse := storedQueryID != queryGenomeID || storedTargetID != targetGenomeID
-	for _, detail := range details {
-		summary := detail.Summary
+	for _, summary := range blocks {
 		if reverse {
 			summary = swappedComparisonBlock(summary)
 		}
@@ -432,7 +431,7 @@ func (e *Engine) rebuildComparisonPairsLocked() {
 	}
 }
 
-func (e *Engine) getOrBuildComparisonPairLocked(queryGenomeID uint16, targetGenomeID uint16) ([]comparisonBlockDetail, uint16, uint16, error) {
+func (e *Engine) getOrBuildComparisonPairLocked(queryGenomeID uint16, targetGenomeID uint16) ([]ComparisonBlock, uint16, uint16, error) {
 	if queryGenomeID == 0 || targetGenomeID == 0 || queryGenomeID == targetGenomeID {
 		return nil, 0, 0, fmt.Errorf("invalid comparison genome pair %d/%d", queryGenomeID, targetGenomeID)
 	}
@@ -460,8 +459,8 @@ func (e *Engine) getOrBuildComparisonPairLocked(queryGenomeID uint16, targetGeno
 			return pair.Blocks, pair.TopGenomeID, pair.BottomGenomeID, nil
 		}
 	}
-	details := buildComparisonBlocks(query, target)
-	return details, queryGenomeID, targetGenomeID, nil
+	blocks := buildComparisonBlocks(query, target)
+	return blocks, queryGenomeID, targetGenomeID, nil
 }
 
 func swappedComparisonBlock(block ComparisonBlock) ComparisonBlock {
@@ -508,7 +507,7 @@ func buildComparisonBlockDetail(query, target *comparisonGenome, summary Compari
 	return block, true
 }
 
-func buildComparisonBlocks(query, target *comparisonGenome) []comparisonBlockDetail {
+func buildComparisonBlocks(query, target *comparisonGenome) []ComparisonBlock {
 	if query == nil || target == nil || len(query.Sequence) < comparisonMinimizerK || len(target.Sequence) < comparisonMinimizerK {
 		return nil
 	}
@@ -544,25 +543,22 @@ func buildComparisonBlocks(query, target *comparisonGenome) []comparisonBlockDet
 		}
 	}
 
-	blocks := make([]comparisonBlockDetail, 0, 64)
+	blocks := make([]ComparisonBlock, 0, 64)
 	blocks = append(blocks, buildBlocksFromAnchors(sameAnchors, true)...)
 	blocks = append(blocks, buildBlocksFromAnchors(reverseAnchors, false)...)
 	sort.Slice(blocks, func(i, j int) bool {
-		if blocks[i].Summary.QueryStart == blocks[j].Summary.QueryStart {
-			if blocks[i].Summary.QueryEnd == blocks[j].Summary.QueryEnd {
-				return blocks[i].Summary.TargetStart < blocks[j].Summary.TargetStart
+		if blocks[i].QueryStart == blocks[j].QueryStart {
+			if blocks[i].QueryEnd == blocks[j].QueryEnd {
+				return blocks[i].TargetStart < blocks[j].TargetStart
 			}
-			return blocks[i].Summary.QueryEnd < blocks[j].Summary.QueryEnd
+			return blocks[i].QueryEnd < blocks[j].QueryEnd
 		}
-		return blocks[i].Summary.QueryStart < blocks[j].Summary.QueryStart
+		return blocks[i].QueryStart < blocks[j].QueryStart
 	})
-	for i := range blocks {
-		refineComparisonBlock(query, target, &blocks[i])
-	}
 	return blocks
 }
 
-func buildBlocksFromAnchors(anchors []comparisonAnchor, sameStrand bool) []comparisonBlockDetail {
+func buildBlocksFromAnchors(anchors []comparisonAnchor, sameStrand bool) []ComparisonBlock {
 	if len(anchors) == 0 {
 		return nil
 	}
@@ -577,14 +573,14 @@ func buildBlocksFromAnchors(anchors []comparisonAnchor, sameStrand bool) []compa
 		bucketKeys = append(bucketKeys, key)
 	}
 	sort.Ints(bucketKeys)
-	blocks := make([]comparisonBlockDetail, 0, len(anchors)/comparisonMinAnchorCount)
+	blocks := make([]ComparisonBlock, 0, len(anchors)/comparisonMinAnchorCount)
 	for _, key := range bucketKeys {
 		blocks = append(blocks, buildBlocksFromDiagonalBucket(diagBuckets[key], sameStrand)...)
 	}
 	return blocks
 }
 
-func buildBlocksFromDiagonalBucket(anchors []comparisonAnchor, sameStrand bool) []comparisonBlockDetail {
+func buildBlocksFromDiagonalBucket(anchors []comparisonAnchor, sameStrand bool) []ComparisonBlock {
 	if len(anchors) == 0 {
 		return nil
 	}
@@ -632,11 +628,11 @@ func buildBlocksFromDiagonalBucket(anchors []comparisonAnchor, sameStrand bool) 
 		chains = append(chains, current)
 	}
 
-	blocks := make([]comparisonBlockDetail, 0, len(chains))
+	blocks := make([]ComparisonBlock, 0, len(chains))
 	for _, chain := range chains {
 		block := comparisonChainToBlock(chain)
 		if block.QueryEnd > block.QueryStart && block.TargetEnd > block.TargetStart {
-			blocks = append(blocks, comparisonBlockDetail{Summary: block})
+			blocks = append(blocks, block)
 		}
 	}
 	return blocks
