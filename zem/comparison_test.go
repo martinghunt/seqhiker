@@ -540,6 +540,42 @@ func TestComparisonBlocksAreSymmetricAcrossDirection(t *testing.T) {
 	}
 }
 
+func TestComparisonIdenticalGenomesYieldPerfectIdentityBlock(t *testing.T) {
+	e := NewEngine()
+	paths, err := e.GenerateComparisonTestData(t.TempDir())
+	if err != nil {
+		t.Fatalf("GenerateComparisonTestData returned error: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("expected generated comparison test data paths")
+	}
+	info1, err := e.AddComparisonGenome(paths[0])
+	if err != nil {
+		t.Fatalf("AddComparisonGenome(first) returned error: %v", err)
+	}
+	info2, err := e.AddComparisonGenome(paths[0])
+	if err != nil {
+		t.Fatalf("AddComparisonGenome(second) returned error: %v", err)
+	}
+	blocks, err := e.GetComparisonBlocksByGenomes(info1.ID, info2.ID)
+	if err != nil {
+		t.Fatalf("GetComparisonBlocksByGenomes returned error: %v", err)
+	}
+	if len(blocks) == 0 {
+		t.Fatal("expected at least one block for identical loaded genomes")
+	}
+	foundPerfect := false
+	for _, block := range blocks {
+		if block.PercentIdentX100 == 10000 {
+			foundPerfect = true
+			break
+		}
+	}
+	if !foundPerfect {
+		t.Fatalf("expected a 100%% identity block for identical genomes, got %+v", blocks)
+	}
+}
+
 func TestGenerateComparisonTestData(t *testing.T) {
 	e := NewEngine()
 	paths, err := e.GenerateComparisonTestData(t.TempDir())

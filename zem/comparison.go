@@ -729,10 +729,16 @@ func buildComparisonBlocks(query, target *comparisonGenome) []ComparisonBlock {
 	})
 	blocks := make([]ComparisonBlock, 0, len(chains))
 	for _, chain := range chains {
-		if int(chain.Summary.PercentIdentX100) < comparisonMinPercentIdentX100 {
+		summary := chain.Summary
+		if detail, ok := buildComparisonDetailFromRefinedChain(query, target, chain); ok {
+			summary = detail.Summary
+		} else if exactPID, ok := exactComparisonBlockPercentIdentity(query, target, summary); ok {
+			summary.PercentIdentX100 = exactPID
+		}
+		if int(summary.PercentIdentX100) < comparisonMinPercentIdentX100 {
 			continue
 		}
-		blocks = append(blocks, chain.Summary)
+		blocks = append(blocks, summary)
 	}
 	return blocks
 }
@@ -1160,6 +1166,36 @@ func buildComparisonDetailFromRefinedChain(query, target *comparisonGenome, chai
 	}
 	detail.Variants = aln.variantsForBlock(detail.Summary)
 	return detail, true
+}
+
+func exactComparisonBlockPercentIdentity(query, target *comparisonGenome, summary ComparisonBlock) (uint16, bool) {
+	if query == nil || target == nil {
+		return 0, false
+	}
+	qStart := int(summary.QueryStart)
+	qEnd := int(summary.QueryEnd)
+	tStart := int(summary.TargetStart)
+	tEnd := int(summary.TargetEnd)
+	if qStart < 0 || qEnd < qStart || qEnd > len(query.Sequence) {
+		return 0, false
+	}
+	if tStart < 0 || tEnd < tStart || tEnd > len(target.Sequence) {
+		return 0, false
+	}
+	qLen := qEnd - qStart
+	tLen := tEnd - tStart
+	if qLen != tLen {
+		return 0, false
+	}
+	querySeq := query.Sequence[qStart:qEnd]
+	targetSeq, ok := orientedTargetSlice(target, summary.SameStrand, tStart, tEnd)
+	if !ok {
+		return 0, false
+	}
+	if querySeq == targetSeq {
+		return 10000, true
+	}
+	return 0, false
 }
 
 func orientedTargetSlice(target *comparisonGenome, sameStrand bool, start int, end int) (string, bool) {
