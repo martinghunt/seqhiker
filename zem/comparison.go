@@ -20,13 +20,14 @@ const (
 	comparisonMaxSeedHits                = 64
 	comparisonMinAnchorCount             = 3
 	comparisonMinBlockLen                = 100
+	comparisonMinPercentIdentX100        = 5000
 	comparisonMaxAnchorGap               = 20000
 	comparisonMaxDiagonalDrift           = 6000
 	comparisonDiagonalBinSize            = 512
 	comparisonChainMergeGapMaxSpan       = 256
 	comparisonChainMergeOverlapMaxSpan   = 32
 	comparisonChainSplitGapMaxSpan       = 12000
-	comparisonRefineGapMaxSpan           = 2048
+	comparisonRefineGapMaxSpan           = 8192
 	comparisonRefineBandPad              = 96
 	comparisonAffineMatch                = 2
 	comparisonAffineMismatch             = -3
@@ -635,6 +636,9 @@ func buildComparisonBlockDetail(query, target *comparisonGenome, summary Compari
 		return comparisonBlockDetail{}, false
 	}
 	block.Summary.PercentIdentX100 = aln.percentIdentityX100()
+	if int(block.Summary.PercentIdentX100) < comparisonMinPercentIdentX100 {
+		return comparisonBlockDetail{}, false
+	}
 	block.Variants = aln.variantsForBlock(block.Summary)
 	block.Ops = string(aln.Ops)
 	return block, true
@@ -725,6 +729,9 @@ func buildComparisonBlocks(query, target *comparisonGenome) []ComparisonBlock {
 	})
 	blocks := make([]ComparisonBlock, 0, len(chains))
 	for _, chain := range chains {
+		if int(chain.Summary.PercentIdentX100) < comparisonMinPercentIdentX100 {
+			continue
+		}
 		blocks = append(blocks, chain.Summary)
 	}
 	return blocks
@@ -1148,6 +1155,9 @@ func buildComparisonDetailFromRefinedChain(query, target *comparisonGenome, chai
 	}
 	aln := affineAlignment{Ops: ops}
 	detail.Summary.PercentIdentX100 = aln.percentIdentityX100()
+	if int(detail.Summary.PercentIdentX100) < comparisonMinPercentIdentX100 {
+		return comparisonBlockDetail{}, false
+	}
 	detail.Variants = aln.variantsForBlock(detail.Summary)
 	return detail, true
 }

@@ -410,6 +410,19 @@ func TestComparisonHighlyRepetitiveSeedsAreFiltered(t *testing.T) {
 	}
 }
 
+func TestComparisonDropsVeryLowIdentityBlockDetail(t *testing.T) {
+	query := &comparisonGenome{ID: 1, Name: "q", Length: len("AAAAAAAAAAAAAAAA"), Sequence: "AAAAAAAAAAAAAAAA"}
+	target := &comparisonGenome{ID: 2, Name: "t", Length: len("TTTTTTTTTTTTTTTT"), Sequence: "TTTTTTTTTTTTTTTT"}
+	block := ComparisonBlock{
+		QueryStart: 0, QueryEnd: 16,
+		TargetStart: 0, TargetEnd: 16,
+		SameStrand: true,
+	}
+	if _, ok := buildComparisonBlockDetail(query, target, block); ok {
+		t.Fatal("expected sub-50% identity block detail to be rejected")
+	}
+}
+
 func TestComparisonSessionRoundTrip(t *testing.T) {
 	query := &comparisonGenome{
 		ID:       1,
