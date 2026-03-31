@@ -7,10 +7,11 @@ signal drag_started(genome_id: int)
 signal offset_changed(genome_id: int, value: float)
 signal pan_step_requested(genome_id: int, fraction: float)
 
-const ROW_H := 82.0
+const ROW_H := 96.0
 const FEATURE_H := 14.0
 const FEATURE_ROW_GAP := 3.0
 const PAN_STEP_FRAC := 0.75
+const DETAIL_TEXT_MAX_BASES := 2000
 
 @onready var drag_button: Button = $RootHBox/LeftBox/ButtonsRow/DragButton
 @onready var name_label: Label = $RootHBox/LeftBox/NameLabel
@@ -29,6 +30,9 @@ var _syncing := false
 var _scene_ready := false
 var _map_drag_active := false
 var _map_drag_bp_offset := 0.0
+var _reference_start_bp := 0
+var _reference_sequence := ""
+var _colorize_nucleotides := true
 var _theme_colors := {
 	"text": Color.BLACK,
 	"text_muted": Color("666666"),
@@ -84,6 +88,23 @@ func set_view_offset(next_offset: float) -> void:
 	_offset = maxf(0.0, next_offset)
 	_refresh_if_ready()
 
+func set_reference_slice(slice_start: int, sequence: String) -> void:
+	_reference_start_bp = maxi(0, slice_start)
+	_reference_sequence = sequence
+	if _scene_ready:
+		queue_redraw()
+
+func set_colorize_nucleotides(enabled: bool) -> void:
+	_colorize_nucleotides = enabled
+	if _scene_ready:
+		queue_redraw()
+
+func clear_reference_slice() -> void:
+	_reference_start_bp = 0
+	_reference_sequence = ""
+	if _scene_ready:
+		queue_redraw()
+
 func get_genome_id() -> int:
 	return _genome_id
 
@@ -103,7 +124,7 @@ func get_match_band_top_in_parent() -> float:
 	if axis_bar == null:
 		return position.y
 	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
-	var upper_center := minf(_genome_feature_row_center_y(axis_rect, 0), _genome_feature_row_center_y(axis_rect, 1))
+	var upper_center := _forward_feature_center_y(axis_rect)
 	return position.y + upper_center - FEATURE_H * 0.5
 
 
@@ -111,8 +132,28 @@ func get_match_band_bottom_in_parent() -> float:
 	if axis_bar == null:
 		return position.y + size.y
 	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
-	var lower_center := _genome_feature_row_center_y(axis_rect, 2)
+	var lower_center := _reverse_feature_center_y(axis_rect)
 	return position.y + lower_center + FEATURE_H * 0.5
+
+func get_detail_anchor_y_in_parent() -> float:
+	if axis_bar == null:
+		return position.y
+	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
+	return position.y + _nucleotide_center_y(axis_rect)
+
+
+func get_bp_center_x_in_parent(bp: float) -> float:
+	if axis_bar == null:
+		return position.x
+	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
+	return position.x + _bp_center_x(bp, axis_rect)
+
+
+func get_bp_edge_x_in_parent(bp: float) -> float:
+	if axis_bar == null:
+		return position.x
+	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
+	return position.x + (axis_rect.position.x + ((bp - _offset) / _view_span_bp) * axis_rect.size.x)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED and _scene_ready:
@@ -147,6 +188,7 @@ func _draw() -> void:
 	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
 	_draw_contig_segments(axis_rect)
 	_draw_row_features(axis_rect)
+	_draw_reference_letters(axis_rect)
 	_draw_axis_ticks(axis_rect)
 
 func _draw_contig_segments(axis_rect: Rect2) -> void:
@@ -193,7 +235,7 @@ func _draw_row_features(axis_rect: Rect2) -> void:
 		var row := _feature_to_genome_row(feat)
 		var x0 := axis_rect.position.x + (maxf(feat_start, _offset) - _offset) / _view_span_bp * axis_rect.size.x
 		var x1 := axis_rect.position.x + (minf(feat_end, view_end) - _offset) / _view_span_bp * axis_rect.size.x
-		var center_y := _genome_feature_row_center_y(axis_rect, row)
+		var center_y := _feature_center_y(axis_rect, row)
 		var rect := Rect2(x0, center_y - FEATURE_H * 0.5, maxf(1.5, x1 - x0), FEATURE_H)
 		draw_rect(rect, _theme_colors["feature"], true)
 		var label_x_min := maxf(rect.position.x + 4.0, axis_rect.position.x + 2.0)
@@ -219,15 +261,22 @@ func _draw_axis_ticks(axis_rect: Rect2) -> void:
 	var font_size := maxi(10, get_theme_default_font_size() - 2)
 	var span := maxi(1, view_end - offset)
 	var tick_step := _axis_tick_step(float(span))
-	var baseline := axis_rect.position.y + axis_rect.size.y + font_size + 1.0
+	var axis_line_y := _axis_line_y(axis_rect)
+	var baseline := _axis_label_baseline_y(axis_rect, font, font_size)
+	draw_line(
+		Vector2(axis_rect.position.x, axis_line_y),
+		Vector2(axis_rect.position.x + axis_rect.size.x, axis_line_y),
+		_theme_colors["text_muted"],
+		1.0
+	)
 	var segments: Array = _genome.get("segments", [])
 	if segments.is_empty():
 		var first_tick := int(floor(float(offset) / float(tick_step)) * tick_step)
 		var tick := first_tick
 		while tick <= view_end:
 			if tick >= offset and tick <= genome_len:
-				var x := axis_rect.position.x + (float(tick - offset) / _view_span_bp) * axis_rect.size.x
-				draw_line(Vector2(x, axis_rect.position.y + axis_rect.size.y - 3.0), Vector2(x, axis_rect.position.y + axis_rect.size.y + 2.0), _theme_colors["text_muted"], 1.0)
+				var x := _bp_center_x(float(tick), axis_rect)
+				draw_line(Vector2(x, axis_line_y - 3.0), Vector2(x, axis_line_y + 2.0), _theme_colors["text_muted"], 1.0)
 				var label := _format_bp_label(tick + 1)
 				var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 				draw_string(font, Vector2(x - label_w * 0.5, baseline), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors["text_muted"])
@@ -240,8 +289,8 @@ func _draw_axis_ticks(axis_rect: Rect2) -> void:
 		if seg_end <= offset or seg_start >= view_end:
 			continue
 		if seg_start >= offset and seg_start <= view_end:
-			var start_x := axis_rect.position.x + (float(seg_start - offset) / _view_span_bp) * axis_rect.size.x
-			draw_line(Vector2(start_x, axis_rect.position.y + axis_rect.size.y - 3.0), Vector2(start_x, axis_rect.position.y + axis_rect.size.y + 2.0), _theme_colors["text_muted"], 1.0)
+			var start_x := _bp_center_x(float(seg_start), axis_rect)
+			draw_line(Vector2(start_x, axis_line_y - 3.0), Vector2(start_x, axis_line_y + 2.0), _theme_colors["text_muted"], 1.0)
 			var start_label := _format_bp_label(1)
 			var start_label_w := font.get_string_size(start_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 			draw_string(font, Vector2(start_x - start_label_w * 0.5, baseline), start_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors["text_muted"])
@@ -255,8 +304,8 @@ func _draw_axis_ticks(axis_rect: Rect2) -> void:
 					local_tick += tick_step
 					continue
 				var tick_bp := seg_start + local_tick
-				var x := axis_rect.position.x + (float(tick_bp - offset) / _view_span_bp) * axis_rect.size.x
-				draw_line(Vector2(x, axis_rect.position.y + axis_rect.size.y - 3.0), Vector2(x, axis_rect.position.y + axis_rect.size.y + 2.0), _theme_colors["text_muted"], 1.0)
+				var x := _bp_center_x(float(tick_bp), axis_rect)
+				draw_line(Vector2(x, axis_line_y - 3.0), Vector2(x, axis_line_y + 2.0), _theme_colors["text_muted"], 1.0)
 				var label := _format_bp_label(local_tick + 1)
 				var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 				draw_string(font, Vector2(x - label_w * 0.5, baseline), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors["text_muted"])
@@ -308,24 +357,107 @@ func _set_offset_from_map(next_offset: float) -> void:
 	queue_redraw()
 	emit_signal("offset_changed", _genome_id, next_offset)
 
+func _draw_reference_letters(axis_rect: Rect2) -> void:
+	if _reference_sequence.is_empty():
+		return
+	if not _can_draw_nucleotide_letters(axis_rect):
+		return
+	var base_count := _reference_sequence.length()
+	if base_count <= 0:
+		return
+	var view_start_bp := int(floor(_offset))
+	var view_end_bp := int(ceil(_offset + _view_span_bp))
+	var ref_end_bp := _reference_start_bp + base_count
+	if view_end_bp < _reference_start_bp or view_start_bp > ref_end_bp:
+		return
+	var i_start := maxi(0, view_start_bp - _reference_start_bp)
+	var i_end := mini(base_count - 1, view_end_bp - _reference_start_bp)
+	if i_end < i_start:
+		return
+	if i_end - i_start + 1 > DETAIL_TEXT_MAX_BASES:
+		i_end = i_start + DETAIL_TEXT_MAX_BASES - 1
+	var font := get_theme_default_font()
+	var font_size := maxi(11, get_theme_default_font_size())
+	var fwd_center_y := _nucleotide_center_y(axis_rect)
+	var fwd_baseline := _text_baseline_for_center(fwd_center_y, font, font_size)
+	var base_colors := {
+		"A": Color("2b9348"),
+		"C": Color("1d4ed8"),
+		"G": Color("a16207"),
+		"T": Color("b91c1c"),
+		"N": _theme_colors["text"]
+	}
+	for i in range(i_start, i_end + 1):
+		var bp := _reference_start_bp + i
+		if not _bp_in_segment(bp):
+			continue
+		var base := _reference_sequence.substr(i, 1).to_upper()
+		if base.is_empty():
+			continue
+		var x := _bp_center_x(float(bp), axis_rect)
+		if x < axis_rect.position.x - 8.0 or x > axis_rect.position.x + axis_rect.size.x + 8.0:
+			continue
+		var color: Color = _theme_colors["text"]
+		if _colorize_nucleotides:
+			color = base_colors.get(base, _theme_colors["text"])
+		var text_w := font.get_string_size(base, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		draw_string(font, Vector2(x - text_w * 0.5, fwd_baseline), base, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+
+func _can_draw_nucleotide_letters(axis_rect: Rect2) -> bool:
+	if axis_rect.size.x <= 0.0 or _view_span_bp <= 0.0:
+		return false
+	var font := get_theme_default_font()
+	var font_size := maxi(11, get_theme_default_font_size())
+	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	if char_px <= 0.0:
+		return false
+	var pixels_per_bp := axis_rect.size.x / _view_span_bp
+	return pixels_per_bp >= maxf(4.0, char_px * 0.45)
+
+func _bp_center_x(bp: float, axis_rect: Rect2) -> float:
+	return axis_rect.position.x + ((bp - _offset + 0.5) / _view_span_bp) * axis_rect.size.x
+
+func _bp_in_segment(bp: int) -> bool:
+	var segments: Array = _genome.get("segments", [])
+	if segments.is_empty():
+		return true
+	for segment_any in segments:
+		var segment: Dictionary = segment_any
+		var seg_start := int(segment.get("start", 0))
+		var seg_end := int(segment.get("end", 0))
+		if bp >= seg_start and bp < seg_end:
+			return true
+	return false
+
 func _feature_to_genome_row(feature: Dictionary) -> int:
 	var strand := str(feature.get("strand", "")).strip_edges()
 	if strand == "+":
 		return 0
 	if strand == "-":
 		return 2
-	return 1
+	return 0
 
-func _genome_feature_row_center_y(row_rect: Rect2, row: int) -> float:
-	match row:
-		0:
-			return row_rect.position.y - FEATURE_H * 0.55 - FEATURE_ROW_GAP
-		1:
-			return row_rect.position.y - FEATURE_H * 1.45 - FEATURE_ROW_GAP - 3.0
-		_:
-			if bottom_spacer != null:
-				return bottom_spacer.position.y + bottom_spacer.size.y - FEATURE_H * 0.5 - 3.0
-			return row_rect.position.y + row_rect.size.y + FEATURE_H * 0.5 + 14.0
+func _feature_center_y(row_rect: Rect2, row: int) -> float:
+	if row == 2:
+		return _reverse_feature_center_y(row_rect)
+	return _forward_feature_center_y(row_rect)
+
+func _forward_feature_center_y(row_rect: Rect2) -> float:
+	return row_rect.position.y - FEATURE_ROW_GAP - FEATURE_H * 0.5
+
+func _nucleotide_center_y(row_rect: Rect2) -> float:
+	return row_rect.position.y + row_rect.size.y + 10.0
+
+func _axis_line_y(row_rect: Rect2) -> float:
+	return _nucleotide_center_y(row_rect) + 12.0
+
+func _axis_label_baseline_y(row_rect: Rect2, font: Font, font_size: int) -> float:
+	return _axis_line_y(row_rect) + 2.0 + font.get_ascent(font_size)
+
+func _reverse_feature_center_y(row_rect: Rect2) -> float:
+	var font := get_theme_default_font()
+	var font_size := maxi(10, get_theme_default_font_size() - 2)
+	return _axis_label_baseline_y(row_rect, font, font_size) + 6.0 + FEATURE_H * 0.5
 
 func _is_hidden_full_length_region(feature: Dictionary, genome_len: int) -> bool:
 	var feature_type := str(feature.get("type", "")).to_lower()

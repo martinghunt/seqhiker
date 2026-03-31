@@ -308,6 +308,7 @@ var _settings_view_label: Label
 var _settings_view_box: VBoxContainer
 var _settings_shared_label: Label
 var _settings_shared_box: VBoxContainer
+var _shared_colorize_nucleotides_cb: CheckButton
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -434,6 +435,21 @@ func _setup_settings_sections() -> void:
 
 	if _comparison_controller != null:
 		_comparison_controller.setup_settings(_settings_view_box)
+
+	_shared_colorize_nucleotides_cb = CheckButton.new()
+	_shared_colorize_nucleotides_cb.text = "Color nucleotides by base"
+	_shared_colorize_nucleotides_cb.button_pressed = _colorize_nucleotides
+	_shared_colorize_nucleotides_cb.toggled.connect(_on_colorize_nucleotides_toggled)
+	var insert_at := -1
+	for i in range(_settings_shared_box.get_child_count()):
+		if _settings_shared_box.get_child(i) == ui_font_option:
+			insert_at = i
+			break
+	if insert_at >= 0:
+		_settings_shared_box.add_child(_shared_colorize_nucleotides_cb)
+		_settings_shared_box.move_child(_shared_colorize_nucleotides_cb, insert_at)
+	else:
+		_settings_shared_box.add_child(_shared_colorize_nucleotides_cb)
 
 	_refresh_settings_sections()
 
@@ -1576,6 +1592,8 @@ func _on_show_full_region_toggled(enabled: bool) -> void:
 func _on_colorize_nucleotides_toggled(enabled: bool) -> void:
 	_colorize_nucleotides = enabled
 	genome_view.set_colorize_nucleotides(enabled)
+	if comparison_view != null and comparison_view.has_method("set_colorize_nucleotides"):
+		comparison_view.set_colorize_nucleotides(enabled)
 
 func _on_axis_coords_commas_toggled(enabled: bool) -> void:
 	_axis_coords_with_commas = enabled
@@ -2119,11 +2137,6 @@ func _on_track_settings_requested(track_id: String) -> void:
 		gap_spin.value = _concat_gap_bp
 		_track_settings_box.add_child(gap_label)
 		_track_settings_box.add_child(gap_spin)
-		var colorize_cb := CheckButton.new()
-		colorize_cb.text = "Color nucleotides by base"
-		colorize_cb.button_pressed = _colorize_nucleotides
-		colorize_cb.toggled.connect(_on_colorize_nucleotides_toggled)
-		_track_settings_box.add_child(colorize_cb)
 		var coord_commas_cb := CheckButton.new()
 		coord_commas_cb.text = "Use commas in axis coordinates"
 		coord_commas_cb.button_pressed = _axis_coords_with_commas

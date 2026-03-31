@@ -102,6 +102,20 @@ type ComparisonBlock struct {
 	SameStrand       bool
 }
 
+type ComparisonBlockDetail struct {
+	Block    ComparisonBlock
+	Ops      string
+	Variants []ComparisonVariantInfo
+}
+
+type ComparisonVariantInfo struct {
+	Kind      byte
+	QueryPos  uint32
+	TargetPos uint32
+	RefBases  string
+	AltBases  string
+}
+
 type tileCacheKey struct {
 	Generation uint64
 	SourceID   uint16

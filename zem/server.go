@@ -360,6 +360,36 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		resp, err := engine.GetComparisonAnnotations(genomeID, start, end, maxRecs, minLen)
 		return MsgGetComparisonAnnotations, resp, err
 
+	case MsgGetComparisonReferenceSlice:
+		if len(payload) < 10 {
+			return 0, nil, fmt.Errorf("invalid comparison reference slice payload")
+		}
+		genomeID := binary.LittleEndian.Uint16(payload[0:2])
+		start := binary.LittleEndian.Uint32(payload[2:6])
+		end := binary.LittleEndian.Uint32(payload[6:10])
+		resp, err := engine.GetComparisonReferenceSlice(genomeID, start, end)
+		return MsgGetComparisonReferenceSlice, resp, err
+
+	case MsgGetComparisonBlockDetail:
+		if len(payload) < 21 {
+			return 0, nil, fmt.Errorf("invalid comparison block detail payload")
+		}
+		queryGenomeID := binary.LittleEndian.Uint16(payload[0:2])
+		targetGenomeID := binary.LittleEndian.Uint16(payload[2:4])
+		block := ComparisonBlock{
+			QueryStart:       binary.LittleEndian.Uint32(payload[4:8]),
+			QueryEnd:         binary.LittleEndian.Uint32(payload[8:12]),
+			TargetStart:      binary.LittleEndian.Uint32(payload[12:16]),
+			TargetEnd:        binary.LittleEndian.Uint32(payload[16:20]),
+			SameStrand:       payload[20] != 0,
+			PercentIdentX100: 0,
+		}
+		detail, err := engine.GetComparisonBlockDetail(queryGenomeID, targetGenomeID, block)
+		if err != nil {
+			return 0, nil, err
+		}
+		return MsgGetComparisonBlockDetail, encodeComparisonBlockDetail(detail), nil
+
 	default:
 		return 0, nil, fmt.Errorf("unknown message type %d", msgType)
 	}

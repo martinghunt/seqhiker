@@ -37,6 +37,8 @@ const (
 	MsgLoadComparisonSession        uint16 = 28
 	MsgResetComparisonState         uint16 = 29
 	MsgGenerateComparisonTestData   uint16 = 30
+	MsgGetComparisonReferenceSlice  uint16 = 31
+	MsgGetComparisonBlockDetail     uint16 = 32
 )
 
 type FrameHeader struct {

@@ -4,11 +4,11 @@
 [ext_resource type="Script" uid="uid://kts8ai2ra34p" path="res://scripts/comparison_genome_row.gd" id="2_row"]
 
 [node name="ComparisonGenomeRow" type="Control"]
-custom_minimum_size = Vector2(0, 82)
+custom_minimum_size = Vector2(0, 96)
 layout_mode = 3
 anchors_preset = 0
 offset_right = 300.0
-offset_bottom = 82.0
+offset_bottom = 96.0
 script = ExtResource("2_row")
 
 [node name="RootHBox" type="HBoxContainer" parent="."]
@@ -69,7 +69,7 @@ size_flags_horizontal = 3
 theme_override_constants/separation = 0
 
 [node name="TopSpacer" type="Control" parent="RootHBox/RightBox"]
-custom_minimum_size = Vector2(0, 28)
+custom_minimum_size = Vector2(0, 20)
 layout_mode = 2
 
 [node name="AxisWrap" type="Control" parent="RootHBox/RightBox"]
@@ -95,5 +95,5 @@ grow_vertical = 2
 mouse_filter = 1
 
 [node name="BottomSpacer" type="Control" parent="RootHBox/RightBox"]
-custom_minimum_size = Vector2(0, 38)
+custom_minimum_size = Vector2(0, 56)
 layout_mode = 2

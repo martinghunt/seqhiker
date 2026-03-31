@@ -31,6 +31,8 @@ const MSG_SAVE_COMPARISON_SESSION := 27
 const MSG_LOAD_COMPARISON_SESSION := 28
 const MSG_RESET_COMPARISON_STATE := 29
 const MSG_GENERATE_COMPARISON_TEST_DATA := 30
+const MSG_GET_COMPARISON_REFERENCE_SLICE := 31
+const MSG_GET_COMPARISON_BLOCK_DETAIL := 32
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -380,6 +382,34 @@ func get_comparison_annotations(genome_id: int, start_bp: int, end_bp: int, max_
 	resp["features"] = _parse_annotations(resp.get("payload", PackedByteArray()))
 	return resp
 
+func get_comparison_reference_slice(genome_id: int, start_bp: int, end_bp: int) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(10)
+	payload.encode_u16(0, genome_id)
+	payload.encode_u32(2, start_bp)
+	payload.encode_u32(6, end_bp)
+	var resp := _send_request(MSG_GET_COMPARISON_REFERENCE_SLICE, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["slice"] = _parse_reference_slice(resp.get("payload", PackedByteArray()))
+	return resp
+
+func get_comparison_block_detail(query_genome_id: int, target_genome_id: int, block: Dictionary) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(21)
+	payload.encode_u16(0, query_genome_id)
+	payload.encode_u16(2, target_genome_id)
+	payload.encode_u32(4, int(block.get("query_start", 0)))
+	payload.encode_u32(8, int(block.get("query_end", 0)))
+	payload.encode_u32(12, int(block.get("target_start", 0)))
+	payload.encode_u32(16, int(block.get("target_end", 0)))
+	payload[20] = 1 if bool(block.get("same_strand", true)) else 0
+	var resp := _send_request(MSG_GET_COMPARISON_BLOCK_DETAIL, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["detail"] = _parse_comparison_block_detail(resp.get("payload", PackedByteArray()))
+	return resp
+
 func save_comparison_session(path: String) -> Dictionary:
 	var path_bytes := path.to_utf8_buffer()
 	var payload := PackedByteArray()
@@ -650,6 +680,51 @@ func _parse_comparison_blocks(payload: PackedByteArray) -> Array[Dictionary]:
 		})
 		off += 19
 	return out
+
+func _parse_comparison_block_detail(payload: PackedByteArray) -> Dictionary:
+	if payload.size() < 25:
+		return {}
+	var op_len := int(payload.decode_u32(19))
+	if payload.size() < 23 + op_len + 2:
+		return {}
+	var ops := _decode_wire_text(payload.slice(23, 23 + op_len))
+	var off := 23 + op_len
+	var variant_count := int(payload.decode_u16(off))
+	off += 2
+	var variants: Array[Dictionary] = []
+	for _i in range(variant_count):
+		if off + 13 > payload.size():
+			break
+		var kind := char(payload[off])
+		var query_pos := int(payload.decode_u32(off + 1))
+		var target_pos := int(payload.decode_u32(off + 5))
+		var ref_len := int(payload.decode_u16(off + 9))
+		var alt_len := int(payload.decode_u16(off + 11))
+		off += 13
+		if off + ref_len + alt_len > payload.size():
+			break
+		var ref_bases := _decode_wire_text(payload.slice(off, off + ref_len))
+		off += ref_len
+		var alt_bases := _decode_wire_text(payload.slice(off, off + alt_len))
+		off += alt_len
+		variants.append({
+			"kind": kind,
+			"query_pos": query_pos,
+			"target_pos": target_pos,
+			"ref_bases": ref_bases,
+			"alt_bases": alt_bases
+		})
+	return {
+		"query_start": int(payload.decode_u32(0)),
+		"query_end": int(payload.decode_u32(4)),
+		"target_start": int(payload.decode_u32(8)),
+		"target_end": int(payload.decode_u32(12)),
+		"percent_identity_x100": int(payload.decode_u16(16)),
+		"percent_identity": float(payload.decode_u16(16)) / 100.0,
+		"same_strand": payload[18] != 0,
+		"ops": ops,
+		"variants": variants
+	}
 
 func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []

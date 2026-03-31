@@ -75,6 +75,7 @@ type comparisonChain struct {
 
 type comparisonBlockDetail struct {
 	Summary  ComparisonBlock
+	Ops      string
 	Variants []comparisonVariant
 }
 
@@ -84,6 +85,15 @@ type comparisonVariant struct {
 	TargetPos uint32
 	RefBases  string
 	AltBases  string
+}
+
+func encodeSequenceSlice(start int, end int, slice string) []byte {
+	buf := make([]byte, 12+len(slice))
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(start))
+	binary.LittleEndian.PutUint32(buf[4:8], uint32(end))
+	binary.LittleEndian.PutUint32(buf[8:12], uint32(len(slice)))
+	copy(buf[12:], slice)
+	return buf
 }
 
 func loadGenomeSnapshot(path string) (GenomeSnapshot, bool, error) {
@@ -276,6 +286,46 @@ func (e *Engine) GetComparisonAnnotations(genomeID uint16, start uint32, end uin
 	return encodeAnnotations(int(start), int(end), features), nil
 }
 
+func (e *Engine) GetComparisonReferenceSlice(genomeID uint16, start uint32, end uint32) ([]byte, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	genome := e.comparisonGenomes[genomeID]
+	if genome == nil {
+		return nil, fmt.Errorf("comparison genome %d not found", genomeID)
+	}
+	s := int(start)
+	eIdx := int(end)
+	if eIdx < s {
+		return nil, errors.New("end must be >= start")
+	}
+	if s < 0 {
+		s = 0
+	}
+	if s > len(genome.Sequence) {
+		s = len(genome.Sequence)
+	}
+	if eIdx > len(genome.Sequence) {
+		eIdx = len(genome.Sequence)
+	}
+	return encodeSequenceSlice(s, eIdx, genome.Sequence[s:eIdx]), nil
+}
+
+func (e *Engine) GetComparisonBlockDetail(queryGenomeID uint16, targetGenomeID uint16, block ComparisonBlock) (ComparisonBlockDetail, error) {
+	e.mu.RLock()
+	query := e.comparisonGenomes[queryGenomeID]
+	target := e.comparisonGenomes[targetGenomeID]
+	e.mu.RUnlock()
+	if query == nil || target == nil {
+		return ComparisonBlockDetail{}, fmt.Errorf("comparison genomes %d/%d not loaded", queryGenomeID, targetGenomeID)
+	}
+	detail, ok := buildComparisonBlockDetail(query, target, block)
+	if !ok {
+		return ComparisonBlockDetail{}, fmt.Errorf("unable to refine comparison block")
+	}
+	return detail.info(), nil
+}
+
 func buildComparisonGenome(path string, snapshot GenomeSnapshot) (*comparisonGenome, error) {
 	chrNames := make([]string, 0, len(snapshot.ChromLength))
 	for chr := range snapshot.ChromLength {
@@ -423,6 +473,39 @@ func swappedComparisonBlock(block ComparisonBlock) ComparisonBlock {
 		PercentIdentX100: block.PercentIdentX100,
 		SameStrand:       block.SameStrand,
 	}
+}
+
+func buildComparisonBlockDetail(query, target *comparisonGenome, summary ComparisonBlock) (comparisonBlockDetail, bool) {
+	block := comparisonBlockDetail{Summary: summary}
+	if query == nil || target == nil {
+		return comparisonBlockDetail{}, false
+	}
+	qStart := int(summary.QueryStart)
+	qEnd := int(summary.QueryEnd)
+	tStart := int(summary.TargetStart)
+	tEnd := int(summary.TargetEnd)
+	if qStart < 0 || tStart < 0 || qEnd > len(query.Sequence) || tEnd > len(target.Sequence) || qEnd <= qStart || tEnd <= tStart {
+		return comparisonBlockDetail{}, false
+	}
+	qSpan := qEnd - qStart
+	tSpan := tEnd - tStart
+	if max(qSpan, tSpan) > comparisonRefineMaxSpan {
+		return comparisonBlockDetail{}, false
+	}
+	querySeq := query.Sequence[qStart:qEnd]
+	targetSeq := target.Sequence[tStart:tEnd]
+	if !summary.SameStrand {
+		targetSeq = reverseComplementString(targetSeq)
+	}
+	band := absInt(qSpan-tSpan) + comparisonRefineBandPad
+	aln, ok := bandedAffineAlign(querySeq, targetSeq, band)
+	if !ok {
+		return comparisonBlockDetail{}, false
+	}
+	block.Summary.PercentIdentX100 = aln.percentIdentityX100()
+	block.Variants = aln.variantsForBlock(block.Summary)
+	block.Ops = string(aln.Ops)
+	return block, true
 }
 
 func buildComparisonBlocks(query, target *comparisonGenome) []comparisonBlockDetail {
@@ -665,32 +748,11 @@ func refineComparisonBlock(query, target *comparisonGenome, block *comparisonBlo
 	if query == nil || target == nil || block == nil {
 		return
 	}
-	summary := block.Summary
-	qStart := int(summary.QueryStart)
-	qEnd := int(summary.QueryEnd)
-	tStart := int(summary.TargetStart)
-	tEnd := int(summary.TargetEnd)
-	if qStart < 0 || tStart < 0 || qEnd > len(query.Sequence) || tEnd > len(target.Sequence) || qEnd <= qStart || tEnd <= tStart {
-		return
-	}
-	qSpan := qEnd - qStart
-	tSpan := tEnd - tStart
-	if max(qSpan, tSpan) > comparisonRefineMaxSpan {
-		return
-	}
-	querySeq := query.Sequence[qStart:qEnd]
-	targetSeq := target.Sequence[tStart:tEnd]
-	if !summary.SameStrand {
-		targetSeq = reverseComplementString(targetSeq)
-	}
-	band := absInt(qSpan-tSpan) + comparisonRefineBandPad
-	aln, ok := bandedAffineAlign(querySeq, targetSeq, band)
+	refined, ok := buildComparisonBlockDetail(query, target, block.Summary)
 	if !ok {
 		return
 	}
-	summary.PercentIdentX100 = aln.percentIdentityX100()
-	block.Summary = summary
-	block.Variants = aln.variantsForBlock(summary)
+	*block = refined
 }
 
 type affineAlignment struct {
@@ -729,6 +791,9 @@ func (a affineAlignment) variantsForBlock(summary ComparisonBlock) []comparisonV
 	var out []comparisonVariant
 	qPos := int(summary.QueryStart)
 	tPos := int(summary.TargetStart)
+	if !summary.SameStrand {
+		tPos = int(summary.TargetEnd) - 1
+	}
 	for i := 0; i < len(a.Ops); {
 		op := a.Ops[i]
 		j := i + 1
@@ -742,7 +807,7 @@ func (a affineAlignment) variantsForBlock(summary ComparisonBlock) []comparisonV
 			if summary.SameStrand {
 				tPos += runLen
 			} else {
-				tPos = max(int(summary.TargetStart), tPos-runLen)
+				tPos -= runLen
 			}
 		case 'X':
 			for k := 0; k < runLen; k++ {
@@ -782,6 +847,24 @@ func (a affineAlignment) variantsForBlock(summary ComparisonBlock) []comparisonV
 		i = j
 	}
 	return out
+}
+
+func (d comparisonBlockDetail) info() ComparisonBlockDetail {
+	variants := make([]ComparisonVariantInfo, 0, len(d.Variants))
+	for _, v := range d.Variants {
+		variants = append(variants, ComparisonVariantInfo{
+			Kind:      v.Kind,
+			QueryPos:  v.QueryPos,
+			TargetPos: v.TargetPos,
+			RefBases:  v.RefBases,
+			AltBases:  v.AltBases,
+		})
+	}
+	return ComparisonBlockDetail{
+		Block:    d.Summary,
+		Ops:      d.Ops,
+		Variants: variants,
+	}
 }
 
 func bandedAffineAlign(query, target string, band int) (affineAlignment, bool) {
@@ -1107,6 +1190,40 @@ func encodeComparisonBlocks(blocks []ComparisonBlock) []byte {
 			buf[off+18] = 1
 		}
 		off += 19
+	}
+	return buf
+}
+
+func encodeComparisonBlockDetail(detail ComparisonBlockDetail) []byte {
+	total := 23 + len(detail.Ops) + 2
+	for _, variant := range detail.Variants {
+		total += 13 + len(variant.RefBases) + len(variant.AltBases)
+	}
+	buf := make([]byte, total)
+	binary.LittleEndian.PutUint32(buf[0:4], detail.Block.QueryStart)
+	binary.LittleEndian.PutUint32(buf[4:8], detail.Block.QueryEnd)
+	binary.LittleEndian.PutUint32(buf[8:12], detail.Block.TargetStart)
+	binary.LittleEndian.PutUint32(buf[12:16], detail.Block.TargetEnd)
+	binary.LittleEndian.PutUint16(buf[16:18], detail.Block.PercentIdentX100)
+	if detail.Block.SameStrand {
+		buf[18] = 1
+	}
+	binary.LittleEndian.PutUint32(buf[19:23], uint32(len(detail.Ops)))
+	copy(buf[23:23+len(detail.Ops)], detail.Ops)
+	off := 23 + len(detail.Ops)
+	binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(detail.Variants)))
+	off += 2
+	for _, variant := range detail.Variants {
+		buf[off] = variant.Kind
+		binary.LittleEndian.PutUint32(buf[off+1:off+5], variant.QueryPos)
+		binary.LittleEndian.PutUint32(buf[off+5:off+9], variant.TargetPos)
+		binary.LittleEndian.PutUint16(buf[off+9:off+11], uint16(len(variant.RefBases)))
+		binary.LittleEndian.PutUint16(buf[off+11:off+13], uint16(len(variant.AltBases)))
+		off += 13
+		copy(buf[off:off+len(variant.RefBases)], variant.RefBases)
+		off += len(variant.RefBases)
+		copy(buf[off:off+len(variant.AltBases)], variant.AltBases)
+		off += len(variant.AltBases)
 	}
 	return buf
 }

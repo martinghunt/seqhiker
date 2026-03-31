@@ -4,22 +4,29 @@ class_name ComparisonView
 signal genome_order_changed(order: PackedInt32Array)
 signal comparison_match_selected(match: Dictionary, was_double_click: bool)
 signal comparison_match_cleared()
+signal detail_requested(request: Dictionary)
 
 const ROW_SCENE = preload("res://scenes/ComparisonGenomeRow.tscn")
-const ROW_H := 82.0
+const ROW_H := 96.0
 const TOP_PAD := 6.0
 const BOTTOM_PAD := 2.0
 const MIN_MATCH_BAND_H := 40.0
+const DETAIL_MATCH_BAND_H := 18.0
 const MATCH_PAD_Y := 2.0
 const LOCK_BTN_SIZE := Vector2(30.0, 30.0)
 const LOCK_BTN_X := 18.0
 const MIN_VIEW_SPAN_BP := 50.0
 const DEFAULT_VIEW_SPAN_BP := 10000.0
+const DETAIL_MAX_BLOCKS_PER_PAIR := 24
 
 var _genomes_by_id := {}
 var _order := PackedInt32Array()
 var _offsets := {}
 var _pair_blocks := {}
+var _detail_blocks := {}
+var _reference_slices := {}
+var _detail_request_pending := false
+var _colorize_nucleotides := true
 var _rows := {}
 var _lock_buttons := {}
 var _pair_locks := {}
@@ -56,7 +63,8 @@ var _theme_colors := {
 	"feature_text": Color("1e3557"),
 	"same_strand": Color("cb4934"),
 	"opp_strand": Color("2c7fb8"),
-	"selection_outline": Color.BLACK
+	"selection_outline": Color.BLACK,
+	"snp": Color("f59e0b")
 }
 
 
@@ -80,6 +88,9 @@ func clear_view() -> void:
 	_order = PackedInt32Array()
 	_offsets.clear()
 	_pair_blocks.clear()
+	_detail_blocks.clear()
+	_reference_slices.clear()
+	_detail_request_pending = false
 	_pair_locks.clear()
 	_drawn_match_hitboxes.clear()
 	_selected_match_key = ""
@@ -105,6 +116,7 @@ func set_theme_colors(next_colors: Dictionary) -> void:
 	for row_any in _rows.values():
 		var row = row_any
 		row.set_theme_colors(_theme_colors)
+		row.set_colorize_nucleotides(_colorize_nucleotides)
 	for btn_any in _lock_buttons.values():
 		var btn: Button = btn_any
 		btn.queue_redraw()
@@ -149,6 +161,10 @@ func set_zoom_span_bp(next_span: float) -> void:
 		_offsets[int(genome_id)] = next_offset
 		row.set_view_span_bp(_view_span_bp)
 		row.set_view_offset(next_offset)
+		var slice_data: Dictionary = _reference_slices.get(int(genome_id), {})
+		if not slice_data.is_empty():
+			row.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
+	_schedule_detail_request()
 	queue_redraw()
 
 
@@ -164,6 +180,9 @@ func reset_view_to_full_genomes() -> void:
 			continue
 		row.set_view_span_bp(_view_span_bp)
 		row.set_view_offset(0.0)
+		row.clear_reference_slice()
+	_reference_slices.clear()
+	_schedule_detail_request()
 	queue_redraw()
 
 
@@ -248,6 +267,7 @@ func set_genomes(genomes: Array) -> void:
 		reset_view_to_full_genomes()
 	_layout_rows_and_locks()
 	_schedule_post_layout_refresh()
+	_schedule_detail_request()
 	emit_signal("genome_order_changed", _order)
 	queue_redraw()
 
@@ -258,6 +278,24 @@ func set_pair_blocks(query_genome_id: int, target_genome_id: int, blocks: Array)
 		"target_id": target_genome_id,
 		"blocks": blocks.duplicate(true)
 	}
+	_schedule_detail_request()
+	queue_redraw()
+
+func set_colorize_nucleotides(enabled: bool) -> void:
+	_colorize_nucleotides = enabled
+	for row_any in _rows.values():
+		var row = row_any
+		row.set_colorize_nucleotides(enabled)
+	queue_redraw()
+
+func set_reference_slice(genome_id: int, slice_data: Dictionary) -> void:
+	_reference_slices[genome_id] = slice_data.duplicate(true)
+	var row = _rows.get(genome_id)
+	if row != null:
+		row.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
+
+func set_block_detail(query_genome_id: int, target_genome_id: int, block: Dictionary, detail: Dictionary) -> void:
+	_detail_blocks[_detail_block_key(query_genome_id, target_genome_id, block)] = detail.duplicate(true)
 	queue_redraw()
 
 
@@ -421,10 +459,30 @@ func _draw() -> void:
 			continue
 		var top_y: float = top_row.get_match_band_bottom_in_parent() + MATCH_PAD_Y
 		var bottom_y: float = bottom_row.get_match_band_top_in_parent() - MATCH_PAD_Y
+		var detail_top_y: float = top_row.get_detail_anchor_y_in_parent()
+		var detail_bottom_y: float = bottom_row.get_detail_anchor_y_in_parent()
 		if bottom_y <= top_y:
 			continue
 		for block_any in _display_blocks_for_pair(top_id, bottom_id):
 			var block: Dictionary = block_any
+			if _detail_mode_active() and _has_block_detail(top_id, bottom_id, block):
+				var detail_fill := _block_color(block)
+				if bool(block.get("same_strand", true)):
+					var detail_poly := _project_block_polygon(block, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y)
+					if not detail_poly.is_empty():
+						detail_poly = _clip_polygon_x(detail_poly, x_min, x_max)
+						if detail_poly.size() >= 3:
+							draw_colored_polygon(detail_poly, detail_fill)
+							var detail_closed := detail_poly.duplicate()
+							detail_closed.append(detail_closed[0])
+							draw_polyline(detail_closed, detail_fill.darkened(0.18), 1.0)
+							_register_match_hitbox(block, top_id, bottom_id, detail_poly)
+							if _match_key_for_display_block(block, top_id, bottom_id) == _selected_match_key:
+								draw_polyline(detail_closed, _theme_colors["selection_outline"], 2.0)
+				else:
+					_draw_reverse_block(block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, detail_fill)
+				_draw_detail_block(block, top_id, bottom_id, top_axis, bottom_axis, detail_top_y, detail_bottom_y)
+				continue
 			var fill := _block_color(block)
 			if bool(block.get("same_strand", true)):
 				var poly := _project_block_polygon(block, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y)
@@ -457,7 +515,11 @@ func _sync_row_instances() -> void:
 			add_child(row)
 		row.visible = true
 		row.set_theme_colors(_theme_colors)
+		row.set_colorize_nucleotides(_colorize_nucleotides)
 		row.configure_row(genome, float(_offsets.get(int(genome_id), 0.0)), _view_span_bp)
+		var slice_data: Dictionary = _reference_slices.get(int(genome_id), {})
+		if not slice_data.is_empty():
+			row.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
 		_rows[int(genome_id)] = row
 		keep[int(genome_id)] = true
 	for genome_id_any in _rows.keys():
@@ -501,6 +563,10 @@ func _apply_post_layout_refresh() -> void:
 			continue
 		row.set_view_span_bp(_view_span_bp)
 		row.set_view_offset(float(_offsets.get(int(genome_id), 0.0)))
+		var slice_data: Dictionary = _reference_slices.get(int(genome_id), {})
+		if not slice_data.is_empty():
+			row.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
+	_schedule_detail_request()
 	queue_redraw()
 
 
@@ -532,6 +598,10 @@ func _set_row_offset_animated(genome_id: int, value: float) -> void:
 	var row = _rows.get(genome_id)
 	if row != null:
 		row.set_view_offset(value)
+		var slice_data: Dictionary = _reference_slices.get(genome_id, {})
+		if not slice_data.is_empty():
+			row.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
+	_schedule_detail_request()
 	queue_redraw()
 
 
@@ -638,6 +708,121 @@ func _segment_match_for_interval(genome: Dictionary, start_bp: int, end_bp: int)
 	}
 
 
+func _schedule_detail_request() -> void:
+	if _detail_request_pending:
+		return
+	_detail_request_pending = true
+	call_deferred("_emit_detail_request_if_needed")
+
+
+func _emit_detail_request_if_needed() -> void:
+	_detail_request_pending = false
+	if not visible:
+		return
+	if not _detail_mode_active():
+		for row_any in _rows.values():
+			var row = row_any
+			row.clear_reference_slice()
+		return
+	var genomes: Array[Dictionary] = []
+	var blocks: Array[Dictionary] = []
+	for genome_id in _order:
+		var genome: Dictionary = _genomes_by_id.get(int(genome_id), {})
+		if genome.is_empty():
+			continue
+		var genome_len := int(genome.get("length", 0))
+		var start_bp := clampi(int(floor(float(_offsets.get(int(genome_id), 0.0)))), 0, genome_len)
+		var end_bp := clampi(int(ceil(float(_offsets.get(int(genome_id), 0.0)) + _view_span_bp)), 0, genome_len)
+		genomes.append({"genome_id": int(genome_id), "start_bp": start_bp, "end_bp": end_bp})
+	for idx in range(_order.size() - 1):
+		var top_id := int(_order[idx])
+		var bottom_id := int(_order[idx + 1])
+		var visible_blocks: Array = _display_blocks_for_pair(top_id, bottom_id)
+		for i in range(mini(DETAIL_MAX_BLOCKS_PER_PAIR, visible_blocks.size())):
+			blocks.append({
+				"query_genome_id": top_id,
+				"target_genome_id": bottom_id,
+				"block": visible_blocks[i].duplicate(true)
+			})
+	emit_signal("detail_requested", {"genomes": genomes, "blocks": blocks})
+
+
+func _detail_mode_active() -> bool:
+	if _order.is_empty():
+		return false
+	var row = _rows.get(int(_order[0]))
+	if row == null:
+		return false
+	var axis_rect: Rect2 = row.get_axis_rect_in_parent()
+	if axis_rect.size.x <= 0.0 or _view_span_bp <= 0.0:
+		return false
+	var font := get_theme_default_font()
+	var font_size := maxi(11, get_theme_default_font_size())
+	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	if char_px <= 0.0:
+		return false
+	var pixels_per_bp := axis_rect.size.x / _view_span_bp
+	return pixels_per_bp >= maxf(4.0, char_px * 0.45)
+
+
+func _detail_block_key(query_genome_id: int, target_genome_id: int, block: Dictionary) -> String:
+	return "%d:%d:%d:%d:%d:%d:%d" % [
+		query_genome_id,
+		target_genome_id,
+		int(block.get("query_start", 0)),
+		int(block.get("query_end", 0)),
+		int(block.get("target_start", 0)),
+		int(block.get("target_end", 0)),
+		1 if bool(block.get("same_strand", true)) else 0
+	]
+
+
+func _has_block_detail(query_genome_id: int, target_genome_id: int, block: Dictionary) -> bool:
+	return _detail_blocks.has(_detail_block_key(query_genome_id, target_genome_id, block))
+
+
+func _draw_detail_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float) -> void:
+	var detail: Dictionary = _detail_blocks.get(_detail_block_key(top_genome_id, bottom_genome_id, block), {})
+	if detail.is_empty():
+		return
+	var ops := str(detail.get("ops", ""))
+	if ops.is_empty():
+		return
+	var top_row = _rows.get(top_genome_id)
+	var bottom_row = _rows.get(bottom_genome_id)
+	if top_row == null or bottom_row == null:
+		return
+	var q_pos := int(detail.get("query_start", 0))
+	var t_pos := int(detail.get("target_start", 0))
+	var same := bool(detail.get("same_strand", true))
+	if not same:
+		t_pos = int(detail.get("target_end", 0)) - 1
+	var match_color: Color = _theme_colors["selection_outline"]
+	match_color.a = 1.0
+	var snp_color: Color = _theme_colors.get("snp", Color("f59e0b"))
+	var line_width := 1.0
+	var x_tolerance := 8.0
+	for i in range(ops.length()):
+		var op := ops.substr(i, 1)
+		match op:
+			"M", "X":
+				var qx := float(top_row.get_bp_center_x_in_parent(float(q_pos)))
+				var tx := float(bottom_row.get_bp_center_x_in_parent(float(t_pos)))
+				if _x_within_axis(qx, top_axis, x_tolerance) and _x_within_axis(tx, bottom_axis, x_tolerance):
+					draw_line(
+						Vector2(qx, top_y),
+						Vector2(tx, bottom_y),
+						snp_color if op == "X" else match_color,
+						line_width
+					)
+				q_pos += 1
+				t_pos += 1 if same else -1
+			"I":
+				q_pos += 1
+			"D":
+				t_pos += 1 if same else -1
+
+
 func _focus_match_left(payload: Dictionary) -> void:
 	var left_frac := 0.06
 	var query_start := float(payload.get("query_start", 0))
@@ -742,6 +927,10 @@ func _pan_all_by_pixels(delta_x: float, animated: bool = true) -> void:
 		var row2 = _rows.get(int(genome_id))
 		if row2 != null:
 			row2.set_view_offset(next_offset)
+			var slice_data: Dictionary = _reference_slices.get(int(genome_id), {})
+			if not slice_data.is_empty():
+				row2.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
+	_schedule_detail_request()
 	queue_redraw()
 
 
@@ -794,6 +983,10 @@ func _set_zoom_span_animated(span_value: float, anchors: Dictionary, anchor_x: f
 		if row != null:
 			row.set_view_span_bp(_view_span_bp)
 			row.set_view_offset(next_offset)
+			var slice_data: Dictionary = _reference_slices.get(int(genome_id), {})
+			if not slice_data.is_empty():
+				row.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
+	_schedule_detail_request()
 	queue_redraw()
 
 
@@ -899,10 +1092,10 @@ func _visible_blocks_for_pair(blocks: Array, top_genome_id: int, bottom_genome_i
 
 
 func _project_block_polygon(block: Dictionary, top_offset: float, bottom_offset: float, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float) -> PackedVector2Array:
-	var q0 := top_axis.position.x + ((float(block.get("query_start", 0)) - top_offset) / _view_span_bp) * top_axis.size.x
-	var q1 := top_axis.position.x + ((float(block.get("query_end", 0)) - top_offset) / _view_span_bp) * top_axis.size.x
-	var t0 := bottom_axis.position.x + ((float(block.get("target_start", 0)) - bottom_offset) / _view_span_bp) * bottom_axis.size.x
-	var t1 := bottom_axis.position.x + ((float(block.get("target_end", 0)) - bottom_offset) / _view_span_bp) * bottom_axis.size.x
+	var q0 := _bp_edge_x(float(block.get("query_start", 0)), top_offset, top_axis)
+	var q1 := _bp_edge_x(float(block.get("query_end", 0)), top_offset, top_axis)
+	var t0 := _bp_edge_x(float(block.get("target_start", 0)), bottom_offset, bottom_axis)
+	var t1 := _bp_edge_x(float(block.get("target_end", 0)), bottom_offset, bottom_axis)
 	var poly := PackedVector2Array()
 	poly.append(Vector2(q0, top_y))
 	poly.append(Vector2(q1, top_y))
@@ -916,10 +1109,10 @@ func _project_block_polygon(block: Dictionary, top_offset: float, bottom_offset:
 
 
 func _draw_reverse_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int, top_offset: float, bottom_offset: float, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float, x_min: float, x_max: float, fill: Color) -> void:
-	var q0 := top_axis.position.x + ((float(block.get("query_start", 0)) - top_offset) / _view_span_bp) * top_axis.size.x
-	var q1 := top_axis.position.x + ((float(block.get("query_end", 0)) - top_offset) / _view_span_bp) * top_axis.size.x
-	var t0 := bottom_axis.position.x + ((float(block.get("target_start", 0)) - bottom_offset) / _view_span_bp) * bottom_axis.size.x
-	var t1 := bottom_axis.position.x + ((float(block.get("target_end", 0)) - bottom_offset) / _view_span_bp) * bottom_axis.size.x
+	var q0 := _bp_edge_x(float(block.get("query_start", 0)), top_offset, top_axis)
+	var q1 := _bp_edge_x(float(block.get("query_end", 0)), top_offset, top_axis)
+	var t0 := _bp_edge_x(float(block.get("target_start", 0)), bottom_offset, bottom_axis)
+	var t1 := _bp_edge_x(float(block.get("target_end", 0)), bottom_offset, bottom_axis)
 	var cross := _line_intersection(Vector2(q0, top_y), Vector2(t1, bottom_y), Vector2(q1, top_y), Vector2(t0, bottom_y))
 	var top_tri := PackedVector2Array([Vector2(q0, top_y), Vector2(q1, top_y), cross])
 	var bottom_tri := PackedVector2Array([Vector2(t0, bottom_y), Vector2(t1, bottom_y), cross])
@@ -957,6 +1150,24 @@ func _block_color(block: Dictionary) -> Color:
 	var pct := clampf(float(block.get("percent_identity", 0.0)), 0.0, 100.0) / 100.0
 	base.a = lerpf(0.18, 0.82, pct)
 	return base
+
+
+func _bp_edge_x(bp: float, offset: float, axis_rect: Rect2) -> float:
+	return axis_rect.position.x + ((bp - offset) / _view_span_bp) * axis_rect.size.x
+
+
+func _bp_center_x(bp: float, offset: float, axis_rect: Rect2) -> float:
+	return axis_rect.position.x + ((bp - offset + 0.5) / _view_span_bp) * axis_rect.size.x
+
+
+func _pixels_per_bp(axis_rect: Rect2) -> float:
+	if _view_span_bp <= 0.0:
+		return 0.0
+	return axis_rect.size.x / _view_span_bp
+
+
+func _x_within_axis(x: float, axis_rect: Rect2, tolerance: float = 0.0) -> bool:
+	return x >= axis_rect.position.x - tolerance and x <= axis_rect.position.x + axis_rect.size.x + tolerance
 
 
 func _clip_polygon_x(poly: PackedVector2Array, x_min: float, x_max: float) -> PackedVector2Array:
@@ -1015,6 +1226,7 @@ func _on_row_offset_changed(genome_id: int, value: float) -> void:
 	_offsets[genome_id] = value
 	if absf(value - previous) > 0.000001:
 		_propagate_locked_offsets(genome_id, value - previous)
+	_schedule_detail_request()
 	queue_redraw()
 
 
@@ -1130,6 +1342,8 @@ func _draw_drag_indicator() -> void:
 func _match_band_height() -> float:
 	if _order.size() <= 1:
 		return MIN_MATCH_BAND_H
+	if _detail_mode_active():
+		return DETAIL_MATCH_BAND_H
 	var free_h := maxf(0.0, size.y - TOP_PAD - BOTTOM_PAD - ROW_H * float(_order.size()))
 	return maxf(MIN_MATCH_BAND_H, free_h / float(_order.size() - 1))
 

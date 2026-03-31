@@ -8,6 +8,8 @@ var comparison_view: Control = null
 
 var _comparison_genomes: Array[Dictionary] = []
 var _comparison_pair_cache := {}
+var _comparison_detail_cache := {}
+var _comparison_reference_cache := {}
 var _comparison_block_cap_label: Label
 var _comparison_block_cap_spin: SpinBox
 var _min_block_len_label: Label
@@ -38,6 +40,8 @@ func setup() -> void:
 		comparison_view.comparison_match_selected.connect(_on_comparison_match_selected)
 	if comparison_view.has_signal("comparison_match_cleared") and not comparison_view.comparison_match_cleared.is_connected(_on_comparison_match_cleared):
 		comparison_view.comparison_match_cleared.connect(_on_comparison_match_cleared)
+	if comparison_view.has_signal("detail_requested") and not comparison_view.detail_requested.is_connected(_on_detail_requested):
+		comparison_view.detail_requested.connect(_on_detail_requested)
 
 func has_genomes() -> bool:
 	return not _comparison_genomes.is_empty()
@@ -165,7 +169,8 @@ func refresh_view(theme_name: String) -> void:
 			"feature_text": palette.get("feature_text", Color("1e3557")),
 			"same_strand": palette.get("comparison_same_strand", Color("cb4934")),
 			"opp_strand": palette.get("comparison_opp_strand", Color("2c7fb8")),
-			"selection_outline": palette.get("text", Color.BLACK)
+			"selection_outline": palette.get("text", Color.BLACK),
+			"snp": palette.get("snp", Color("f59e0b"))
 		})
 	if comparison_view.has_method("set_genomes"):
 		comparison_view.set_genomes(_comparison_genomes)
@@ -225,6 +230,8 @@ func load_session(path: String) -> bool:
 		host._set_status("Comparison load failed: %s" % str(resp.get("error", "error")), true)
 		return false
 	_comparison_pair_cache.clear()
+	_comparison_detail_cache.clear()
+	_comparison_reference_cache.clear()
 	_comparison_genomes.clear()
 	if comparison_view != null and comparison_view.has_method("clear_view"):
 		comparison_view.clear_view()
@@ -248,6 +255,8 @@ func clear_state() -> bool:
 		host._set_status("Comparison reset failed: %s" % str(resp.get("error", "error")), true)
 		return false
 	_comparison_pair_cache.clear()
+	_comparison_detail_cache.clear()
+	_comparison_reference_cache.clear()
 	_comparison_genomes.clear()
 	if comparison_view != null and comparison_view.has_method("clear_view"):
 		comparison_view.clear_view()
@@ -330,3 +339,69 @@ func _on_comparison_match_selected(match: Dictionary, was_double_click: bool) ->
 func _on_comparison_match_cleared() -> void:
 	if host != null and host.has_method("_on_comparison_match_cleared"):
 		host._on_comparison_match_cleared()
+
+
+func _on_detail_requested(request: Dictionary) -> void:
+	if comparison_view == null:
+		return
+	for genome_any in request.get("genomes", []):
+		var genome_req: Dictionary = genome_any
+		var genome_id := int(genome_req.get("genome_id", -1))
+		if genome_id < 0:
+			continue
+		var start_bp := int(genome_req.get("start_bp", 0))
+		var end_bp := int(genome_req.get("end_bp", 0))
+		var slice_data: Dictionary = _reference_slice_for_window(genome_id, start_bp, end_bp)
+		if slice_data.is_empty():
+			continue
+		comparison_view.set_reference_slice(genome_id, slice_data)
+	for block_any in request.get("blocks", []):
+		var block_req: Dictionary = block_any
+		var query_genome_id := int(block_req.get("query_genome_id", -1))
+		var target_genome_id := int(block_req.get("target_genome_id", -1))
+		var block: Dictionary = block_req.get("block", {})
+		if query_genome_id < 0 or target_genome_id < 0 or block.is_empty():
+			continue
+		var cache_key := "%d:%d:%d:%d:%d:%d:%d" % [
+			query_genome_id,
+			target_genome_id,
+			int(block.get("query_start", 0)),
+			int(block.get("query_end", 0)),
+			int(block.get("target_start", 0)),
+			int(block.get("target_end", 0)),
+			1 if bool(block.get("same_strand", true)) else 0
+		]
+		var detail: Dictionary = _comparison_detail_cache.get(cache_key, {})
+		if detail.is_empty():
+			var detail_resp: Dictionary = zem.get_comparison_block_detail(query_genome_id, target_genome_id, block)
+			if not bool(detail_resp.get("ok", false)):
+				continue
+			detail = detail_resp.get("detail", {})
+			_comparison_detail_cache[cache_key] = detail
+		comparison_view.set_block_detail(query_genome_id, target_genome_id, block, detail)
+
+
+func _reference_slice_for_window(genome_id: int, start_bp: int, end_bp: int) -> Dictionary:
+	var cached: Dictionary = _comparison_reference_cache.get(genome_id, {})
+	if not cached.is_empty():
+		var cached_start := int(cached.get("slice_start", 0))
+		var cached_end := int(cached.get("slice_end", cached_start + str(cached.get("sequence", "")).length()))
+		if start_bp >= cached_start and end_bp <= cached_end:
+			return cached
+	var genome_len := 0
+	for genome in _comparison_genomes:
+		if int(genome.get("id", -1)) == genome_id:
+			genome_len = int(genome.get("length", 0))
+			break
+	if genome_len <= 0:
+		return {}
+	var span := maxi(1, end_bp - start_bp)
+	var pad := maxi(200, span)
+	var fetch_start := maxi(0, start_bp - pad)
+	var fetch_end := mini(genome_len, end_bp + pad)
+	var slice_resp: Dictionary = zem.get_comparison_reference_slice(genome_id, fetch_start, fetch_end)
+	if not bool(slice_resp.get("ok", false)):
+		return {}
+	var slice_data: Dictionary = slice_resp.get("slice", {})
+	_comparison_reference_cache[genome_id] = slice_data
+	return slice_data
