@@ -1,0 +1,1146 @@
+extends Control
+class_name ComparisonView
+
+signal genome_order_changed(order: PackedInt32Array)
+signal comparison_match_selected(match: Dictionary, was_double_click: bool)
+signal comparison_match_cleared()
+
+const ROW_SCENE = preload("res://scenes/ComparisonGenomeRow.tscn")
+const ROW_H := 82.0
+const TOP_PAD := 6.0
+const BOTTOM_PAD := 2.0
+const MIN_MATCH_BAND_H := 40.0
+const MATCH_PAD_Y := 2.0
+const LOCK_BTN_SIZE := Vector2(30.0, 30.0)
+const LOCK_BTN_X := 18.0
+const MIN_VIEW_SPAN_BP := 50.0
+const DEFAULT_VIEW_SPAN_BP := 10000.0
+
+var _genomes_by_id := {}
+var _order := PackedInt32Array()
+var _offsets := {}
+var _pair_blocks := {}
+var _rows := {}
+var _lock_buttons := {}
+var _pair_locks := {}
+var _drawn_match_hitboxes := []
+var _selected_match_key := ""
+var _pending_click_serial := 0
+var _pending_click_payload: Dictionary = {}
+var _drag_active := false
+var _drag_genome_id := -1
+var _drag_target_index := -1
+var _view_span_bp := DEFAULT_VIEW_SPAN_BP
+var _syncing_offsets := false
+var _max_draw_blocks_per_pair := 500
+var _min_block_len_bp := 0
+var _max_block_len_bp := 0
+var _min_percent_identity := 0.0
+var _max_percent_identity := 100.0
+var _post_layout_refresh_pending := false
+var _pan_tween: Tween = null
+var _zoom_tween: Tween = null
+var _trackpad_pan_sensitivity := 1.0
+var _trackpad_pinch_sensitivity := 1.0
+var _vertical_swipe_zoom_enabled := true
+var _mouse_wheel_zoom_sensitivity := 1.0
+var _invert_mouse_wheel_zoom := false
+var _mouse_wheel_pan_sensitivity := 1.0
+var _theme_colors := {
+	"text": Color.BLACK,
+	"text_muted": Color("666666"),
+	"border": Color("aaaaaa"),
+	"panel_alt": Color("efefef"),
+	"genome": Color("3f5a7a"),
+	"feature": Color("dce8f7"),
+	"feature_text": Color("1e3557"),
+	"same_strand": Color("cb4934"),
+	"opp_strand": Color("2c7fb8"),
+	"selection_outline": Color.BLACK
+}
+
+
+func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_PASS
+	clip_contents = false
+
+
+func clear_view() -> void:
+	for row_any in _rows.values():
+		var row = row_any
+		if is_instance_valid(row):
+			row.queue_free()
+	for btn_any in _lock_buttons.values():
+		var btn: Button = btn_any
+		if is_instance_valid(btn):
+			btn.queue_free()
+	_rows.clear()
+	_lock_buttons.clear()
+	_genomes_by_id.clear()
+	_order = PackedInt32Array()
+	_offsets.clear()
+	_pair_blocks.clear()
+	_pair_locks.clear()
+	_drawn_match_hitboxes.clear()
+	_selected_match_key = ""
+	_pending_click_serial = 0
+	_pending_click_payload.clear()
+	_drag_active = false
+	_drag_genome_id = -1
+	_drag_target_index = -1
+	_view_span_bp = DEFAULT_VIEW_SPAN_BP
+	_post_layout_refresh_pending = false
+	if _pan_tween != null:
+		_pan_tween.kill()
+		_pan_tween = null
+	if _zoom_tween != null:
+		_zoom_tween.kill()
+		_zoom_tween = null
+	queue_redraw()
+
+
+func set_theme_colors(next_colors: Dictionary) -> void:
+	for key in next_colors.keys():
+		_theme_colors[str(key)] = next_colors[key]
+	for row_any in _rows.values():
+		var row = row_any
+		row.set_theme_colors(_theme_colors)
+	for btn_any in _lock_buttons.values():
+		var btn: Button = btn_any
+		btn.queue_redraw()
+	queue_redraw()
+
+
+func set_trackpad_pan_sensitivity(value: float) -> void:
+	_trackpad_pan_sensitivity = clampf(value, 0.5, 20.0)
+
+
+func set_trackpad_pinch_sensitivity(value: float) -> void:
+	_trackpad_pinch_sensitivity = clampf(value, 0.5, 20.0)
+
+
+func set_vertical_swipe_zoom_enabled(enabled: bool) -> void:
+	_vertical_swipe_zoom_enabled = enabled
+
+
+func set_mouse_wheel_zoom_sensitivity(value: float) -> void:
+	_mouse_wheel_zoom_sensitivity = clampf(value, 0.1, 10.0)
+
+
+func set_invert_mouse_wheel_zoom(enabled: bool) -> void:
+	_invert_mouse_wheel_zoom = enabled
+
+
+func set_mouse_wheel_pan_sensitivity(value: float) -> void:
+	_mouse_wheel_pan_sensitivity = clampf(value, 0.5, 20.0)
+
+
+func set_zoom_span_bp(next_span: float) -> void:
+	var longest := _longest_genome_len()
+	var max_span := maxf(MIN_VIEW_SPAN_BP, longest)
+	_view_span_bp = clampf(next_span, MIN_VIEW_SPAN_BP, max_span)
+	for genome_id in _order:
+		var row = _rows.get(int(genome_id))
+		if row == null:
+			continue
+		var genome_len := float(_genomes_by_id.get(int(genome_id), {}).get("length", 0))
+		var max_offset := maxf(0.0, genome_len - _view_span_bp)
+		var next_offset := clampf(float(_offsets.get(int(genome_id), 0.0)), 0.0, max_offset)
+		_offsets[int(genome_id)] = next_offset
+		row.set_view_span_bp(_view_span_bp)
+		row.set_view_offset(next_offset)
+	queue_redraw()
+
+
+func reset_view_to_full_genomes() -> void:
+	var longest := _longest_genome_len()
+	if longest <= 0.0:
+		return
+	_view_span_bp = maxf(MIN_VIEW_SPAN_BP, longest)
+	for genome_id in _order:
+		_offsets[int(genome_id)] = 0.0
+		var row = _rows.get(int(genome_id))
+		if row == null:
+			continue
+		row.set_view_span_bp(_view_span_bp)
+		row.set_view_offset(0.0)
+	queue_redraw()
+
+
+func zoom_by(factor: float) -> void:
+	if factor <= 0.0:
+		return
+	var anchor_x := _default_anchor_x()
+	_animate_zoom_to_span(_view_span_bp * factor, anchor_x)
+
+
+func zoom_by_at_x(factor: float, anchor_x: float, duration: float = 0.12) -> void:
+	if factor <= 0.0:
+		return
+	_animate_zoom_to_span(_view_span_bp * factor, anchor_x, duration)
+
+
+func pan_all_by_fraction(fraction: float) -> void:
+	if absf(fraction) < 0.000001:
+		return
+	var targets := {}
+	for genome_id in _order:
+		var genome_len := float(_genomes_by_id.get(int(genome_id), {}).get("length", 0))
+		var max_offset := maxf(0.0, genome_len - _view_span_bp)
+		var next_offset := clampf(float(_offsets.get(int(genome_id), 0.0)) + _view_span_bp * fraction, 0.0, max_offset)
+		targets[int(genome_id)] = next_offset
+	_animate_offsets_to(targets)
+
+
+func move_all_to_boundary(at_end: bool) -> void:
+	var targets := {}
+	for genome_id in _order:
+		var genome_len := float(_genomes_by_id.get(int(genome_id), {}).get("length", 0))
+		var next_offset := maxf(0.0, genome_len - _view_span_bp) if at_end else 0.0
+		targets[int(genome_id)] = next_offset
+	_animate_offsets_to(targets)
+
+
+func set_max_draw_blocks_per_pair(value: int) -> void:
+	_max_draw_blocks_per_pair = maxi(1, value)
+	queue_redraw()
+
+
+func set_block_filters(min_block_len_bp: int, max_block_len_bp: int, min_percent_identity: float, max_percent_identity: float) -> void:
+	_min_block_len_bp = maxi(0, min_block_len_bp)
+	_max_block_len_bp = maxi(0, max_block_len_bp)
+	_min_percent_identity = clampf(min_percent_identity, 0.0, 100.0)
+	_max_percent_identity = clampf(max_percent_identity, 0.0, 100.0)
+	if _max_percent_identity < _min_percent_identity:
+		_max_percent_identity = _min_percent_identity
+	queue_redraw()
+
+
+func set_genomes(genomes: Array) -> void:
+	var had_no_genomes := _order.is_empty()
+	var next_by_id := {}
+	var next_order := PackedInt32Array()
+	for genome_any in genomes:
+		var genome: Dictionary = genome_any
+		var genome_id := int(genome.get("id", -1))
+		if genome_id < 0:
+			continue
+		next_by_id[genome_id] = genome.duplicate(true)
+		if not _offsets.has(genome_id):
+			_offsets[genome_id] = 0.0
+	if not _order.is_empty():
+		for genome_id in _order:
+			if next_by_id.has(int(genome_id)):
+				next_order.append(int(genome_id))
+	for genome_id_any in next_by_id.keys():
+		var genome_id := int(genome_id_any)
+		if next_order.has(genome_id):
+			continue
+		next_order.append(genome_id)
+	_genomes_by_id = next_by_id
+	var valid_offsets := {}
+	for genome_id in next_order:
+		valid_offsets[int(genome_id)] = _offsets.get(int(genome_id), 0.0)
+	_offsets = valid_offsets
+	_order = next_order
+	_sync_row_instances()
+	if had_no_genomes and not _order.is_empty():
+		reset_view_to_full_genomes()
+	_layout_rows_and_locks()
+	_schedule_post_layout_refresh()
+	emit_signal("genome_order_changed", _order)
+	queue_redraw()
+
+
+func set_pair_blocks(query_genome_id: int, target_genome_id: int, blocks: Array) -> void:
+	_pair_blocks[_pair_key(query_genome_id, target_genome_id)] = {
+		"query_id": query_genome_id,
+		"target_id": target_genome_id,
+		"blocks": blocks.duplicate(true)
+	}
+	queue_redraw()
+
+
+func pair_cached(query_genome_id: int, target_genome_id: int) -> bool:
+	return _pair_blocks.has(_pair_key(query_genome_id, target_genome_id))
+
+
+func get_order() -> PackedInt32Array:
+	return _order
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESIZED:
+		_layout_rows_and_locks()
+		_schedule_post_layout_refresh()
+		queue_redraw()
+
+
+func _input(event: InputEvent) -> void:
+	if not visible:
+		return
+	if _event_over_overlay_panel(event):
+		return
+	if event is InputEventMouseButton and event.pressed and (
+		event.button_index == MOUSE_BUTTON_WHEEL_UP
+		or event.button_index == MOUSE_BUTTON_WHEEL_DOWN
+		or event.button_index == MOUSE_BUTTON_WHEEL_LEFT
+		or event.button_index == MOUSE_BUTTON_WHEEL_RIGHT
+	):
+		var wheel_event := event as InputEventMouseButton
+		var local_wheel_point := _local_input_point(wheel_event.position)
+		var is_horizontal_wheel := wheel_event.button_index == MOUSE_BUTTON_WHEEL_LEFT or wheel_event.button_index == MOUSE_BUTTON_WHEEL_RIGHT
+		var shift_held := wheel_event.shift_pressed or Input.is_key_pressed(KEY_SHIFT)
+		if is_horizontal_wheel or shift_held:
+			var pan_sign := 0.0
+			if wheel_event.button_index == MOUSE_BUTTON_WHEEL_LEFT:
+				pan_sign = -1.0
+			elif wheel_event.button_index == MOUSE_BUTTON_WHEEL_RIGHT:
+				pan_sign = 1.0
+			else:
+				pan_sign = -1.0 if wheel_event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0
+			pan_all_by_fraction(pan_sign * 0.12 * _mouse_wheel_pan_sensitivity)
+			accept_event()
+			return
+		var zoom_in := wheel_event.button_index == MOUSE_BUTTON_WHEEL_UP
+		if _invert_mouse_wheel_zoom:
+			zoom_in = not zoom_in
+		var wheel_factor := 0.88 if zoom_in else 1.14
+		var scaled_factor := pow(wheel_factor, _mouse_wheel_zoom_sensitivity)
+		zoom_by_at_x(scaled_factor, local_wheel_point.x, 0.12)
+		accept_event()
+		return
+	elif event is InputEventPanGesture:
+		var pan_event := event as InputEventPanGesture
+		var local_pan_point := _local_input_point(pan_event.position)
+		if _vertical_swipe_zoom_enabled and absf(pan_event.delta.y) > absf(pan_event.delta.x) and absf(pan_event.delta.y) > 0.0:
+			var zoom_in := pan_event.delta.y < 0.0
+			if _invert_mouse_wheel_zoom:
+				zoom_in = not zoom_in
+			var gesture_factor := 0.88 if zoom_in else 1.14
+			var scaled_factor := pow(gesture_factor, absf(pan_event.delta.y) * _mouse_wheel_zoom_sensitivity)
+			zoom_by_at_x(scaled_factor, local_pan_point.x, 0.12)
+			accept_event()
+			return
+		elif absf(pan_event.delta.x) > 0.0:
+			_pan_all_by_pixels(pan_event.delta.x * _trackpad_pan_sensitivity * 3.0, false)
+			accept_event()
+			return
+	elif event is InputEventMagnifyGesture:
+		var magnify_event := event as InputEventMagnifyGesture
+		if magnify_event.factor > 0.0:
+			var scaled_factor := pow(magnify_event.factor, _trackpad_pinch_sensitivity)
+			scaled_factor = maxf(0.05, scaled_factor)
+			var local_magnify_point := _local_input_point(get_viewport().get_mouse_position())
+			zoom_by_at_x(1.0 / scaled_factor, local_magnify_point.x, 0.12)
+			accept_event()
+			return
+	if not _drag_active:
+		return
+	if event is InputEventMouseMotion:
+		_drag_target_index = _row_index_for_y(get_local_mouse_position().y)
+		queue_redraw()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_finish_row_drag(_drag_target_index)
+
+
+func _gui_input(event: InputEvent) -> void:
+	if not visible:
+		return
+	if _event_over_overlay_panel(event):
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.double_click:
+		var mb := event as InputEventMouseButton
+		var hit := _hit_test_match(mb.position)
+		if hit.is_empty():
+			return
+		var payload: Dictionary = hit.get("payload", {})
+		_selected_match_key = _match_key_for_payload(payload)
+		_cancel_pending_click_dispatch()
+		queue_redraw()
+		emit_signal("comparison_match_selected", payload, true)
+		_focus_match_left(payload)
+		accept_event()
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		var mb := event as InputEventMouseButton
+		var hit := _hit_test_match(mb.position)
+		if hit.is_empty():
+			if not _selected_match_key.is_empty():
+				_selected_match_key = ""
+				_cancel_pending_click_dispatch()
+				queue_redraw()
+				emit_signal("comparison_match_cleared")
+			return
+		var payload: Dictionary = hit.get("payload", {})
+		_selected_match_key = _match_key_for_payload(payload)
+		queue_redraw()
+		_schedule_single_click_dispatch(payload)
+		accept_event()
+
+
+func _event_over_overlay_panel(event: InputEvent) -> bool:
+	var parent_ctrl := get_parent() as Control
+	if parent_ctrl == null:
+		return false
+	for panel_name in ["SettingsPanel", "FeaturePanel"]:
+		var panel := parent_ctrl.get_node_or_null(panel_name) as Control
+		if panel == null or not panel.visible:
+			continue
+		var point := Vector2.ZERO
+		var has_point := true
+		if event is InputEventMouseButton:
+			point = (event as InputEventMouseButton).position
+		elif event is InputEventPanGesture:
+			point = (event as InputEventPanGesture).position
+		elif event is InputEventMouseMotion:
+			point = (event as InputEventMouseMotion).position
+		elif event is InputEventMagnifyGesture:
+			point = get_viewport().get_mouse_position()
+		else:
+			has_point = false
+		if has_point and panel.get_global_rect().has_point(point):
+			return true
+	return false
+
+
+func _draw() -> void:
+	_drawn_match_hitboxes.clear()
+	for idx in range(_order.size() - 1):
+		var top_id := int(_order[idx])
+		var bottom_id := int(_order[idx + 1])
+		var top_row = _rows.get(top_id)
+		var bottom_row = _rows.get(bottom_id)
+		if top_row == null or bottom_row == null:
+			continue
+		var top_axis: Rect2 = top_row.get_axis_rect_in_parent()
+		var bottom_axis: Rect2 = bottom_row.get_axis_rect_in_parent()
+		var x_min := maxf(top_axis.position.x, bottom_axis.position.x)
+		var x_max := minf(top_axis.position.x + top_axis.size.x, bottom_axis.position.x + bottom_axis.size.x)
+		if x_max <= x_min:
+			continue
+		var top_y: float = top_row.get_match_band_bottom_in_parent() + MATCH_PAD_Y
+		var bottom_y: float = bottom_row.get_match_band_top_in_parent() - MATCH_PAD_Y
+		if bottom_y <= top_y:
+			continue
+		for block_any in _display_blocks_for_pair(top_id, bottom_id):
+			var block: Dictionary = block_any
+			var fill := _block_color(block)
+			if bool(block.get("same_strand", true)):
+				var poly := _project_block_polygon(block, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y)
+				if poly.is_empty():
+					continue
+				poly = _clip_polygon_x(poly, x_min, x_max)
+				if poly.size() < 3:
+					continue
+				draw_colored_polygon(poly, fill)
+				poly.append(poly[0])
+				draw_polyline(poly, fill.darkened(0.18), 1.0)
+				_register_match_hitbox(block, top_id, bottom_id, poly.slice(0, poly.size() - 1))
+				if _match_key_for_display_block(block, top_id, bottom_id) == _selected_match_key:
+					draw_polyline(poly, _theme_colors["selection_outline"], 2.0)
+			else:
+				_draw_reverse_block(block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, fill)
+	_draw_drag_indicator()
+
+
+func _sync_row_instances() -> void:
+	var keep := {}
+	for genome_id in _order:
+		var genome: Dictionary = _genomes_by_id.get(int(genome_id), {})
+		var row = _rows.get(int(genome_id))
+		if row == null:
+			row = ROW_SCENE.instantiate()
+			row.drag_started.connect(_on_row_drag_started)
+			row.offset_changed.connect(_on_row_offset_changed)
+			row.pan_step_requested.connect(_on_row_pan_step_requested)
+			add_child(row)
+		row.visible = true
+		row.set_theme_colors(_theme_colors)
+		row.configure_row(genome, float(_offsets.get(int(genome_id), 0.0)), _view_span_bp)
+		_rows[int(genome_id)] = row
+		keep[int(genome_id)] = true
+	for genome_id_any in _rows.keys():
+		var genome_id := int(genome_id_any)
+		if keep.has(genome_id):
+			continue
+		var row = _rows[genome_id]
+		row.queue_free()
+		_rows.erase(genome_id)
+	_cleanup_lock_buttons()
+
+
+func _layout_rows_and_locks() -> void:
+	if _order.is_empty():
+		return
+	var match_band_h := _match_band_height()
+	for i in range(_order.size()):
+		var genome_id := int(_order[i])
+		var row = _rows.get(genome_id)
+		if row == null:
+			continue
+		row.position = Vector2(0.0, TOP_PAD + i * (ROW_H + match_band_h))
+		row.size = Vector2(size.x, ROW_H)
+		row.set_view_span_bp(_view_span_bp)
+		row.set_view_offset(float(_offsets.get(genome_id, 0.0)))
+	_update_lock_buttons(match_band_h)
+
+
+func _schedule_post_layout_refresh() -> void:
+	if _post_layout_refresh_pending:
+		return
+	_post_layout_refresh_pending = true
+	call_deferred("_apply_post_layout_refresh")
+
+
+func _apply_post_layout_refresh() -> void:
+	_post_layout_refresh_pending = false
+	for genome_id in _order:
+		var row = _rows.get(int(genome_id))
+		if row == null:
+			continue
+		row.set_view_span_bp(_view_span_bp)
+		row.set_view_offset(float(_offsets.get(int(genome_id), 0.0)))
+	queue_redraw()
+
+
+func _animate_offsets_to(targets: Dictionary, duration: float = 0.22) -> void:
+	if targets.is_empty():
+		return
+	if _zoom_tween != null:
+		_zoom_tween.kill()
+		_zoom_tween = null
+	if _pan_tween != null:
+		_pan_tween.kill()
+	_pan_tween = create_tween()
+	_pan_tween.set_trans(Tween.TRANS_SINE)
+	_pan_tween.set_ease(Tween.EASE_OUT)
+	for genome_id_any in targets.keys():
+		var genome_id := int(genome_id_any)
+		var start_offset := float(_offsets.get(genome_id, 0.0))
+		var end_offset := float(targets[genome_id_any])
+		_pan_tween.parallel().tween_method(func(v: float) -> void:
+			_set_row_offset_animated(genome_id, v)
+		, start_offset, end_offset, duration)
+	_pan_tween.finished.connect(func() -> void:
+		_pan_tween = null
+	)
+
+
+func _set_row_offset_animated(genome_id: int, value: float) -> void:
+	_offsets[genome_id] = value
+	var row = _rows.get(genome_id)
+	if row != null:
+		row.set_view_offset(value)
+	queue_redraw()
+
+
+func _register_match_hitbox(block: Dictionary, top_genome_id: int, bottom_genome_id: int, poly: PackedVector2Array) -> void:
+	var bounds := _polygon_bounds(poly)
+	var top_match := _segment_match_for_interval(_genomes_by_id.get(top_genome_id, {}), int(block.get("query_start", 0)), int(block.get("query_end", 0)))
+	var bottom_match := _segment_match_for_interval(_genomes_by_id.get(bottom_genome_id, {}), int(block.get("target_start", 0)), int(block.get("target_end", 0)))
+	var payload := {
+		"top_genome_id": top_genome_id,
+		"bottom_genome_id": bottom_genome_id,
+		"query_start": int(block.get("query_start", 0)),
+		"query_end": int(block.get("query_end", 0)),
+		"target_start": int(block.get("target_start", 0)),
+		"target_end": int(block.get("target_end", 0)),
+		"percent_identity": float(block.get("percent_identity", 0.0)),
+		"percent_identity_x100": int(block.get("percent_identity_x100", 0)),
+		"same_strand": bool(block.get("same_strand", true)),
+		"top_name": str(_genomes_by_id.get(top_genome_id, {}).get("name", "Genome %d" % top_genome_id)),
+		"bottom_name": str(_genomes_by_id.get(bottom_genome_id, {}).get("name", "Genome %d" % bottom_genome_id)),
+		"top_contig": str(top_match.get("name", "")),
+		"bottom_contig": str(bottom_match.get("name", "")),
+		"top_local_start": int(top_match.get("local_start", int(block.get("query_start", 0)))),
+		"top_local_end": int(top_match.get("local_end", int(block.get("query_end", 0)))),
+		"bottom_local_start": int(bottom_match.get("local_start", int(block.get("target_start", 0)))),
+		"bottom_local_end": int(bottom_match.get("local_end", int(block.get("target_end", 0))))
+	}
+	_drawn_match_hitboxes.append({
+		"bounds": bounds,
+		"poly": poly,
+		"payload": payload
+	})
+
+
+func _hit_test_match(point: Vector2) -> Dictionary:
+	for i in range(_drawn_match_hitboxes.size() - 1, -1, -1):
+		var hit: Dictionary = _drawn_match_hitboxes[i]
+		var bounds: Rect2 = hit.get("bounds", Rect2())
+		if not bounds.has_point(point):
+			continue
+		var poly: PackedVector2Array = hit.get("poly", PackedVector2Array())
+		if Geometry2D.is_point_in_polygon(point, poly):
+			return hit
+	return {}
+
+
+func _polygon_bounds(poly: PackedVector2Array) -> Rect2:
+	if poly.is_empty():
+		return Rect2()
+	var min_x := poly[0].x
+	var max_x := poly[0].x
+	var min_y := poly[0].y
+	var max_y := poly[0].y
+	for point in poly:
+		min_x = minf(min_x, point.x)
+		max_x = maxf(max_x, point.x)
+		min_y = minf(min_y, point.y)
+		max_y = maxf(max_y, point.y)
+	return Rect2(Vector2(min_x, min_y), Vector2(max_x - min_x, max_y - min_y))
+
+
+func _segment_match_for_interval(genome: Dictionary, start_bp: int, end_bp: int) -> Dictionary:
+	var segments: Array = genome.get("segments", [])
+	if segments.is_empty():
+		return {}
+	var interval_start := mini(start_bp, end_bp)
+	var interval_end := maxi(start_bp, end_bp)
+	var best_seg: Dictionary = {}
+	var best_overlap := -1
+	for seg_any in segments:
+		var seg: Dictionary = seg_any
+		var seg_start := int(seg.get("start", 0))
+		var seg_end := int(seg.get("end", 0))
+		var overlap_start := maxi(interval_start, seg_start)
+		var overlap_end := mini(interval_end, seg_end)
+		var overlap := overlap_end - overlap_start
+		if overlap > best_overlap:
+			best_overlap = overlap
+			best_seg = seg
+		elif best_overlap < 0 and start_bp >= seg_start and start_bp < seg_end:
+			best_seg = seg
+	# Fallback to the first segment spanning the start or midpoint if there was no positive overlap.
+	if best_seg.is_empty():
+		var probe_points := [start_bp, int(floor((float(interval_start) + float(interval_end)) * 0.5))]
+		for probe in probe_points:
+			for seg_any in segments:
+				var seg: Dictionary = seg_any
+				var seg_start := int(seg.get("start", 0))
+				var seg_end := int(seg.get("end", 0))
+				if probe >= seg_start and probe < seg_end:
+					best_seg = seg
+					break
+			if not best_seg.is_empty():
+				break
+	if best_seg.is_empty():
+		return {}
+	var best_start := int(best_seg.get("start", 0))
+	var best_end := int(best_seg.get("end", 0))
+	var local_start := clampi(interval_start - best_start, 0, maxi(0, best_end-best_start))
+	var local_end := clampi(interval_end - best_start, 0, maxi(0, best_end-best_start))
+	return {
+		"name": str(best_seg.get("name", "")),
+		"local_start": local_start,
+		"local_end": local_end
+	}
+
+
+func _focus_match_left(payload: Dictionary) -> void:
+	var left_frac := 0.06
+	var query_start := float(payload.get("query_start", 0))
+	var target_start := float(payload.get("target_start", 0))
+	var targets := {}
+	var top_id := int(payload.get("top_genome_id", -1))
+	var bottom_id := int(payload.get("bottom_genome_id", -1))
+	for pair_any in [
+		[top_id, query_start],
+		[bottom_id, target_start]
+	]:
+		var genome_id := int(pair_any[0])
+		if genome_id < 0:
+			continue
+		var start_bp := float(pair_any[1])
+		var genome_len := float(_genomes_by_id.get(genome_id, {}).get("length", 0))
+		var max_offset := maxf(0.0, genome_len - _view_span_bp)
+		var next_offset := clampf(start_bp - _view_span_bp * left_frac, 0.0, max_offset)
+		targets[genome_id] = next_offset
+	_animate_offsets_to(targets)
+
+
+func _match_key_for_display_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int) -> String:
+	return "%d:%d:%d:%d:%d:%d" % [
+		top_genome_id,
+		bottom_genome_id,
+		int(block.get("query_start", 0)),
+		int(block.get("query_end", 0)),
+		int(block.get("target_start", 0)),
+		int(block.get("target_end", 0))
+	]
+
+
+func _match_key_for_payload(payload: Dictionary) -> String:
+	return "%d:%d:%d:%d:%d:%d" % [
+		int(payload.get("top_genome_id", -1)),
+		int(payload.get("bottom_genome_id", -1)),
+		int(payload.get("query_start", 0)),
+		int(payload.get("query_end", 0)),
+		int(payload.get("target_start", 0)),
+		int(payload.get("target_end", 0))
+	]
+
+
+func _default_anchor_x() -> float:
+	if _order.is_empty():
+		return size.x * 0.5
+	var row = _rows.get(int(_order[0]))
+	if row == null:
+		return size.x * 0.5
+	var axis_rect: Rect2 = row.get_axis_rect_in_parent()
+	return axis_rect.position.x + axis_rect.size.x * 0.5
+
+
+func _schedule_single_click_dispatch(payload: Dictionary) -> void:
+	_pending_click_serial += 1
+	var serial := _pending_click_serial
+	_pending_click_payload = payload.duplicate(true)
+	var timer := get_tree().create_timer(0.45)
+	timer.timeout.connect(func() -> void:
+		if serial != _pending_click_serial:
+			return
+		var delayed_payload := _pending_click_payload.duplicate(true)
+		_pending_click_payload.clear()
+		emit_signal("comparison_match_selected", delayed_payload, false)
+	)
+
+
+func _cancel_pending_click_dispatch() -> void:
+	_pending_click_serial += 1
+	_pending_click_payload.clear()
+
+
+func _local_input_point(global_point: Vector2) -> Vector2:
+	return get_global_transform_with_canvas().affine_inverse() * global_point
+
+
+func _pan_all_by_pixels(delta_x: float, animated: bool = true) -> void:
+	var axis_width := 0.0
+	if not _order.is_empty():
+		var row = _rows.get(int(_order[0]))
+		if row != null:
+			var axis_rect: Rect2 = row.get_axis_rect_in_parent()
+			axis_width = axis_rect.size.x
+	if axis_width <= 0.0:
+		return
+	var fraction := (delta_x * 3.0) / axis_width
+	if animated:
+		pan_all_by_fraction(fraction)
+		return
+	if _pan_tween != null:
+		_pan_tween.kill()
+		_pan_tween = null
+	if _zoom_tween != null:
+		_zoom_tween.kill()
+		_zoom_tween = null
+	for genome_id in _order:
+		var genome_len := float(_genomes_by_id.get(int(genome_id), {}).get("length", 0))
+		var max_offset := maxf(0.0, genome_len - _view_span_bp)
+		var next_offset := clampf(float(_offsets.get(int(genome_id), 0.0)) + _view_span_bp * fraction, 0.0, max_offset)
+		_offsets[int(genome_id)] = next_offset
+		var row2 = _rows.get(int(genome_id))
+		if row2 != null:
+			row2.set_view_offset(next_offset)
+	queue_redraw()
+
+
+func _animate_zoom_to_span(next_span: float, anchor_x: float, duration: float = 0.22) -> void:
+	var longest := _longest_genome_len()
+	var target_span := clampf(next_span, MIN_VIEW_SPAN_BP, maxf(MIN_VIEW_SPAN_BP, longest))
+	if absf(target_span - _view_span_bp) < 0.000001:
+		return
+	if _pan_tween != null:
+		_pan_tween.kill()
+		_pan_tween = null
+	if _zoom_tween != null:
+		_zoom_tween.kill()
+	var anchors := {}
+	for genome_id in _order:
+		var row = _rows.get(int(genome_id))
+		var anchor_frac := 0.5
+		if row != null:
+			var axis_rect: Rect2 = row.get_axis_rect_in_parent()
+			if axis_rect.size.x > 0.0:
+				anchor_frac = clampf((anchor_x - axis_rect.position.x) / axis_rect.size.x, 0.0, 1.0)
+		var current_offset := float(_offsets.get(int(genome_id), 0.0))
+		anchors[int(genome_id)] = current_offset + _view_span_bp * anchor_frac
+	_zoom_tween = create_tween()
+	_zoom_tween.set_trans(Tween.TRANS_SINE)
+	_zoom_tween.set_ease(Tween.EASE_OUT)
+	_zoom_tween.tween_method(func(span_value: float) -> void:
+		_set_zoom_span_animated(span_value, anchors, anchor_x)
+	, _view_span_bp, target_span, duration)
+	_zoom_tween.finished.connect(func() -> void:
+		_zoom_tween = null
+	)
+
+
+func _set_zoom_span_animated(span_value: float, anchors: Dictionary, anchor_x: float) -> void:
+	var longest := _longest_genome_len()
+	_view_span_bp = clampf(span_value, MIN_VIEW_SPAN_BP, maxf(MIN_VIEW_SPAN_BP, longest))
+	for genome_id in _order:
+		var genome_len := float(_genomes_by_id.get(int(genome_id), {}).get("length", 0))
+		var max_offset := maxf(0.0, genome_len - _view_span_bp)
+		var row = _rows.get(int(genome_id))
+		var anchor_frac := 0.5
+		if row != null:
+			var axis_rect: Rect2 = row.get_axis_rect_in_parent()
+			if axis_rect.size.x > 0.0:
+				anchor_frac = clampf((anchor_x - axis_rect.position.x) / axis_rect.size.x, 0.0, 1.0)
+		var anchor_bp := float(anchors.get(int(genome_id), _view_span_bp * 0.5))
+		var next_offset := clampf(anchor_bp - _view_span_bp * anchor_frac, 0.0, max_offset)
+		_offsets[int(genome_id)] = next_offset
+		if row != null:
+			row.set_view_span_bp(_view_span_bp)
+			row.set_view_offset(next_offset)
+	queue_redraw()
+
+
+func _cleanup_lock_buttons() -> void:
+	var needed := {}
+	for i in range(_order.size() - 1):
+		needed[_pair_key(int(_order[i]), int(_order[i + 1]))] = true
+	for key_any in _lock_buttons.keys():
+		var key := str(key_any)
+		if needed.has(key):
+			continue
+		var btn: Button = _lock_buttons[key]
+		btn.queue_free()
+		_lock_buttons.erase(key)
+
+
+func _update_lock_buttons(match_band_h: float) -> void:
+	_cleanup_lock_buttons()
+	for i in range(_order.size() - 1):
+		var top_id := int(_order[i])
+		var bottom_id := int(_order[i + 1])
+		var key := _pair_key(top_id, bottom_id)
+		var btn: Button = _lock_buttons.get(key)
+		if btn == null:
+			btn = Button.new()
+			btn.focus_mode = Control.FOCUS_NONE
+			btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+			btn.pressed.connect(func() -> void:
+				_on_lock_button_pressed(key)
+			)
+			add_child(btn)
+			_lock_buttons[key] = btn
+		btn.text = "L" if bool(_pair_locks.get(key, false)) else "U"
+		btn.size = LOCK_BTN_SIZE
+		btn.position = Vector2(LOCK_BTN_X, TOP_PAD + i * (ROW_H + match_band_h) + ROW_H + 0.5 * (match_band_h - LOCK_BTN_SIZE.y))
+		btn.visible = true
+
+
+func _display_blocks_for_pair(top_genome_id: int, bottom_genome_id: int) -> Array:
+	var payload: Dictionary = _pair_blocks.get(_pair_key(top_genome_id, bottom_genome_id), {})
+	if payload.is_empty():
+		return []
+	var stored_query_id := int(payload.get("query_id", top_genome_id))
+	var stored_target_id := int(payload.get("target_id", bottom_genome_id))
+	var blocks: Array = payload.get("blocks", [])
+	if stored_query_id == top_genome_id and stored_target_id == bottom_genome_id:
+		return _visible_blocks_for_pair(blocks, top_genome_id, bottom_genome_id)
+	var swapped := []
+	for block_any in blocks:
+		var block: Dictionary = block_any
+		swapped.append({
+			"query_start": int(block.get("target_start", 0)),
+			"query_end": int(block.get("target_end", 0)),
+			"target_start": int(block.get("query_start", 0)),
+			"target_end": int(block.get("query_end", 0)),
+			"percent_identity_x100": int(block.get("percent_identity_x100", 0)),
+			"percent_identity": float(block.get("percent_identity", 0.0)),
+			"same_strand": bool(block.get("same_strand", true))
+		})
+	return _visible_blocks_for_pair(swapped, top_genome_id, bottom_genome_id)
+
+
+func _visible_blocks_for_pair(blocks: Array, top_genome_id: int, bottom_genome_id: int) -> Array:
+	var top_offset := float(_offsets.get(top_genome_id, 0.0))
+	var bottom_offset := float(_offsets.get(bottom_genome_id, 0.0))
+	var top_end := top_offset + _view_span_bp
+	var bottom_end := bottom_offset + _view_span_bp
+	var tolerance := _view_span_bp * 0.25
+	var top_vis_start := top_offset - tolerance
+	var top_vis_end := top_end + tolerance
+	var bottom_vis_start := bottom_offset - tolerance
+	var bottom_vis_end := bottom_end + tolerance
+	var visible_blocks := []
+	for block_any in blocks:
+		var block: Dictionary = block_any
+		var q0 := float(block.get("query_start", 0))
+		var q1 := float(block.get("query_end", 0))
+		var t0 := float(block.get("target_start", 0))
+		var t1 := float(block.get("target_end", 0))
+		var span_len := maxi(int(absf(q1 - q0)), int(absf(t1 - t0)))
+		var pct := float(block.get("percent_identity", 0.0))
+		if span_len < _min_block_len_bp:
+			continue
+		if _max_block_len_bp > 0 and span_len > _max_block_len_bp:
+			continue
+		if pct < _min_percent_identity or pct > _max_percent_identity:
+			continue
+		var top_intersects := q1 > top_vis_start and q0 < top_vis_end
+		var bottom_intersects := t1 > bottom_vis_start and t0 < bottom_vis_end
+		if not top_intersects and not bottom_intersects:
+			continue
+		visible_blocks.append(block)
+	visible_blocks.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_span := maxi(int(absf(float(a.get("query_end", 0)) - float(a.get("query_start", 0)))), int(absf(float(a.get("target_end", 0)) - float(a.get("target_start", 0)))))
+		var b_span := maxi(int(absf(float(b.get("query_end", 0)) - float(b.get("query_start", 0)))), int(absf(float(b.get("target_end", 0)) - float(b.get("target_start", 0)))))
+		if a_span == b_span:
+			return float(a.get("percent_identity", 0.0)) > float(b.get("percent_identity", 0.0))
+		return a_span > b_span
+	)
+	if visible_blocks.size() > _max_draw_blocks_per_pair:
+		visible_blocks.resize(_max_draw_blocks_per_pair)
+	return visible_blocks
+
+
+func _project_block_polygon(block: Dictionary, top_offset: float, bottom_offset: float, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float) -> PackedVector2Array:
+	var q0 := top_axis.position.x + ((float(block.get("query_start", 0)) - top_offset) / _view_span_bp) * top_axis.size.x
+	var q1 := top_axis.position.x + ((float(block.get("query_end", 0)) - top_offset) / _view_span_bp) * top_axis.size.x
+	var t0 := bottom_axis.position.x + ((float(block.get("target_start", 0)) - bottom_offset) / _view_span_bp) * bottom_axis.size.x
+	var t1 := bottom_axis.position.x + ((float(block.get("target_end", 0)) - bottom_offset) / _view_span_bp) * bottom_axis.size.x
+	var poly := PackedVector2Array()
+	poly.append(Vector2(q0, top_y))
+	poly.append(Vector2(q1, top_y))
+	if bool(block.get("same_strand", true)):
+		poly.append(Vector2(t1, bottom_y))
+		poly.append(Vector2(t0, bottom_y))
+	else:
+		poly.append(Vector2(t0, bottom_y))
+		poly.append(Vector2(t1, bottom_y))
+	return poly
+
+
+func _draw_reverse_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int, top_offset: float, bottom_offset: float, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float, x_min: float, x_max: float, fill: Color) -> void:
+	var q0 := top_axis.position.x + ((float(block.get("query_start", 0)) - top_offset) / _view_span_bp) * top_axis.size.x
+	var q1 := top_axis.position.x + ((float(block.get("query_end", 0)) - top_offset) / _view_span_bp) * top_axis.size.x
+	var t0 := bottom_axis.position.x + ((float(block.get("target_start", 0)) - bottom_offset) / _view_span_bp) * bottom_axis.size.x
+	var t1 := bottom_axis.position.x + ((float(block.get("target_end", 0)) - bottom_offset) / _view_span_bp) * bottom_axis.size.x
+	var cross := _line_intersection(Vector2(q0, top_y), Vector2(t1, bottom_y), Vector2(q1, top_y), Vector2(t0, bottom_y))
+	var top_tri := PackedVector2Array([Vector2(q0, top_y), Vector2(q1, top_y), cross])
+	var bottom_tri := PackedVector2Array([Vector2(t0, bottom_y), Vector2(t1, bottom_y), cross])
+	top_tri = _clip_polygon_x(top_tri, x_min, x_max)
+	bottom_tri = _clip_polygon_x(bottom_tri, x_min, x_max)
+	if top_tri.size() >= 3 and _polygon_area_abs(top_tri) > 0.25:
+		draw_colored_polygon(top_tri, fill)
+		_register_match_hitbox(block, top_genome_id, bottom_genome_id, top_tri)
+		top_tri.append(top_tri[0])
+		draw_polyline(top_tri, fill.darkened(0.18), 1.0)
+		if _match_key_for_display_block(block, top_genome_id, bottom_genome_id) == _selected_match_key:
+			draw_polyline(top_tri, _theme_colors["selection_outline"], 2.0)
+	if bottom_tri.size() >= 3 and _polygon_area_abs(bottom_tri) > 0.25:
+		draw_colored_polygon(bottom_tri, fill)
+		_register_match_hitbox(block, top_genome_id, bottom_genome_id, bottom_tri)
+		bottom_tri.append(bottom_tri[0])
+		draw_polyline(bottom_tri, fill.darkened(0.18), 1.0)
+		if _match_key_for_display_block(block, top_genome_id, bottom_genome_id) == _selected_match_key:
+			draw_polyline(bottom_tri, _theme_colors["selection_outline"], 2.0)
+
+
+func _line_intersection(a0: Vector2, a1: Vector2, b0: Vector2, b1: Vector2) -> Vector2:
+	var r := a1 - a0
+	var s := b1 - b0
+	var denom := r.x * s.y - r.y * s.x
+	if absf(denom) < 0.000001:
+		return (a0 + a1 + b0 + b1) * 0.25
+	var diff := b0 - a0
+	var t := (diff.x * s.y - diff.y * s.x) / denom
+	return a0 + r * t
+
+
+func _block_color(block: Dictionary) -> Color:
+	var base: Color = _theme_colors["same_strand"] if bool(block.get("same_strand", true)) else _theme_colors["opp_strand"]
+	var pct := clampf(float(block.get("percent_identity", 0.0)), 0.0, 100.0) / 100.0
+	base.a = lerpf(0.18, 0.82, pct)
+	return base
+
+
+func _clip_polygon_x(poly: PackedVector2Array, x_min: float, x_max: float) -> PackedVector2Array:
+	var clipped := _clip_polygon_against_vertical(poly, x_min, true)
+	if clipped.size() < 3:
+		return PackedVector2Array()
+	return _clip_polygon_against_vertical(clipped, x_max, false)
+
+
+func _clip_polygon_against_vertical(poly: PackedVector2Array, boundary_x: float, keep_greater_equal: bool) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	if poly.is_empty():
+		return out
+	var prev := poly[poly.size() - 1]
+	var prev_inside := prev.x >= boundary_x if keep_greater_equal else prev.x <= boundary_x
+	for point in poly:
+		var inside := point.x >= boundary_x if keep_greater_equal else point.x <= boundary_x
+		if inside != prev_inside and absf(point.x - prev.x) > 0.000001:
+			var t := (boundary_x - prev.x) / (point.x - prev.x)
+			out.append(Vector2(boundary_x, prev.y + (point.y - prev.y) * t))
+		if inside:
+			out.append(point)
+		prev = point
+		prev_inside = inside
+	return out
+
+
+func _polygon_area_abs(poly: PackedVector2Array) -> float:
+	if poly.size() < 3:
+		return 0.0
+	var sum := 0.0
+	for i in range(poly.size()):
+		var a: Vector2 = poly[i]
+		var b: Vector2 = poly[(i + 1) % poly.size()]
+		sum += a.x * b.y - b.x * a.y
+	return absf(sum) * 0.5
+
+
+func _on_row_drag_started(genome_id: int) -> void:
+	_drag_active = true
+	_drag_genome_id = genome_id
+	_drag_target_index = _order.find(genome_id)
+	queue_redraw()
+
+
+func _on_row_offset_changed(genome_id: int, value: float) -> void:
+	if _pan_tween != null:
+		_pan_tween.kill()
+		_pan_tween = null
+	if _zoom_tween != null:
+		_zoom_tween.kill()
+		_zoom_tween = null
+	if _syncing_offsets:
+		return
+	var previous := float(_offsets.get(genome_id, value))
+	_offsets[genome_id] = value
+	if absf(value - previous) > 0.000001:
+		_propagate_locked_offsets(genome_id, value - previous)
+	queue_redraw()
+
+
+func _on_row_pan_step_requested(genome_id: int, fraction: float) -> void:
+	if absf(fraction) < 0.000001:
+		return
+	var delta := _view_span_bp * fraction
+	var targets := {}
+	var queue := [genome_id]
+	var seen := {genome_id: true}
+	while not queue.is_empty():
+		var current_id := int(queue.pop_front())
+		var genome_len := float(_genomes_by_id.get(current_id, {}).get("length", 0))
+		var max_offset := maxf(0.0, genome_len - _view_span_bp)
+		targets[current_id] = clampf(float(_offsets.get(current_id, 0.0)) + delta, 0.0, max_offset)
+		var idx := _order.find(current_id)
+		if idx < 0:
+			continue
+		for neighbor_idx in [idx - 1, idx + 1]:
+			if neighbor_idx < 0 or neighbor_idx >= _order.size():
+				continue
+			var neighbor_id := int(_order[neighbor_idx])
+			if seen.has(neighbor_id):
+				continue
+			if not bool(_pair_locks.get(_pair_key(current_id, neighbor_id), false)):
+				continue
+			seen[neighbor_id] = true
+			queue.append(neighbor_id)
+	_animate_offsets_to(targets)
+
+
+func _on_lock_button_pressed(key: String) -> void:
+	_pair_locks[key] = not bool(_pair_locks.get(key, false))
+	var btn: Button = _lock_buttons.get(key)
+	if btn != null:
+		btn.text = "L" if bool(_pair_locks.get(key, false)) else "U"
+
+
+func _propagate_locked_offsets(source_genome_id: int, delta: float) -> void:
+	if absf(delta) < 0.000001:
+		return
+	_syncing_offsets = true
+	var queue := [source_genome_id]
+	var seen := {source_genome_id: true}
+	while not queue.is_empty():
+		var genome_id := int(queue.pop_front())
+		var idx := _order.find(genome_id)
+		if idx < 0:
+			continue
+		for neighbor_idx in [idx - 1, idx + 1]:
+			if neighbor_idx < 0 or neighbor_idx >= _order.size():
+				continue
+			var neighbor_id := int(_order[neighbor_idx])
+			if seen.has(neighbor_id):
+				continue
+			if not bool(_pair_locks.get(_pair_key(genome_id, neighbor_id), false)):
+				continue
+			seen[neighbor_id] = true
+			queue.append(neighbor_id)
+			var genome_len := float(_genomes_by_id.get(neighbor_id, {}).get("length", 0))
+			var max_offset := maxf(0.0, genome_len - _view_span_bp)
+			var next_offset := clampf(float(_offsets.get(neighbor_id, 0.0)) + delta, 0.0, max_offset)
+			_offsets[neighbor_id] = next_offset
+			var row = _rows.get(neighbor_id)
+			if row != null:
+				row.set_view_offset(next_offset)
+	_syncing_offsets = false
+
+
+func _row_index_for_y(y: float) -> int:
+	if _order.is_empty():
+		return -1
+	var best_idx := 0
+	var best_dist := INF
+	for i in range(_order.size()):
+		var row = _rows.get(int(_order[i]))
+		if row == null:
+			continue
+		var center_y: float = row.position.y + ROW_H * 0.5
+		var dist := absf(y - center_y)
+		if dist < best_dist:
+			best_dist = dist
+			best_idx = i
+	return best_idx
+
+
+func _finish_row_drag(target_index: int) -> void:
+	if not _drag_active:
+		return
+	var from_index := _order.find(_drag_genome_id)
+	if from_index >= 0 and target_index >= 0 and target_index < _order.size() and target_index != from_index:
+		var moved := int(_order[from_index])
+		_order.remove_at(from_index)
+		_order.insert(target_index, moved)
+		_layout_rows_and_locks()
+		emit_signal("genome_order_changed", _order)
+	_drag_active = false
+	_drag_genome_id = -1
+	_drag_target_index = -1
+	queue_redraw()
+
+
+func _draw_drag_indicator() -> void:
+	if not _drag_active or _drag_target_index < 0 or _drag_target_index >= _order.size():
+		return
+	var row = _rows.get(int(_order[_drag_target_index]))
+	if row == null:
+		return
+	var y: float = row.position.y - 3.0
+	draw_line(Vector2(0.0, y), Vector2(size.x, y), _theme_colors["border"], 4.0)
+
+
+func _match_band_height() -> float:
+	if _order.size() <= 1:
+		return MIN_MATCH_BAND_H
+	var free_h := maxf(0.0, size.y - TOP_PAD - BOTTOM_PAD - ROW_H * float(_order.size()))
+	return maxf(MIN_MATCH_BAND_H, free_h / float(_order.size() - 1))
+
+
+func _longest_genome_len() -> float:
+	var longest := 0.0
+	for genome_any in _genomes_by_id.values():
+		var genome: Dictionary = genome_any
+		longest = maxf(longest, float(genome.get("length", 0)))
+	return longest
+
+
+func _pair_key(a: int, b: int) -> String:
+	return "%d:%d" % [mini(a, b), maxi(a, b)]

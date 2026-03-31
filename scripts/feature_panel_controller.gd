@@ -223,6 +223,48 @@ func on_read_selected(read: Dictionary) -> void:
 	on_read_clicked(read)
 
 
+func on_comparison_match_clicked(match: Dictionary) -> void:
+	host._prepare_context_panel(host.CONTEXT_PANEL_FEATURE, "Comparison Match", true)
+	host.feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_strand_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_source_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_seq_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_name_label.visible = true
+	var top_name := str(match.get("top_name", "Top genome"))
+	var bottom_name := str(match.get("bottom_name", "Bottom genome"))
+	var top_contig := str(match.get("top_contig", "")).strip_edges()
+	var bottom_contig := str(match.get("bottom_contig", "")).strip_edges()
+	host.feature_name_label.text = "Pair: %s vs %s" % [top_name, bottom_name]
+	host.feature_type_label.text = "Orientation: %s" % ("same strand" if bool(match.get("same_strand", true)) else "opposite strand")
+	var top_label := top_name if top_contig.is_empty() else "%s / %s" % [top_name, top_contig]
+	var bottom_label := bottom_name if bottom_contig.is_empty() else "%s / %s" % [bottom_name, bottom_contig]
+	host.feature_range_label.text = "%s: %d - %d\n%s: %d - %d" % [
+		top_label,
+		_display_range_start_bp(int(match.get("top_local_start", match.get("query_start", 0)))),
+		_display_range_end_bp(int(match.get("top_local_end", match.get("query_end", 0)))),
+		bottom_label,
+		_display_range_start_bp(int(match.get("bottom_local_start", match.get("target_start", 0)))),
+		_display_range_end_bp(int(match.get("bottom_local_end", match.get("target_end", 0))))
+	]
+	host.feature_source_label.text = "Genome coords: %s: %d - %d\n%s: %d - %d" % [
+		top_name,
+		_display_range_start_bp(int(match.get("query_start", 0))),
+		_display_range_end_bp(int(match.get("query_end", 0))),
+		bottom_name,
+		_display_range_start_bp(int(match.get("target_start", 0))),
+		_display_range_end_bp(int(match.get("target_end", 0)))
+	]
+	host.feature_strand_label.text = "Identity: %.2f%%" % float(match.get("percent_identity", 0.0))
+	var top_len := maxi(0, int(match.get("query_end", 0)) - int(match.get("query_start", 0)))
+	var bottom_len := maxi(0, int(match.get("target_end", 0)) - int(match.get("target_start", 0)))
+	host.feature_seq_label.text = "Span: %d bp / %d bp\nDouble-click a match to align both genomes near the left edge." % [top_len, bottom_len]
+	_hide_mate_jump_button()
+	host._feature_panel_open = true
+	host._slide_feature_panel(true, true)
+
+
 func jump_to_mate(start_bp: int, end_bp: int, mate_ref_id: int = -1) -> void:
 	if start_bp < 0 or end_bp <= start_bp:
 		return

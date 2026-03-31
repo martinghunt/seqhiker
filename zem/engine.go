@@ -68,6 +68,40 @@ type GenomeSnapshot struct {
 	ChromLength map[string]int
 }
 
+type ComparisonGenomeInfo struct {
+	ID           uint16
+	Name         string
+	Path         string
+	Length       uint32
+	SegmentCount uint16
+	FeatureCount uint32
+	Segments     []ComparisonSegmentInfo
+}
+
+type ComparisonSegmentInfo struct {
+	Name         string
+	Start        uint32
+	End          uint32
+	FeatureCount uint32
+}
+
+type ComparisonPairInfo struct {
+	ID             uint16
+	TopGenomeID    uint16
+	BottomGenomeID uint16
+	BlockCount     uint32
+	Status         uint8
+}
+
+type ComparisonBlock struct {
+	QueryStart       uint32
+	QueryEnd         uint32
+	TargetStart      uint32
+	TargetEnd        uint32
+	PercentIdentX100 uint16
+	SameStrand       bool
+}
+
 type tileCacheKey struct {
 	Generation uint64
 	SourceID   uint16
@@ -109,28 +143,41 @@ type Engine struct {
 	tileLRU           *list.List
 	prefetchRadius    int
 	prefetchSem       chan struct{}
+
+	comparisonGenomes      map[uint16]*comparisonGenome
+	comparisonGenomeOrder  []uint16
+	nextComparisonGenomeID uint16
+	comparisonPairs        map[uint16]*comparisonPair
+	comparisonPairOrder    []uint16
+	nextComparisonPairID   uint16
 }
 
 func NewEngine() *Engine {
 	return &Engine{
-		chrToID:           make(map[string]uint16),
-		idToChr:           make(map[uint16]string),
-		chrLength:         make(map[string]int),
-		sequences:         make(map[string]string),
-		features:          make(map[string][]Feature),
-		gcPrefix:          make(map[string][]uint32),
-		atgcPrefix:        make(map[string][]uint32),
-		bamSources:        make(map[uint16]*bamSource),
-		bamOrder:          make([]uint16, 0, 4),
-		nextBAMSourceID:   1,
-		globalGeneration:  1,
-		maxTileRecs:       5000,
-		maxReadZoom:       7,
-		tileCacheMaxBytes: 512 << 20, // 512 MiB cap keeps backend well under 2 GiB.
-		tileCache:         make(map[tileCacheKey]*list.Element),
-		tileLRU:           list.New(),
-		prefetchRadius:    1,
-		prefetchSem:       make(chan struct{}, 4),
+		chrToID:                make(map[string]uint16),
+		idToChr:                make(map[uint16]string),
+		chrLength:              make(map[string]int),
+		sequences:              make(map[string]string),
+		features:               make(map[string][]Feature),
+		gcPrefix:               make(map[string][]uint32),
+		atgcPrefix:             make(map[string][]uint32),
+		bamSources:             make(map[uint16]*bamSource),
+		bamOrder:               make([]uint16, 0, 4),
+		nextBAMSourceID:        1,
+		globalGeneration:       1,
+		maxTileRecs:            5000,
+		maxReadZoom:            7,
+		tileCacheMaxBytes:      512 << 20, // 512 MiB cap keeps backend well under 2 GiB.
+		tileCache:              make(map[tileCacheKey]*list.Element),
+		tileLRU:                list.New(),
+		prefetchRadius:         1,
+		prefetchSem:            make(chan struct{}, 4),
+		comparisonGenomes:      make(map[uint16]*comparisonGenome),
+		comparisonGenomeOrder:  make([]uint16, 0, 4),
+		nextComparisonGenomeID: 1,
+		comparisonPairs:        make(map[uint16]*comparisonPair),
+		comparisonPairOrder:    make([]uint16, 0, 4),
+		nextComparisonPairID:   1,
 	}
 }
 
@@ -154,67 +201,9 @@ func (e *Engine) SetTileCacheMaxBytes(maxBytes int64) {
 }
 
 func (e *Engine) LoadGenome(path string) error {
-	entries, err := gatherInputFiles(path)
+	snapshot, hasSequenceInput, err := loadGenomeSnapshot(path)
 	if err != nil {
 		return err
-	}
-
-	snapshot := GenomeSnapshot{
-		Sequences:   make(map[string]string),
-		Features:    make(map[string][]Feature),
-		ChromLength: make(map[string]int),
-	}
-	hasSequenceInput := false
-
-	for _, p := range entries {
-		kind, err := detectInputKind(p)
-		if err != nil {
-			return err
-		}
-		switch kind {
-		case inputKindFASTA:
-			hasSequenceInput = true
-			seqs, err := parseFASTA(p)
-			if err != nil {
-				return err
-			}
-			for chr, seq := range seqs {
-				snapshot.Sequences[chr] = seq
-				snapshot.ChromLength[chr] = len(seq)
-			}
-		case inputKindGFF3:
-			gffSeqs, gffFeatures, err := parseGFF3(p)
-			if err != nil {
-				return err
-			}
-			if len(gffSeqs) > 0 {
-				hasSequenceInput = true
-				for chr, seq := range gffSeqs {
-					snapshot.Sequences[chr] = seq
-					snapshot.ChromLength[chr] = len(seq)
-				}
-			}
-			mergeFeatures(snapshot.Features, gffFeatures)
-			for chr, feats := range gffFeatures {
-				if _, ok := snapshot.ChromLength[chr]; ok || len(feats) == 0 {
-					continue
-				}
-				snapshot.ChromLength[chr] = maxFeatureEnd(feats)
-			}
-		case inputKindFlatFile:
-			hasSequenceInput = true
-			flatSeqs, flatFeatures, err := parseFlatFile(p)
-			if err != nil {
-				return err
-			}
-			for chr, seq := range flatSeqs {
-				snapshot.Sequences[chr] = seq
-				snapshot.ChromLength[chr] = len(seq)
-			}
-			mergeFeatures(snapshot.Features, flatFeatures)
-		default:
-			return fmt.Errorf("unsupported genome/annotation file: %s", p)
-		}
 	}
 
 	e.mu.Lock()
@@ -321,28 +310,34 @@ func (e *Engine) HasSequenceLoaded() bool {
 	return len(e.sequences) > 0
 }
 
-func (e *Engine) InspectInput(path string) (bool, bool, error) {
+func (e *Engine) InspectInput(path string) (bool, bool, bool, error) {
 	entries, err := gatherInputFiles(path)
 	if err != nil {
-		return false, false, err
+		kind, kindErr := detectInputKind(path)
+		if kindErr == nil && kind == inputKindComparisonSession {
+			return false, false, true, nil
+		}
+		return false, false, false, err
 	}
 	hasSequence := false
 	hasAnnotation := false
 	for _, p := range entries {
 		kind, err := detectInputKind(p)
 		if err != nil {
-			return false, false, err
+			return false, false, false, err
 		}
 		switch kind {
 		case inputKindFASTA, inputKindFlatFile:
 			hasSequence = true
 		case inputKindGFF3:
 			hasAnnotation = true
+		case inputKindComparisonSession:
+			return false, false, true, nil
 		default:
-			return false, false, fmt.Errorf("unsupported genome/annotation file: %s", p)
+			return false, false, false, fmt.Errorf("unsupported genome/annotation file: %s", p)
 		}
 	}
-	return hasSequence, hasAnnotation, nil
+	return hasSequence, hasAnnotation, false, nil
 }
 
 func recordSNPPositions(rec *sam.Record, windowStart, windowEnd int, includeSNPs bool, refSeq string) []uint32 {

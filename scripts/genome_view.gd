@@ -1,5 +1,7 @@
 extends Control
 class_name GenomeView
+
+const MapStripRendererScript = preload("res://scripts/map_strip_renderer.gd")
 const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
 const ANONYMOUS_PRO_FONT := preload("res://fonts/Anonymous-Pro/Anonymous_Pro.ttf")
 const COURIER_NEW_FONT := preload("res://fonts/Courier-New/couriernew.ttf")
@@ -1713,48 +1715,28 @@ func _draw_map_track(area: Rect2, target = self) -> void:
 	var seq_top := seq_center_y - MAP_SEQUENCE_H * 0.5
 	var seq_font := get_theme_default_font()
 	var seq_font_size := _font_size_small
-	var base_seq_color: Color = palette.get("map_contig", palette["bg"])
-	var alt_seq_color: Color = palette.get("map_contig_alt", palette.get("aa_alt_bg", base_seq_color))
-	if concat_segments.is_empty():
-		var seq_rect := Rect2(axis_left, seq_top, axis_right - axis_left, MAP_SEQUENCE_H)
-		_draw_rect_on(target, seq_rect, base_seq_color, true)
-		_draw_rect_on(target, seq_rect, palette["text"], false, 1.0)
-		var seq_name := chromosome_name.strip_edges()
-		if has_loaded_genome and not seq_name.is_empty():
-			var label := _truncate_label_to_width(seq_name, seq_rect.size.x - 10.0, 4, seq_font, seq_font_size)
-			if not label.is_empty():
-				var label_y := _text_baseline_for_center(seq_rect.get_center().y, seq_font, seq_font_size)
-				_draw_string_on(target, seq_font, Vector2(seq_rect.position.x + 5.0, label_y), label, HORIZONTAL_ALIGNMENT_LEFT, seq_rect.size.x - 10.0, seq_font_size, palette["text"])
-	else:
-		for i in range(concat_segments.size()):
-			var seg: Dictionary = concat_segments[i]
-			var seg_start := float(seg.get("start", 0))
-			var seg_end := float(seg.get("end", 0))
-			if seg_end <= seg_start:
-				continue
-			var x0 := _map_bp_to_x(seg_start, area, total_len)
-			var x1 := _map_bp_to_x(seg_end, area, total_len)
-			if x1 <= x0:
-				continue
-			var seq_rect := Rect2(x0, seq_top, x1 - x0, MAP_SEQUENCE_H)
-			var seq_color: Color = base_seq_color if (i % 2) == 0 else alt_seq_color
-			_draw_rect_on(target, seq_rect, seq_color, true)
-			_draw_rect_on(target, seq_rect, palette["text"], false, 1.0)
-			if not has_loaded_genome:
-				continue
-			var seq_name := str(seg.get("name", "")).strip_edges()
-			if seq_name.is_empty():
-				continue
-			var label := _truncate_label_to_width(seq_name, seq_rect.size.x - 10.0, 4, seq_font, seq_font_size)
-			if label.is_empty():
-				continue
-			var label_y := _text_baseline_for_center(seq_rect.get_center().y, seq_font, seq_font_size)
-			_draw_string_on(target, seq_font, Vector2(seq_rect.position.x + 5.0, label_y), label, HORIZONTAL_ALIGNMENT_LEFT, seq_rect.size.x - 10.0, seq_font_size, palette["text"])
-	if has_loaded_genome:
-		var fill: Color = palette.get("map_view_fill", palette.get("genome", Color(0.25, 0.45, 0.75)))
-		fill.a = 0.5
-		_draw_rect_on(target, viewport_rect, fill, true)
-		_draw_rect_on(target, viewport_rect, palette.get("map_view_outline", palette["text"]), false, 1.5)
+	var seq_rect := Rect2(axis_left, seq_top, axis_right - axis_left, MAP_SEQUENCE_H)
+	var strip_segments: Array = concat_segments
+	if strip_segments.is_empty():
+		strip_segments = [{"name": chromosome_name.strip_edges(), "start": 0, "end": total_len}]
+	MapStripRendererScript.draw_strip(
+		target,
+		seq_rect,
+		float(total_len),
+		strip_segments,
+		palette,
+		seq_font,
+		seq_font_size,
+		Callable(self, "_draw_rect_on"),
+		Callable(self, "_draw_string_on"),
+		Callable(self, "_truncate_label_to_width"),
+		Callable(self, "_text_baseline_for_center"),
+		has_loaded_genome,
+		view_start_bp if has_loaded_genome else -1.0,
+		get_visible_span_bp() if has_loaded_genome else -1.0,
+		MAP_VIEW_MIN_PX,
+		MAP_VIEW_EXTRA_H
+	)
 
 func _draw_concat_genome_axis(top_y: float, line_y: float, target = self) -> void:
 	var axis_left := TRACK_LEFT_PAD

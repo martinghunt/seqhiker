@@ -1,9 +1,10 @@
-[gd_scene load_steps=23 format=3 uid="uid://b8x31srh18cqr"]
+[gd_scene load_steps=24 format=3 uid="uid://b8x31srh18cqr"]
 
 [ext_resource type="Script" uid="uid://blioyr3uu4r8n" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="FontFile" uid="uid://c7lxavioxfnbo" path="res://fonts/magrathea.ttf" id="2_0bbpv"]
 [ext_resource type="Script" uid="uid://d2jyou0mxekd6" path="res://scripts/genome_view.gd" id="2_view"]
 [ext_resource type="PackedScene" uid="uid://q40rq7ikp5jf" path="res://scenes/FeaturePanel.tscn" id="3_30wbj"]
+[ext_resource type="PackedScene" path="res://scenes/ComparisonView.tscn" id="4_cmp"]
 
 [sub_resource type="InputEventAction" id="InputEventAction_toggle_settings"]
 action = &"seqhiker_toggle_settings"
@@ -127,6 +128,19 @@ layout_mode = 2
 tooltip_text = "Download genome from internet"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "Z"
+
+[node name="ComparisonButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+layout_mode = 2
+tooltip_text = "Switch to comparison view"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+text = "J"
+
+[node name="ComparisonSaveButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+visible = false
+layout_mode = 2
+tooltip_text = "Save comparison session"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+text = "K"
 
 [node name="SearchButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
@@ -270,6 +284,10 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("2_view")
+
+[node name="ComparisonView" parent="Root/ContentMargin/ViewportLayer" instance=ExtResource("4_cmp")]
+visible = false
+layout_mode = 1
 
 [node name="SettingsPanel" type="PanelContainer" parent="Root/ContentMargin/ViewportLayer"]
 custom_minimum_size = Vector2(300, 0)

@@ -44,6 +44,8 @@ const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 #  - feature: annotation feature box fill
 #  - feature_accent: subtle annotation sub-feature accent
 #  - feature_text: annotation feature label/border color
+#  - comparison_same_strand: comparison-match fill for same-strand hits
+#  - comparison_opp_strand: comparison-match fill for opposite-strand hits
 
 
 const THEMES := {
@@ -97,7 +99,9 @@ const THEMES := {
 		"aa_reverse": Color("00aa00"),
 		"feature": Color8(116, 250, 252),
 		"feature_accent": Color8(36, 164, 166),
-		"feature_text": Color("000000")
+		"feature_text": Color("000000"),
+		"comparison_same_strand": Color("ff0000"),
+		"comparison_opp_strand": Color("0000ff")
 	},
 	"Monochrome Light": {
 		"bg": Color("fcfcfc"),
@@ -149,7 +153,9 @@ const THEMES := {
 		"aa_reverse": Color("8a8a8a"),
 		"feature": Color("d9d9d9"),
 		"feature_accent": Color("8c8c8c"),
-		"feature_text": Color("242424")
+		"feature_text": Color("242424"),
+		"comparison_same_strand": Color("555555"),
+		"comparison_opp_strand": Color("8a8a8a")
 	},
 	"Light": {
 		"bg": Color("ffffff"),
@@ -201,7 +207,9 @@ const THEMES := {
 		"aa_reverse": Color("f39237"),
 		"feature": Color("dce8f7"),
 		"feature_accent": Color("7f9cc3"),
-		"feature_text": Color("1e3557")
+		"feature_text": Color("1e3557"),
+		"comparison_same_strand": Color("cf5c36"),
+		"comparison_opp_strand": Color("3f5a7a")
 	},
 	"Forest": {
 		"bg": Color("eaf4e5"),
@@ -253,7 +261,9 @@ const THEMES := {
 		"aa_reverse": Color("bc4749"),
 		"feature": Color("c8dfc0"),
 		"feature_accent": Color("6e9662"),
-		"feature_text": Color("1f3a24")
+		"feature_text": Color("1f3a24"),
+		"comparison_same_strand": Color("b15a3c"),
+		"comparison_opp_strand": Color("4f7d64")
 	},
 	"Slate": {
 		"bg": Color("e8edf2"),
@@ -305,7 +315,9 @@ const THEMES := {
 		"aa_reverse": Color("f4a259"),
 		"feature": Color("c6d6ec"),
 		"feature_accent": Color("6f93c7"),
-		"feature_text": Color("1f3654")
+		"feature_text": Color("1f3654"),
+		"comparison_same_strand": Color("cb5a4a"),
+		"comparison_opp_strand": Color("4d78b0")
 	},
 	"Dark": {
 		"bg": Color("1a1d22"),
@@ -357,7 +369,9 @@ const THEMES := {
 		"aa_reverse": Color("ffb86b"),
 		"feature": Color("2e466e"),
 		"feature_accent": Color("6e8dbb"),
-		"feature_text": Color("eaf2ff")
+		"feature_text": Color("eaf2ff"),
+		"comparison_same_strand": Color("d17a6b"),
+		"comparison_opp_strand": Color("7aa2f7")
 	},
 	"Monochrome Dark": {
 		"bg": Color("171717"),
@@ -409,7 +423,9 @@ const THEMES := {
 		"aa_reverse": Color("727272"),
 		"feature": Color("505050"),
 		"feature_accent": Color("9a9a9a"),
-		"feature_text": Color("f0f0f0")
+		"feature_text": Color("f0f0f0"),
+		"comparison_same_strand": Color("d0d0d0"),
+		"comparison_opp_strand": Color("7a7a7a")
 	},
 	"Solarized Light": {
 		"bg": Color("fdf6e3"),
@@ -461,7 +477,9 @@ const THEMES := {
 		"aa_reverse": Color("cb4b16"),
 		"feature": Color("dcecf6"),
 		"feature_accent": Color("7eb6d6"),
-		"feature_text": Color("1f5d85")
+		"feature_text": Color("1f5d85"),
+		"comparison_same_strand": Color("cb6b47"),
+		"comparison_opp_strand": Color("268bd2")
 	},
 	"Solarized Dark": {
 		"bg": Color("002b36"),
@@ -513,7 +531,9 @@ const THEMES := {
 		"aa_reverse": Color("cb4b16"),
 		"feature": Color("12455f"),
 		"feature_accent": Color("5190ad"),
-		"feature_text": Color("dceef8")
+		"feature_text": Color("dceef8"),
+		"comparison_same_strand": Color("c56a49"),
+		"comparison_opp_strand": Color("268bd2")
 	}
 }
 

@@ -8,6 +8,7 @@ const SearchControllerScript = preload("res://scripts/search_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
+const ComparisonControllerScript = preload("res://scripts/comparison_controller.gd")
 const GoPanelScene = preload("res://scenes/GoPanel.tscn")
 const ReadTrackSettingsPanelScene = preload("res://scenes/ReadTrackSettingsPanel.tscn")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
@@ -52,6 +53,8 @@ const DEFAULT_UI_FONT_SIZE := 15
 const MIN_UI_FONT_SIZE := 8
 const MAX_UI_FONT_SIZE := 26
 const VIEW_SLOT_COUNT := 9
+const APP_MODE_BROWSER := 0
+const APP_MODE_COMPARISON := 1
 const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
 const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 const SAM_FLAG_LABELS := [
@@ -94,6 +97,8 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var search_button: Button = $Root/TopBar/ActionClipper/ActionStrip/SearchButton
 @onready var go_button: Button = $Root/TopBar/ActionClipper/ActionStrip/GoButton
 @onready var download_button: Button = $Root/TopBar/ActionClipper/ActionStrip/DownloadButton
+@onready var comparison_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ComparisonButton
+@onready var comparison_save_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ComparisonSaveButton
 @onready var pan_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanLeftButton
 @onready var jump_start_button: Button = $Root/TopBar/ActionClipper/ActionStrip/JumpStartButton
 @onready var pan_right_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanRightButton
@@ -104,6 +109,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var play_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PlayLeftButton
 @onready var stop_button: Button = $Root/TopBar/ActionClipper/ActionStrip/StopButton
 @onready var viewport_label: Label = $Root/TopBar/ActionClipper/ActionStrip/ViewportLabel
+@onready var comparison_view: Control = $Root/ContentMargin/ViewportLayer/ComparisonView
 @onready var feature_panel: PanelContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel
 @onready var _feature_margin: MarginContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin
 @onready var _feature_layout: VBoxContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout
@@ -173,6 +179,7 @@ var _search_controller: RefCounted
 var _annotation_cache_controller: RefCounted
 var _feature_panel_controller: RefCounted
 var _session_loader: RefCounted
+var _comparison_controller: RefCounted
 var _go_panel: VBoxContainer
 var _go_chr_option: OptionButton
 var _go_start_edit: LineEdit
@@ -185,6 +192,7 @@ var _download_status_label: RichTextLabel
 var _download_thread: Thread
 var _download_in_progress := false
 var _screenshot_dialog: FileDialog
+var _comparison_save_dialog: FileDialog
 var _startup_zem_prepare_thread: Thread
 var _startup_zem_connect_thread: Thread
 var _startup_zem_host := "127.0.0.1"
@@ -277,6 +285,8 @@ var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
 var _genome_cache_max_mb := GENOME_CACHE_MAX_MB_DEFAULT
 var _generate_test_data_thread: Thread
 var _generate_test_data_in_progress := false
+var _generate_comparison_test_data_thread: Thread
+var _generate_comparison_test_data_in_progress := false
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
 var _annotation_counts_by_chr := {}
 var _dbg_ann_tile_requests := 0
@@ -293,6 +303,11 @@ var _view_slots: Dictionary = {}
 var _view_slot_shortcut_buttons: Array[Button] = []
 var _pan_step_percent := 75.0
 var _loaded_file_paths := PackedStringArray()
+var _app_mode := APP_MODE_BROWSER
+var _settings_view_label: Label
+var _settings_view_box: VBoxContainer
+var _settings_shared_label: Label
+var _settings_shared_box: VBoxContainer
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -308,6 +323,8 @@ func _ready() -> void:
 	_session_loader.configure(self)
 	_tile_controller.configure(Callable(self, "_compute_tile_zoom"))
 	_themes_lib = ThemesLibScript.new()
+	_comparison_controller = ComparisonControllerScript.new()
+	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
 	_disable_button_focus()
 	_setup_settings_toggle_icon()
 	_setup_theme_selector()
@@ -321,6 +338,7 @@ func _ready() -> void:
 	_setup_debug_controls()
 	_setup_track_settings_panel()
 	_connect_ui()
+	_setup_settings_sections()
 	_load_or_init_config()
 	_apply_gc_plot_y_scale()
 	_apply_depth_plot_y_scale()
@@ -354,6 +372,9 @@ func _ready() -> void:
 	if screenshot_button != null:
 		screenshot_button.pressed.connect(_on_screenshot_pressed)
 	_setup_screenshot_dialog()
+	_setup_comparison_save_dialog()
+	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
+	_comparison_controller.setup()
 
 func _setup_screenshot_dialog() -> void:
 	_screenshot_dialog = FileDialog.new()
@@ -364,6 +385,89 @@ func _setup_screenshot_dialog() -> void:
 	_screenshot_dialog.filters = PackedStringArray(["*.svg ; SVG files"])
 	_screenshot_dialog.file_selected.connect(_on_screenshot_file_selected)
 	add_child(_screenshot_dialog)
+
+func _setup_comparison_save_dialog() -> void:
+	_comparison_save_dialog = FileDialog.new()
+	_comparison_save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	_comparison_save_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_comparison_save_dialog.use_native_dialog = true
+	_comparison_save_dialog.title = "Save Comparison Session"
+	_comparison_save_dialog.filters = PackedStringArray(["*.seqhikercmp ; Seqhiker comparison sessions"])
+	_comparison_save_dialog.file_selected.connect(_on_comparison_save_file_selected)
+	add_child(_comparison_save_dialog)
+
+func _setup_settings_sections() -> void:
+	if settings_content == null:
+		return
+	_settings_view_label = Label.new()
+	_settings_view_box = VBoxContainer.new()
+	_settings_view_box.add_theme_constant_override("separation", 8)
+	_settings_shared_label = Label.new()
+	_settings_shared_box = VBoxContainer.new()
+	_settings_shared_box.add_theme_constant_override("separation", 8)
+
+	var original_children: Array[Node] = []
+	for child in settings_content.get_children():
+		original_children.append(child)
+	settings_content.add_child(_settings_view_label)
+	settings_content.add_child(_settings_view_box)
+	settings_content.add_child(_settings_shared_label)
+	settings_content.add_child(_settings_shared_box)
+
+	var browser_names := {
+		"TrackVisibilityLabel": true,
+		"TrackVisibilityBox": true,
+		"BAMCoverageCutoffLabel": true,
+		"BAMCoverageCutoffSpin": true,
+		"PlaySpeedLabel": true,
+		"PlaySpeedRow": true
+	}
+	for child in original_children:
+		if child == null:
+			continue
+		if bool(browser_names.get(child.name, false)):
+			settings_content.remove_child(child)
+			_settings_view_box.add_child(child)
+		else:
+			settings_content.remove_child(child)
+			_settings_shared_box.add_child(child)
+
+	if _comparison_controller != null:
+		_comparison_controller.setup_settings(_settings_view_box)
+
+	_refresh_settings_sections()
+
+func _refresh_settings_sections() -> void:
+	if _settings_view_label == null or _settings_view_box == null or _settings_shared_label == null or _settings_shared_box == null:
+		return
+	_settings_view_label.text = "Comparison Options" if _app_mode == APP_MODE_COMPARISON else "Browser Options"
+	_settings_shared_label.text = "Shared Options"
+	var browser_visible := _app_mode == APP_MODE_BROWSER
+	for child in _settings_view_box.get_children():
+		child.visible = browser_visible
+	if _comparison_controller != null:
+		_comparison_controller.refresh_settings(_app_mode)
+
+func _toggle_comparison_mode() -> void:
+	if _app_mode == APP_MODE_COMPARISON:
+		_set_app_mode(APP_MODE_BROWSER)
+		return
+	_set_app_mode(APP_MODE_COMPARISON)
+	if _comparison_controller != null:
+		_comparison_controller.ensure_seed_genome_loaded(_loaded_file_paths)
+		_comparison_controller.refresh_view(theme_option.get_item_text(theme_option.selected))
+
+func _set_app_mode(next_mode: int) -> void:
+	_app_mode = next_mode
+	var comparison_active := _app_mode == APP_MODE_COMPARISON
+	genome_view.visible = not comparison_active
+	if comparison_view != null:
+		comparison_view.visible = comparison_active
+	if comparison_save_button != null:
+		comparison_save_button.visible = comparison_active
+	if viewport_label != null:
+		viewport_label.text = "Comparison view" if comparison_active else _last_viewport_message
+	_refresh_settings_sections()
 
 func _on_screenshot_pressed() -> void:
 	if _screenshot_dialog == null:
@@ -380,6 +484,23 @@ func _on_screenshot_file_selected(path: String) -> void:
 		_set_status("Saved screenshot: %s" % out_path)
 	else:
 		_set_status("Failed to save screenshot: %s" % out_path, true)
+
+func _on_comparison_save_pressed() -> void:
+	if _comparison_controller == null or not _comparison_controller.has_genomes():
+		_set_status("No comparison loaded: cannot save session.", true)
+		return
+	if _comparison_save_dialog == null:
+		return
+	_comparison_save_dialog.current_dir = OS.get_system_dir(OS.SYSTEM_DIR_DESKTOP).get_base_dir()
+	_comparison_save_dialog.current_file = "comparison.seqhikercmp"
+	_comparison_save_dialog.popup_centered_ratio(0.7)
+
+func _on_comparison_save_file_selected(path: String) -> void:
+	var out_path := path
+	if not out_path.to_lower().ends_with(".seqhikercmp"):
+		out_path += ".seqhikercmp"
+	if _comparison_controller != null:
+		_comparison_controller.save_session(out_path)
 
 func _initialize_settings_panel() -> void:
 	_set_status("Disconnected")
@@ -509,15 +630,53 @@ func _setup_font_size_control() -> void:
 func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
 	close_settings_button.pressed.connect(_close_settings)
-	pan_left_button.pressed.connect(func() -> void: _pan_view_by_fraction(-_pan_step_percent / 100.0))
-	jump_start_button.pressed.connect(func() -> void: _navigate_to_boundary(false))
-	pan_right_button.pressed.connect(func() -> void: _pan_view_by_fraction(_pan_step_percent / 100.0))
-	jump_end_button.pressed.connect(func() -> void: _navigate_to_boundary(true))
-	zoom_in_button.pressed.connect(func() -> void: genome_view.zoom_by(0.78))
-	zoom_out_button.pressed.connect(func() -> void: genome_view.zoom_by(1.28))
+	pan_left_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
+				comparison_view.pan_all_by_fraction(-_pan_step_percent / 100.0)
+			return
+		_pan_view_by_fraction(-_pan_step_percent / 100.0)
+	)
+	jump_start_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("move_all_to_boundary"):
+				comparison_view.move_all_to_boundary(false)
+			return
+		_navigate_to_boundary(false)
+	)
+	pan_right_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
+				comparison_view.pan_all_by_fraction(_pan_step_percent / 100.0)
+			return
+		_pan_view_by_fraction(_pan_step_percent / 100.0)
+	)
+	jump_end_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("move_all_to_boundary"):
+				comparison_view.move_all_to_boundary(true)
+			return
+		_navigate_to_boundary(true)
+	)
+	zoom_in_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("zoom_by"):
+				comparison_view.zoom_by(0.78)
+			return
+		genome_view.zoom_by(0.78)
+	)
+	zoom_out_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("zoom_by"):
+				comparison_view.zoom_by(1.28)
+			return
+		genome_view.zoom_by(1.28)
+	)
 	play_button.pressed.connect(_start_auto_play)
 	play_left_button.pressed.connect(_start_auto_play_left)
 	stop_button.pressed.connect(_stop_auto_play)
+	comparison_button.pressed.connect(_toggle_comparison_mode)
+	comparison_save_button.pressed.connect(_on_comparison_save_pressed)
 	search_button.pressed.connect(_toggle_search_panel)
 	go_button.pressed.connect(_toggle_go_panel)
 	download_button.pressed.connect(_toggle_download_panel)
@@ -603,6 +762,8 @@ func _pan_view_by_fraction(fraction: float, duration: float = 0.35, linear: bool
 func _disable_button_focus() -> void:
 	var controls := [
 		settings_toggle_button,
+		comparison_button,
+		comparison_save_button,
 		search_button,
 		go_button,
 		download_button,
@@ -832,23 +993,35 @@ func _on_ui_scale_changed(value: float) -> void:
 
 func _on_trackpad_pan_changed(value: float) -> void:
 	genome_view.set_trackpad_pan_sensitivity(value)
+	if comparison_view != null and comparison_view.has_method("set_trackpad_pan_sensitivity"):
+		comparison_view.set_trackpad_pan_sensitivity(value)
 
 func _on_trackpad_pinch_changed(value: float) -> void:
 	genome_view.set_trackpad_pinch_sensitivity(value)
+	if comparison_view != null and comparison_view.has_method("set_trackpad_pinch_sensitivity"):
+		comparison_view.set_trackpad_pinch_sensitivity(value)
 
 func _on_enable_vertical_swipe_zoom_toggled(enabled: bool) -> void:
 	enable_vertical_swipe_zoom_button.button_pressed = enabled
 	genome_view.set_vertical_swipe_zoom_enabled(enabled)
+	if comparison_view != null and comparison_view.has_method("set_vertical_swipe_zoom_enabled"):
+		comparison_view.set_vertical_swipe_zoom_enabled(enabled)
 
 func _on_mouse_wheel_zoom_changed(value: float) -> void:
 	genome_view.set_mouse_wheel_zoom_sensitivity(value)
+	if comparison_view != null and comparison_view.has_method("set_mouse_wheel_zoom_sensitivity"):
+		comparison_view.set_mouse_wheel_zoom_sensitivity(value)
 
 func _on_invert_mouse_wheel_zoom_toggled(enabled: bool) -> void:
 	invert_mouse_wheel_zoom_button.button_pressed = enabled
 	genome_view.set_invert_mouse_wheel_zoom(enabled)
+	if comparison_view != null and comparison_view.has_method("set_invert_mouse_wheel_zoom"):
+		comparison_view.set_invert_mouse_wheel_zoom(enabled)
 
 func _on_mouse_wheel_pan_changed(value: float) -> void:
 	genome_view.set_mouse_wheel_pan_sensitivity(value)
+	if comparison_view != null and comparison_view.has_method("set_mouse_wheel_pan_sensitivity"):
+		comparison_view.set_mouse_wheel_pan_sensitivity(value)
 
 func _on_pan_step_changed(value: float) -> void:
 	_pan_step_percent = clampf(value, 1.0, 100.0)
@@ -1121,9 +1294,16 @@ func _clear_genome_cache() -> void:
 func _generated_test_data_dir() -> String:
 	return OS.get_user_data_dir().path_join("generated_test_data")
 
+func _generated_comparison_test_data_dir() -> String:
+	return OS.get_user_data_dir().path_join("generated_comparison_test_data")
+
 func _set_generate_test_data_controls_enabled(enabled: bool) -> void:
 	if _generate_test_data_button != null:
 		_generate_test_data_button.disabled = not enabled
+
+func _set_generate_comparison_test_data_controls_enabled(enabled: bool) -> void:
+	if _comparison_controller != null:
+		_comparison_controller.set_generate_test_genomes_enabled(enabled)
 
 func _open_user_data_dir() -> void:
 	var user_dir := ProjectSettings.globalize_path("user://")
@@ -1161,11 +1341,44 @@ func _start_generate_test_data() -> void:
 	_set_generate_test_data_controls_enabled(false)
 	_set_status("Generating built-in test data...")
 
+func _start_generate_comparison_test_data() -> void:
+	if _generate_comparison_test_data_in_progress:
+		return
+	if not _session_loader.ensure_server_connected():
+		return
+	var out_dir := _generated_comparison_test_data_dir()
+	var mk_err := DirAccess.make_dir_recursive_absolute(out_dir)
+	if mk_err != OK and not DirAccess.dir_exists_absolute(out_dir):
+		_set_status("Could not create generated comparison test data directory.", true)
+		return
+	var conn: Dictionary = _zem.connection_info()
+	_generate_comparison_test_data_thread = Thread.new()
+	var err := _generate_comparison_test_data_thread.start(
+		Callable(self, "_generate_comparison_test_data_thread_main").bind(
+			str(conn.get("host", "127.0.0.1")),
+			int(conn.get("port", ZEM_DEFAULT_PORT)),
+			out_dir
+		)
+	)
+	if err != OK:
+		_generate_comparison_test_data_thread = null
+		_set_status("Could not start comparison test-data thread: %s" % error_string(err), true)
+		return
+	_generate_comparison_test_data_in_progress = true
+	_set_generate_comparison_test_data_controls_enabled(false)
+	_set_status("Generating comparison test genomes...")
+
 func _generate_test_data_thread_main(host_ip: String, port: int, out_dir: String) -> Dictionary:
 	var client = ZemClientScript.new()
 	if not client.connect_to_server(host_ip, port, 2000):
 		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
 	return client.generate_test_data(out_dir)
+
+func _generate_comparison_test_data_thread_main(host_ip: String, port: int, out_dir: String) -> Dictionary:
+	var client = ZemClientScript.new()
+	if not client.connect_to_server(host_ip, port, 2000):
+		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
+	return client.generate_comparison_test_data(out_dir)
 
 func _finish_generate_test_data(result_any: Variant) -> void:
 	_generate_test_data_in_progress = false
@@ -1183,6 +1396,23 @@ func _finish_generate_test_data(result_any: Variant) -> void:
 		_set_status("Generate test data load failed: %s" % load_resp.get("error", "error"), true)
 		return
 	_set_status("Generated and loaded test data.")
+
+func _finish_generate_comparison_test_data(result_any: Variant) -> void:
+	_generate_comparison_test_data_in_progress = false
+	_set_generate_comparison_test_data_controls_enabled(true)
+	var result: Dictionary = result_any if result_any is Dictionary else {}
+	if result.is_empty() or not result.get("ok", false):
+		_set_status("Generate comparison test data failed: %s" % result.get("error", "error"), true)
+		return
+	var files: PackedStringArray = result.get("files", PackedStringArray())
+	if files.is_empty():
+		_set_status("Generate comparison test data failed: no files returned.", true)
+		return
+	_set_app_mode(APP_MODE_COMPARISON)
+	if _comparison_controller == null or not _comparison_controller.load_generated_genomes(files):
+		_set_status("Generate comparison test data load failed.", true)
+		return
+	_set_status("Generated and loaded comparison test genomes.")
 
 func _delete_dir_contents_absolute(dir_path: String) -> bool:
 	var dir := DirAccess.open(dir_path)
@@ -2342,6 +2572,8 @@ func _apply_theme(theme_name: String) -> void:
 	_apply_topbar_button_font_size()
 	call_deferred("_update_settings_toggle_icon_pivot")
 	_apply_settings_scrollbar_style()
+	if _comparison_controller != null:
+		_comparison_controller.refresh_view(theme_name)
 	call_deferred("_update_settings_panel_width")
 	call_deferred("_update_feature_panel_width")
 
@@ -2462,6 +2694,8 @@ func _apply_topbar_button_font_size() -> void:
 	var topbar_button_size := Vector2(topbar_font_size + 14, topbar_font_size + 14)
 	var topbar_buttons := [
 		settings_toggle_button,
+		comparison_button,
+		comparison_save_button,
 		search_button,
 		go_button,
 		screenshot_button,
@@ -2485,6 +2719,22 @@ func _apply_topbar_button_font_size() -> void:
 		_update_settings_toggle_icon_pivot()
 
 func _on_files_dropped(files: PackedStringArray) -> void:
+	if not _ensure_server_connected():
+		return
+	for file_any in files:
+		var path := str(file_any)
+		if path.is_empty():
+			continue
+		var inspect: Dictionary = _zem.inspect_input(path)
+		if bool(inspect.get("ok", false)) and bool(inspect.get("is_comparison_session", false)):
+			_set_app_mode(APP_MODE_COMPARISON)
+			if _comparison_controller != null:
+				_comparison_controller.load_session(path)
+			return
+	if _app_mode == APP_MODE_COMPARISON:
+		if _comparison_controller != null:
+			_comparison_controller.handle_files_dropped(files)
+		return
 	_session_loader.on_files_dropped(files)
 
 func _ensure_server_connected() -> bool:
@@ -2505,6 +2755,9 @@ func _exit_tree() -> void:
 	if _generate_test_data_thread != null and _generate_test_data_thread.is_started():
 		_generate_test_data_thread.wait_to_finish()
 		_generate_test_data_thread = null
+	if _generate_comparison_test_data_thread != null and _generate_comparison_test_data_thread.is_started():
+		_generate_comparison_test_data_thread.wait_to_finish()
+		_generate_comparison_test_data_thread = null
 	if _startup_zem_prepare_thread != null and _startup_zem_prepare_thread.is_started():
 		_startup_zem_prepare_thread.wait_to_finish()
 		_startup_zem_prepare_thread = null
@@ -3004,6 +3257,18 @@ func _on_read_clicked(read: Dictionary) -> void:
 func _on_read_selected(read: Dictionary) -> void:
 	_feature_panel_controller.on_read_selected(read)
 
+func _on_comparison_match_selected(match: Dictionary, was_double_click: bool = false) -> void:
+	if was_double_click and not _feature_panel_open:
+		return
+	_feature_panel_controller.on_comparison_match_clicked(match)
+
+func _on_comparison_match_cleared() -> void:
+	if not _feature_panel_open:
+		return
+	if feature_title_label.text != "Comparison Match":
+		return
+	_close_feature_panel()
+
 func _jump_to_mate(start_bp: int, end_bp: int) -> void:
 	_feature_panel_controller.jump_to_mate(start_bp, end_bp)
 
@@ -3045,6 +3310,10 @@ func _process(_delta: float) -> void:
 		var generate_result: Variant = _generate_test_data_thread.wait_to_finish()
 		_generate_test_data_thread = null
 		_finish_generate_test_data(generate_result)
+	if _generate_comparison_test_data_thread != null and _generate_comparison_test_data_thread.is_started() and not _generate_comparison_test_data_thread.is_alive():
+		var comparison_generate_result: Variant = _generate_comparison_test_data_thread.wait_to_finish()
+		_generate_comparison_test_data_thread = null
+		_finish_generate_comparison_test_data(comparison_generate_result)
 	if _startup_zem_prepare_thread != null and _startup_zem_prepare_thread.is_started() and not _startup_zem_prepare_thread.is_alive():
 		var prepare_result: Variant = _startup_zem_prepare_thread.wait_to_finish()
 		_startup_zem_prepare_thread = null

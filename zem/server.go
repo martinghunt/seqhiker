@@ -114,11 +114,11 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		if err != nil {
 			return 0, nil, err
 		}
-		hasSequence, hasAnnotation, err := engine.InspectInput(path)
+		hasSequence, hasAnnotation, isComparisonSession, err := engine.InspectInput(path)
 		if err != nil {
 			return 0, nil, err
 		}
-		return MsgInspectInput, encodeInputInfo(hasSequence, hasAnnotation), nil
+		return MsgInspectInput, encodeInputInfo(hasSequence, hasAnnotation, isComparisonSession), nil
 
 	case MsgGetTile:
 		if len(payload) < 7 {
@@ -250,6 +250,41 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 	case MsgGetVersion:
 		return MsgGetVersion, ackPayload(ZemVersion), nil
 
+	case MsgSaveComparisonSession:
+		path, err := decodePathPayload(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		if err := engine.SaveComparisonSession(path); err != nil {
+			return 0, nil, err
+		}
+		return MsgAck, ackPayload("comparison session saved"), nil
+
+	case MsgLoadComparisonSession:
+		path, err := decodePathPayload(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		if err := engine.LoadComparisonSession(path); err != nil {
+			return 0, nil, err
+		}
+		return MsgAck, ackPayload("comparison session loaded"), nil
+
+	case MsgResetComparisonState:
+		engine.ResetComparisonState()
+		return MsgAck, ackPayload("comparison state reset"), nil
+
+	case MsgGenerateComparisonTestData:
+		rootDir, err := decodePathPayload(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		files, err := engine.GenerateComparisonTestData(rootDir)
+		if err != nil {
+			return 0, nil, err
+		}
+		return MsgGenerateComparisonTestData, encodeStringList(files), nil
+
 	case MsgGenerateTestData:
 		rootDir, err := decodePathPayload(payload)
 		if err != nil {
@@ -272,6 +307,58 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 			}
 		}
 		return MsgGenerateTestData, encodeStringList(files), nil
+
+	case MsgAddComparisonGenome:
+		path, err := decodePathPayload(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		genome, err := engine.AddComparisonGenome(path)
+		if err != nil {
+			return 0, nil, err
+		}
+		return MsgAddComparisonGenome, encodeComparisonGenomes([]ComparisonGenomeInfo{genome}), nil
+
+	case MsgListComparisonGenomes:
+		return MsgListComparisonGenomes, encodeComparisonGenomes(engine.ListComparisonGenomes()), nil
+
+	case MsgListComparisonPairs:
+		return MsgListComparisonPairs, encodeComparisonPairs(engine.ListComparisonPairs()), nil
+
+	case MsgGetComparisonBlocks:
+		if len(payload) < 2 {
+			return 0, nil, fmt.Errorf("invalid comparison block payload")
+		}
+		pairID := binary.LittleEndian.Uint16(payload[0:2])
+		blocks, err := engine.GetComparisonBlocks(pairID)
+		if err != nil {
+			return 0, nil, err
+		}
+		return MsgGetComparisonBlocks, encodeComparisonBlocks(blocks), nil
+
+	case MsgGetComparisonBlocksByGenomes:
+		if len(payload) < 4 {
+			return 0, nil, fmt.Errorf("invalid comparison block-by-genomes payload")
+		}
+		queryGenomeID := binary.LittleEndian.Uint16(payload[0:2])
+		targetGenomeID := binary.LittleEndian.Uint16(payload[2:4])
+		blocks, err := engine.GetComparisonBlocksByGenomes(queryGenomeID, targetGenomeID)
+		if err != nil {
+			return 0, nil, err
+		}
+		return MsgGetComparisonBlocksByGenomes, encodeComparisonBlocks(blocks), nil
+
+	case MsgGetComparisonAnnotations:
+		if len(payload) < 16 {
+			return 0, nil, fmt.Errorf("invalid comparison annotation payload")
+		}
+		genomeID := binary.LittleEndian.Uint16(payload[0:2])
+		start := binary.LittleEndian.Uint32(payload[2:6])
+		end := binary.LittleEndian.Uint32(payload[6:10])
+		maxRecs := binary.LittleEndian.Uint16(payload[10:12])
+		minLen := binary.LittleEndian.Uint32(payload[12:16])
+		resp, err := engine.GetComparisonAnnotations(genomeID, start, end, maxRecs, minLen)
+		return MsgGetComparisonAnnotations, resp, err
 
 	default:
 		return 0, nil, fmt.Errorf("unknown message type %d", msgType)
