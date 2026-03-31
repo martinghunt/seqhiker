@@ -224,6 +224,7 @@ func _draw_row_features(axis_rect: Rect2) -> void:
 	var font := get_theme_default_font()
 	var font_size := get_theme_default_font_size()
 	var label_boxes := [[], [], []]
+	var label_draws := []
 	for feat_any in features:
 		var feat: Dictionary = feat_any
 		if _is_hidden_full_length_region(feat, int(_genome.get("length", 0))):
@@ -245,11 +246,28 @@ func _draw_row_features(axis_rect: Rect2) -> void:
 		if label.is_empty():
 			continue
 		var draw_w := minf(label_w, font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x)
+		var baseline := _text_baseline_for_center(center_y, font, font_size)
 		var label_rect := Rect2(label_x_min, rect.position.y + 1.0, draw_w, rect.size.y - 2.0)
 		if _intersects_any(label_rect, label_boxes[row]):
 			continue
 		label_boxes[row].append(label_rect)
-		draw_string(font, Vector2(label_x_min, _text_baseline_for_center(center_y, font, font_size)), label, HORIZONTAL_ALIGNMENT_LEFT, label_w, font_size, _theme_colors["feature_text"])
+		label_draws.append({
+			"x": label_x_min,
+			"baseline": baseline,
+			"label": label,
+			"width": label_w
+		})
+	for draw_any in label_draws:
+		var draw_data: Dictionary = draw_any
+		draw_string(
+			font,
+			Vector2(float(draw_data.get("x", 0.0)), float(draw_data.get("baseline", 0.0))),
+			str(draw_data.get("label", "")),
+			HORIZONTAL_ALIGNMENT_LEFT,
+			float(draw_data.get("width", -1.0)),
+			font_size,
+			_theme_colors["feature_text"]
+		)
 
 func _draw_axis_ticks(axis_rect: Rect2) -> void:
 	var genome_len := int(_genome.get("length", 0))

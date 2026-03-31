@@ -39,6 +39,7 @@ const (
 	MsgGenerateComparisonTestData   uint16 = 30
 	MsgGetComparisonReferenceSlice  uint16 = 31
 	MsgGetComparisonBlockDetail     uint16 = 32
+	MsgAddComparisonGenomeFiles     uint16 = 33
 )
 
 type FrameHeader struct {
@@ -211,4 +212,26 @@ func encodeStringList(values []string) []byte {
 		off += 2 + len(value)
 	}
 	return buf
+}
+
+func decodeStringListPayload(payload []byte) ([]string, error) {
+	if len(payload) < 2 {
+		return nil, fmt.Errorf("payload too short for string list")
+	}
+	count := int(binary.LittleEndian.Uint16(payload[0:2]))
+	off := 2
+	values := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		if len(payload) < off+2 {
+			return nil, fmt.Errorf("invalid string list payload length")
+		}
+		n := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2
+		if len(payload) < off+n {
+			return nil, fmt.Errorf("invalid string list entry length")
+		}
+		values = append(values, string(payload[off:off+n]))
+		off += n
+	}
+	return values, nil
 }

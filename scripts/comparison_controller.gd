@@ -191,6 +191,13 @@ func reset_view_to_full_genomes() -> void:
 
 func add_genome(path: String) -> bool:
 	var resp: Dictionary = zem.add_comparison_genome(path)
+	return _apply_added_comparison_genome_response(resp)
+
+func add_genome_files(paths: PackedStringArray) -> bool:
+	var resp: Dictionary = zem.add_comparison_genome_files(paths)
+	return _apply_added_comparison_genome_response(resp)
+
+func _apply_added_comparison_genome_response(resp: Dictionary) -> bool:
 	if not bool(resp.get("ok", false)):
 		host._set_status("Comparison load failed: %s" % str(resp.get("error", "error")), true)
 		return false
@@ -274,6 +281,13 @@ func load_generated_genomes(paths: PackedStringArray) -> bool:
 
 
 func handle_files_dropped(files: PackedStringArray) -> void:
+	var drop_info: Dictionary = host._inspect_dropped_files(files)
+	if bool(drop_info.get("ok", false)) and bool(drop_info.get("has_sequence", false)) and int(drop_info.get("sequence_root_count", 0)) == 1 and files.size() > 1:
+		if add_genome_files(files):
+			refresh_view(host.theme_option.get_item_text(host.theme_option.selected))
+			if _comparison_genomes.size() == 1:
+				reset_view_to_full_genomes()
+		return
 	var added_any := false
 	for file_any in files:
 		var path := str(file_any)

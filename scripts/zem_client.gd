@@ -33,6 +33,7 @@ const MSG_RESET_COMPARISON_STATE := 29
 const MSG_GENERATE_COMPARISON_TEST_DATA := 30
 const MSG_GET_COMPARISON_REFERENCE_SLICE := 31
 const MSG_GET_COMPARISON_BLOCK_DETAIL := 32
+const MSG_ADD_COMPARISON_GENOME_FILES := 33
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -83,6 +84,15 @@ func load_genome(path: String) -> Dictionary:
 	for i in range(path_bytes.size()):
 		payload[2 + i] = path_bytes[i]
 	return _send_request(MSG_LOAD_GENOME, payload, LOAD_TIMEOUT_MS)
+
+func add_comparison_genome_files(paths: PackedStringArray) -> Dictionary:
+	var payload := _encode_string_list(paths)
+	var resp := _send_request(MSG_ADD_COMPARISON_GENOME_FILES, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	var genomes := _parse_comparison_genomes(resp.get("payload", PackedByteArray()))
+	resp["genome"] = genomes[0] if not genomes.is_empty() else {}
+	return resp
 
 func load_bam(path: String, precompute_cutoff_bp: int = 0) -> Dictionary:
 	var path_bytes := path.to_utf8_buffer()
@@ -151,6 +161,27 @@ func inspect_input(path: String) -> Dictionary:
 	resp["has_annotation"] = (flags & 2) != 0
 	resp["is_comparison_session"] = (flags & 4) != 0
 	return resp
+
+func _encode_string_list(values: PackedStringArray) -> PackedByteArray:
+	var total := 2
+	var encoded := []
+	for value_any in values:
+		var value := str(value_any)
+		var bytes := value.to_utf8_buffer()
+		encoded.append(bytes)
+		total += 2 + bytes.size()
+	var payload := PackedByteArray()
+	payload.resize(total)
+	payload.encode_u16(0, values.size())
+	var off := 2
+	for bytes_any in encoded:
+		var bytes: PackedByteArray = bytes_any
+		payload.encode_u16(off, bytes.size())
+		off += 2
+		for i in range(bytes.size()):
+			payload[off + i] = bytes[i]
+		off += bytes.size()
+	return payload
 
 func get_tile(chr_id: int, zoom: int, tile_index: int, source_id: int = 0) -> Dictionary:
 	var payload := PackedByteArray()

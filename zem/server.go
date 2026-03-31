@@ -319,6 +319,17 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		}
 		return MsgAddComparisonGenome, encodeComparisonGenomes([]ComparisonGenomeInfo{genome}), nil
 
+	case MsgAddComparisonGenomeFiles:
+		paths, err := decodeStringListPayload(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		genome, err := engine.AddComparisonGenomeFiles(paths)
+		if err != nil {
+			return 0, nil, err
+		}
+		return MsgAddComparisonGenome, encodeComparisonGenomes([]ComparisonGenomeInfo{genome}), nil
+
 	case MsgListComparisonGenomes:
 		return MsgListComparisonGenomes, encodeComparisonGenomes(engine.ListComparisonGenomes()), nil
 

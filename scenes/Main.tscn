@@ -257,6 +257,13 @@ size_flags_horizontal = 3
 layout_mode = 2
 text = "0 - 0 bp"
 
+[node name="ComparisonClearButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+visible = false
+layout_mode = 2
+tooltip_text = "Clear all genomes from comparison view"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+text = "V"
+
 [node name="TopBarRightSpacer" type="Control" parent="Root/TopBar"]
 custom_minimum_size = Vector2(2, 0)
 layout_mode = 2

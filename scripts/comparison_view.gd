@@ -868,7 +868,7 @@ func _focus_match_left(payload: Dictionary) -> void:
 	var left_frac := 0.06
 	var query_start := float(payload.get("query_start", 0))
 	var target_start := float(payload.get("target_start", 0))
-	var targets := {}
+	var direct_targets := {}
 	var top_id := int(payload.get("top_genome_id", -1))
 	var bottom_id := int(payload.get("bottom_genome_id", -1))
 	for pair_any in [
@@ -882,8 +882,47 @@ func _focus_match_left(payload: Dictionary) -> void:
 		var genome_len := float(_genomes_by_id.get(genome_id, {}).get("length", 0))
 		var max_offset := maxf(0.0, genome_len - _view_span_bp)
 		var next_offset := clampf(start_bp - _view_span_bp * left_frac, 0.0, max_offset)
-		targets[genome_id] = next_offset
-	_animate_offsets_to(targets)
+		direct_targets[genome_id] = next_offset
+	_animate_offsets_to(_targets_with_locked_propagation(direct_targets))
+
+
+func _targets_with_locked_propagation(direct_targets: Dictionary) -> Dictionary:
+	if direct_targets.is_empty():
+		return {}
+	var targets := {}
+	var queue: Array = []
+	for genome_id_any in direct_targets.keys():
+		var genome_id := int(genome_id_any)
+		var target_offset := float(direct_targets[genome_id_any])
+		targets[genome_id] = target_offset
+		queue.append({
+			"genome_id": genome_id,
+			"delta": target_offset - float(_offsets.get(genome_id, target_offset))
+		})
+	while not queue.is_empty():
+		var item: Dictionary = queue.pop_front()
+		var current_id := int(item.get("genome_id", -1))
+		var delta := float(item.get("delta", 0.0))
+		var idx := _order.find(current_id)
+		if idx < 0:
+			continue
+		for neighbor_idx in [idx - 1, idx + 1]:
+			if neighbor_idx < 0 or neighbor_idx >= _order.size():
+				continue
+			var neighbor_id := int(_order[neighbor_idx])
+			if not bool(_pair_locks.get(_pair_key(current_id, neighbor_id), false)):
+				continue
+			if targets.has(neighbor_id) or direct_targets.has(neighbor_id):
+				continue
+			var genome_len := float(_genomes_by_id.get(neighbor_id, {}).get("length", 0))
+			var max_offset := maxf(0.0, genome_len - _view_span_bp)
+			var next_offset := clampf(float(_offsets.get(neighbor_id, 0.0)) + delta, 0.0, max_offset)
+			targets[neighbor_id] = next_offset
+			queue.append({
+				"genome_id": neighbor_id,
+				"delta": next_offset - float(_offsets.get(neighbor_id, next_offset))
+			})
+	return targets
 
 
 func _match_key_for_display_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int) -> String:

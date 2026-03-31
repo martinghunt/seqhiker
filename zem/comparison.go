@@ -108,12 +108,7 @@ func encodeSequenceSlice(start int, end int, slice string) []byte {
 	return buf
 }
 
-func loadGenomeSnapshot(path string) (GenomeSnapshot, bool, error) {
-	entries, err := gatherInputFiles(path)
-	if err != nil {
-		return GenomeSnapshot{}, false, err
-	}
-
+func loadGenomeSnapshotEntries(entries []string) (GenomeSnapshot, bool, error) {
 	snapshot := GenomeSnapshot{
 		Sequences:   make(map[string]string),
 		Features:    make(map[string][]Feature),
@@ -175,6 +170,14 @@ func loadGenomeSnapshot(path string) (GenomeSnapshot, bool, error) {
 	return snapshot, hasSequenceInput, nil
 }
 
+func loadGenomeSnapshot(path string) (GenomeSnapshot, bool, error) {
+	entries, err := gatherInputFiles(path)
+	if err != nil {
+		return GenomeSnapshot{}, false, err
+	}
+	return loadGenomeSnapshotEntries(entries)
+}
+
 func (e *Engine) AddComparisonGenome(path string) (ComparisonGenomeInfo, error) {
 	snapshot, hasSequenceInput, err := loadGenomeSnapshot(path)
 	if err != nil {
@@ -185,6 +188,49 @@ func (e *Engine) AddComparisonGenome(path string) (ComparisonGenomeInfo, error) 
 	}
 
 	genome, err := buildComparisonGenome(path, snapshot)
+	if err != nil {
+		return ComparisonGenomeInfo{}, err
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if len(e.comparisonGenomeOrder) >= maxComparisonGenomes {
+		return ComparisonGenomeInfo{}, fmt.Errorf("comparison view supports at most %d genomes", maxComparisonGenomes)
+	}
+	genome.ID = e.nextComparisonGenomeID
+	e.nextComparisonGenomeID++
+	if e.nextComparisonGenomeID == 0 {
+		e.nextComparisonGenomeID = 1
+	}
+	e.comparisonGenomes[genome.ID] = genome
+	e.comparisonGenomeOrder = append(e.comparisonGenomeOrder, genome.ID)
+	e.rebuildComparisonPairsLocked()
+	return genome.info(), nil
+}
+
+func (e *Engine) AddComparisonGenomeFiles(paths []string) (ComparisonGenomeInfo, error) {
+	if len(paths) == 0 {
+		return ComparisonGenomeInfo{}, errors.New("comparison genome requires at least one input path")
+	}
+	entries := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		entries = append(entries, path)
+	}
+	if len(entries) == 0 {
+		return ComparisonGenomeInfo{}, errors.New("comparison genome requires at least one input path")
+	}
+	snapshot, hasSequenceInput, err := loadGenomeSnapshotEntries(entries)
+	if err != nil {
+		return ComparisonGenomeInfo{}, err
+	}
+	if !hasSequenceInput || len(snapshot.Sequences) == 0 {
+		return ComparisonGenomeInfo{}, errors.New("comparison genome requires sequence-bearing input")
+	}
+	genome, err := buildComparisonGenome(entries[0], snapshot)
 	if err != nil {
 		return ComparisonGenomeInfo{}, err
 	}

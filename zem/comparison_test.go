@@ -52,6 +52,40 @@ func TestAddComparisonGenomeBuildsConcatenatedGenome(t *testing.T) {
 	}
 }
 
+func TestAddComparisonGenomeFilesCombinesSequenceAndAnnotation(t *testing.T) {
+	tmpDir := t.TempDir()
+	fastaPath := filepath.Join(tmpDir, "ref.fa")
+	gffPath := filepath.Join(tmpDir, "ref.gff3")
+	if err := os.WriteFile(fastaPath, []byte(">chr1\nAACCGGTT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gffPath, []byte("##gff-version 3\nchr1\tt\tgene\t2\t7\t.\t+\t.\tID=g1;Name=gene1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	info, err := e.AddComparisonGenomeFiles([]string{fastaPath, gffPath})
+	if err != nil {
+		t.Fatalf("AddComparisonGenomeFiles returned error: %v", err)
+	}
+	if info.FeatureCount != 1 {
+		t.Fatalf("unexpected feature count: got %d want 1", info.FeatureCount)
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	genome := e.comparisonGenomes[info.ID]
+	if genome == nil {
+		t.Fatal("comparison genome missing from engine state")
+	}
+	if len(genome.Features) != 1 {
+		t.Fatalf("unexpected feature count in genome: got %d want 1", len(genome.Features))
+	}
+	if genome.Features[0].Start != 1 || genome.Features[0].End != 7 {
+		t.Fatalf("unexpected feature coords: got %d-%d want 1-7", genome.Features[0].Start, genome.Features[0].End)
+	}
+}
+
 func TestComparisonPairsFollowGenomeOrder(t *testing.T) {
 	e := NewEngine()
 	for i := 0; i < 3; i++ {

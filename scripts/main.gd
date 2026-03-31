@@ -99,6 +99,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var download_button: Button = $Root/TopBar/ActionClipper/ActionStrip/DownloadButton
 @onready var comparison_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ComparisonButton
 @onready var comparison_save_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ComparisonSaveButton
+@onready var comparison_clear_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ComparisonClearButton
 @onready var pan_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanLeftButton
 @onready var jump_start_button: Button = $Root/TopBar/ActionClipper/ActionStrip/JumpStartButton
 @onready var pan_right_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanRightButton
@@ -472,6 +473,7 @@ func _toggle_comparison_mode() -> void:
 	if _comparison_controller != null:
 		_comparison_controller.ensure_seed_genome_loaded(_loaded_file_paths)
 		_comparison_controller.refresh_view(theme_option.get_item_text(theme_option.selected))
+	_refresh_comparison_topbar_state()
 
 func _set_app_mode(next_mode: int) -> void:
 	_app_mode = next_mode
@@ -479,11 +481,18 @@ func _set_app_mode(next_mode: int) -> void:
 	genome_view.visible = not comparison_active
 	if comparison_view != null:
 		comparison_view.visible = comparison_active
-	if comparison_save_button != null:
-		comparison_save_button.visible = comparison_active
+	_refresh_comparison_topbar_state()
 	if viewport_label != null:
 		viewport_label.text = "Comparison view" if comparison_active else _last_viewport_message
 	_refresh_settings_sections()
+
+func _refresh_comparison_topbar_state() -> void:
+	var comparison_active := _app_mode == APP_MODE_COMPARISON
+	if comparison_save_button != null:
+		comparison_save_button.visible = comparison_active
+	if comparison_clear_button != null:
+		comparison_clear_button.visible = comparison_active
+		comparison_clear_button.disabled = not comparison_active or _comparison_controller == null or not _comparison_controller.has_genomes()
 
 func _on_screenshot_pressed() -> void:
 	if _screenshot_dialog == null:
@@ -693,6 +702,7 @@ func _connect_ui() -> void:
 	stop_button.pressed.connect(_stop_auto_play)
 	comparison_button.pressed.connect(_toggle_comparison_mode)
 	comparison_save_button.pressed.connect(_on_comparison_save_pressed)
+	comparison_clear_button.pressed.connect(_on_comparison_clear_pressed)
 	search_button.pressed.connect(_toggle_search_panel)
 	go_button.pressed.connect(_toggle_go_panel)
 	download_button.pressed.connect(_toggle_download_panel)
@@ -780,6 +790,7 @@ func _disable_button_focus() -> void:
 		settings_toggle_button,
 		comparison_button,
 		comparison_save_button,
+		comparison_clear_button,
 		search_button,
 		go_button,
 		download_button,
@@ -1428,6 +1439,7 @@ func _finish_generate_comparison_test_data(result_any: Variant) -> void:
 	if _comparison_controller == null or not _comparison_controller.load_generated_genomes(files):
 		_set_status("Generate comparison test data load failed.", true)
 		return
+	_refresh_comparison_topbar_state()
 	_set_status("Generated and loaded comparison test genomes.")
 
 func _delete_dir_contents_absolute(dir_path: String) -> bool:
@@ -2709,6 +2721,7 @@ func _apply_topbar_button_font_size() -> void:
 		settings_toggle_button,
 		comparison_button,
 		comparison_save_button,
+		comparison_clear_button,
 		search_button,
 		go_button,
 		screenshot_button,
@@ -2743,12 +2756,24 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 			_set_app_mode(APP_MODE_COMPARISON)
 			if _comparison_controller != null:
 				_comparison_controller.load_session(path)
+			_refresh_comparison_topbar_state()
 			return
 	if _app_mode == APP_MODE_COMPARISON:
 		if _comparison_controller != null:
 			_comparison_controller.handle_files_dropped(files)
+		_refresh_comparison_topbar_state()
 		return
 	_session_loader.on_files_dropped(files)
+
+func _on_comparison_clear_pressed() -> void:
+	if _comparison_controller == null:
+		return
+	if not _comparison_controller.clear_state():
+		return
+	_close_feature_panel()
+	_comparison_controller.refresh_view(theme_option.get_item_text(theme_option.selected))
+	_refresh_comparison_topbar_state()
+	_set_status("Cleared comparison view")
 
 func _ensure_server_connected() -> bool:
 	return _session_loader.ensure_server_connected()
