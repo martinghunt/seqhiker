@@ -519,9 +519,9 @@ func (e *Engine) rebuildComparisonPairsLocked() {
 			Status:         comparisonStatusPending,
 			Blocks:         nil,
 		}
-		details, storedQueryID, storedTargetID, err := e.getOrBuildComparisonPairLocked(pair.TopGenomeID, pair.BottomGenomeID)
-		if err == nil && storedQueryID == pair.TopGenomeID && storedTargetID == pair.BottomGenomeID {
-			pair.Blocks = details
+		blocks, _, _, err := e.getOrBuildComparisonPairLocked(pair.TopGenomeID, pair.BottomGenomeID)
+		if err == nil {
+			pair.Blocks = blocks
 			_ = e.ensureComparisonPairDetailCacheLocked(pair, e.comparisonGenomes[pair.TopGenomeID], e.comparisonGenomes[pair.BottomGenomeID])
 			pair.Status = comparisonStatusReady
 		}
@@ -539,29 +539,61 @@ func (e *Engine) getOrBuildComparisonPairLocked(queryGenomeID uint16, targetGeno
 	if query == nil || target == nil {
 		return nil, 0, 0, fmt.Errorf("comparison genomes %d/%d not loaded", queryGenomeID, targetGenomeID)
 	}
+	canonicalQueryID, canonicalTargetID := comparisonCanonicalGenomeIDs(queryGenomeID, targetGenomeID)
+	canonicalQuery := e.comparisonGenomes[canonicalQueryID]
+	canonicalTarget := e.comparisonGenomes[canonicalTargetID]
 	for _, pair := range e.comparisonPairs {
 		if pair == nil {
 			continue
 		}
 		if pair.TopGenomeID == queryGenomeID && pair.BottomGenomeID == targetGenomeID {
 			if pair.Status != comparisonStatusReady {
-				pair.Blocks = buildComparisonBlocks(query, target)
+				pair.Blocks = buildComparisonBlocksForDisplay(canonicalQuery, canonicalTarget, pair.TopGenomeID, pair.BottomGenomeID)
 				_ = e.ensureComparisonPairDetailCacheLocked(pair, query, target)
 				pair.Status = comparisonStatusReady
 			}
-			return pair.Blocks, pair.TopGenomeID, pair.BottomGenomeID, nil
+			return pair.Blocks, queryGenomeID, targetGenomeID, nil
 		}
 		if pair.TopGenomeID == targetGenomeID && pair.BottomGenomeID == queryGenomeID {
 			if pair.Status != comparisonStatusReady {
-				pair.Blocks = buildComparisonBlocks(target, query)
+				pair.Blocks = buildComparisonBlocksForDisplay(canonicalQuery, canonicalTarget, pair.TopGenomeID, pair.BottomGenomeID)
 				_ = e.ensureComparisonPairDetailCacheLocked(pair, target, query)
 				pair.Status = comparisonStatusReady
 			}
-			return pair.Blocks, pair.TopGenomeID, pair.BottomGenomeID, nil
+			return swapComparisonBlocks(pair.Blocks), queryGenomeID, targetGenomeID, nil
 		}
 	}
-	blocks := buildComparisonBlocks(query, target)
+	blocks := buildComparisonBlocksForDisplay(canonicalQuery, canonicalTarget, queryGenomeID, targetGenomeID)
 	return blocks, queryGenomeID, targetGenomeID, nil
+}
+
+func comparisonCanonicalGenomeIDs(a uint16, b uint16) (uint16, uint16) {
+	if a < b {
+		return a, b
+	}
+	return b, a
+}
+
+func buildComparisonBlocksForDisplay(canonicalQuery, canonicalTarget *comparisonGenome, displayQueryID uint16, displayTargetID uint16) []ComparisonBlock {
+	blocks := buildComparisonBlocks(canonicalQuery, canonicalTarget)
+	if canonicalQuery == nil || canonicalTarget == nil {
+		return blocks
+	}
+	if canonicalQuery.ID == displayQueryID && canonicalTarget.ID == displayTargetID {
+		return blocks
+	}
+	return swapComparisonBlocks(blocks)
+}
+
+func swapComparisonBlocks(blocks []ComparisonBlock) []ComparisonBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]ComparisonBlock, 0, len(blocks))
+	for _, block := range blocks {
+		out = append(out, swappedComparisonBlock(block))
+	}
+	return out
 }
 
 func swappedComparisonBlock(block ComparisonBlock) ComparisonBlock {

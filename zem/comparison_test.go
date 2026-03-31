@@ -500,6 +500,33 @@ func TestComparisonSessionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestComparisonBlocksAreSymmetricAcrossDirection(t *testing.T) {
+	e := NewEngine()
+	alpha := &comparisonGenome{ID: 1, Name: "a", Length: len("AAAACCCCGGGGTTTTAAAACCCC"), Sequence: "AAAACCCCGGGGTTTTAAAACCCC"}
+	beta := &comparisonGenome{ID: 2, Name: "b", Length: len("AAAACCCCGGGGTTTTAAAAGCCC"), Sequence: "AAAACCCCGGGGTTTTAAAAGCCC"}
+	e.comparisonGenomes[1] = alpha
+	e.comparisonGenomes[2] = beta
+	e.comparisonGenomeOrder = []uint16{1, 2, 1}
+	e.rebuildComparisonPairsLocked()
+
+	forward, _, _, err := e.getOrBuildComparisonPairLocked(1, 2)
+	if err != nil {
+		t.Fatalf("forward getOrBuildComparisonPairLocked returned error: %v", err)
+	}
+	reverse, _, _, err := e.getOrBuildComparisonPairLocked(2, 1)
+	if err != nil {
+		t.Fatalf("reverse getOrBuildComparisonPairLocked returned error: %v", err)
+	}
+	if len(forward) != len(reverse) {
+		t.Fatalf("expected same block count forward/reverse, got %d vs %d", len(forward), len(reverse))
+	}
+	for i := range forward {
+		if reverse[i] != swappedComparisonBlock(forward[i]) {
+			t.Fatalf("reverse block %d not symmetric: forward=%+v reverse=%+v", i, forward[i], reverse[i])
+		}
+	}
+}
+
 func TestGenerateComparisonTestData(t *testing.T) {
 	e := NewEngine()
 	paths, err := e.GenerateComparisonTestData(t.TempDir())
