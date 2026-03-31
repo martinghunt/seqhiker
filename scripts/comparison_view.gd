@@ -273,7 +273,8 @@ func set_genomes(genomes: Array) -> void:
 
 
 func set_pair_blocks(query_genome_id: int, target_genome_id: int, blocks: Array) -> void:
-	_pair_blocks[_pair_key(query_genome_id, target_genome_id)] = {
+	var key := _pair_key(query_genome_id, target_genome_id)
+	_pair_blocks[key] = {
 		"query_id": query_genome_id,
 		"target_id": target_genome_id,
 		"blocks": blocks.duplicate(true)
@@ -300,7 +301,10 @@ func set_block_detail(query_genome_id: int, target_genome_id: int, block: Dictio
 
 
 func pair_cached(query_genome_id: int, target_genome_id: int) -> bool:
-	return _pair_blocks.has(_pair_key(query_genome_id, target_genome_id))
+	var payload: Dictionary = _pair_blocks.get(_pair_key(query_genome_id, target_genome_id), {})
+	if payload.is_empty():
+		return false
+	return not (payload.get("blocks", []) as Array).is_empty()
 
 
 func get_order() -> PackedInt32Array:
@@ -463,33 +467,36 @@ func _draw() -> void:
 		var detail_bottom_y: float = bottom_row.get_detail_anchor_y_in_parent()
 		if bottom_y <= top_y:
 			continue
-		for block_any in _display_blocks_for_pair(top_id, bottom_id):
+		var visible_blocks: Array = _display_blocks_for_pair(top_id, bottom_id)
+		for block_any in visible_blocks:
 			var block: Dictionary = block_any
 			if _detail_mode_active() and _has_block_detail(top_id, bottom_id, block):
-				var detail_fill := _block_color(block)
-				if bool(block.get("same_strand", true)):
-					var detail_poly := _project_block_polygon(block, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y)
+				var detail: Dictionary = _detail_blocks.get(_detail_block_key(top_id, bottom_id, block), {})
+				var display_block := _aligned_block_from_detail(block, detail)
+				var detail_fill := _block_color(display_block)
+				if bool(display_block.get("same_strand", true)):
+					var detail_poly := _project_block_polygon_for_rows(display_block, top_row, bottom_row, top_y, bottom_y, 0.5)
 					if not detail_poly.is_empty():
 						detail_poly = _clip_polygon_x(detail_poly, x_min, x_max)
-						if detail_poly.size() >= 3:
+						if detail_poly.size() >= 3 and _polygon_area_abs(detail_poly) > 0.25:
 							draw_colored_polygon(detail_poly, detail_fill)
 							var detail_closed := detail_poly.duplicate()
 							detail_closed.append(detail_closed[0])
 							draw_polyline(detail_closed, detail_fill.darkened(0.18), 1.0)
-							_register_match_hitbox(block, top_id, bottom_id, detail_poly)
-							if _match_key_for_display_block(block, top_id, bottom_id) == _selected_match_key:
+							_register_match_hitbox(display_block, top_id, bottom_id, detail_poly)
+							if _match_key_for_display_block(display_block, top_id, bottom_id) == _selected_match_key:
 								draw_polyline(detail_closed, _theme_colors["selection_outline"], 2.0)
 				else:
-					_draw_reverse_block(block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, detail_fill)
+					_draw_reverse_block(display_block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, detail_fill, 0.5)
 				_draw_detail_block(block, top_id, bottom_id, top_axis, bottom_axis, detail_top_y, detail_bottom_y)
 				continue
 			var fill := _block_color(block)
 			if bool(block.get("same_strand", true)):
-				var poly := _project_block_polygon(block, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y)
+				var poly := _project_block_polygon_for_rows(block, top_row, bottom_row, top_y, bottom_y)
 				if poly.is_empty():
 					continue
 				poly = _clip_polygon_x(poly, x_min, x_max)
-				if poly.size() < 3:
+				if poly.size() < 3 or _polygon_area_abs(poly) <= 0.25:
 					continue
 				draw_colored_polygon(poly, fill)
 				poly.append(poly[0])
@@ -779,6 +786,40 @@ func _detail_block_key(query_genome_id: int, target_genome_id: int, block: Dicti
 
 func _has_block_detail(query_genome_id: int, target_genome_id: int, block: Dictionary) -> bool:
 	return _detail_blocks.has(_detail_block_key(query_genome_id, target_genome_id, block))
+
+
+func _aligned_block_from_detail(block: Dictionary, detail: Dictionary) -> Dictionary:
+	if detail.is_empty():
+		return block
+	var ops := str(detail.get("ops", ""))
+	if ops.is_empty():
+		return block
+	var same := bool(detail.get("same_strand", true))
+	var query_start := int(detail.get("query_start", block.get("query_start", 0)))
+	var target_start := int(detail.get("target_start", block.get("target_start", 0)))
+	var target_end := int(detail.get("target_end", block.get("target_end", 0)))
+	var q_pos := query_start
+	var t_pos := target_start if same else target_end - 1
+	for i in range(ops.length()):
+		var op := ops.substr(i, 1)
+		match op:
+			"M", "X":
+				q_pos += 1
+				t_pos += 1 if same else -1
+			"I":
+				q_pos += 1
+			"D":
+				t_pos += 1 if same else -1
+	var out := block.duplicate(true)
+	out["query_start"] = query_start
+	out["query_end"] = q_pos
+	if same:
+		out["target_start"] = target_start
+		out["target_end"] = t_pos
+	else:
+		out["target_start"] = t_pos + 1
+		out["target_end"] = target_end
+	return out
 
 
 func _draw_detail_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float) -> void:
@@ -1108,11 +1149,44 @@ func _project_block_polygon(block: Dictionary, top_offset: float, bottom_offset:
 	return poly
 
 
-func _draw_reverse_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int, top_offset: float, bottom_offset: float, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float, x_min: float, x_max: float, fill: Color) -> void:
+func _project_block_polygon_for_rows(block: Dictionary, top_row, bottom_row, top_y: float, bottom_y: float, edge_inset_px: float = 0.0) -> PackedVector2Array:
+	if top_row == null or bottom_row == null:
+		return PackedVector2Array()
+	var q0 := float(top_row.get_bp_edge_x_in_parent(float(block.get("query_start", 0))))
+	var q1 := float(top_row.get_bp_edge_x_in_parent(float(block.get("query_end", 0))))
+	var t0 := float(bottom_row.get_bp_edge_x_in_parent(float(block.get("target_start", 0))))
+	var t1 := float(bottom_row.get_bp_edge_x_in_parent(float(block.get("target_end", 0))))
+	if edge_inset_px > 0.0:
+		if q1 - q0 > edge_inset_px * 2.0:
+			q0 += edge_inset_px
+			q1 -= edge_inset_px
+		if t1 - t0 > edge_inset_px * 2.0:
+			t0 += edge_inset_px
+			t1 -= edge_inset_px
+	var poly := PackedVector2Array()
+	poly.append(Vector2(q0, top_y))
+	poly.append(Vector2(q1, top_y))
+	if bool(block.get("same_strand", true)):
+		poly.append(Vector2(t1, bottom_y))
+		poly.append(Vector2(t0, bottom_y))
+	else:
+		poly.append(Vector2(t0, bottom_y))
+		poly.append(Vector2(t1, bottom_y))
+	return poly
+
+
+func _draw_reverse_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int, top_offset: float, bottom_offset: float, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float, x_min: float, x_max: float, fill: Color, edge_inset_px: float = 0.0) -> void:
 	var q0 := _bp_edge_x(float(block.get("query_start", 0)), top_offset, top_axis)
 	var q1 := _bp_edge_x(float(block.get("query_end", 0)), top_offset, top_axis)
 	var t0 := _bp_edge_x(float(block.get("target_start", 0)), bottom_offset, bottom_axis)
 	var t1 := _bp_edge_x(float(block.get("target_end", 0)), bottom_offset, bottom_axis)
+	if edge_inset_px > 0.0:
+		if q1 - q0 > edge_inset_px * 2.0:
+			q0 += edge_inset_px
+			q1 -= edge_inset_px
+		if t1 - t0 > edge_inset_px * 2.0:
+			t0 += edge_inset_px
+			t1 -= edge_inset_px
 	var cross := _line_intersection(Vector2(q0, top_y), Vector2(t1, bottom_y), Vector2(q1, top_y), Vector2(t0, bottom_y))
 	var top_tri := PackedVector2Array([Vector2(q0, top_y), Vector2(q1, top_y), cross])
 	var bottom_tri := PackedVector2Array([Vector2(t0, bottom_y), Vector2(t1, bottom_y), cross])

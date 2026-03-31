@@ -257,6 +257,104 @@ func TestComparisonRepeatsProduceMultipleBlocks(t *testing.T) {
 	}
 }
 
+func TestComparisonLargeUnanchoredGapSplitsBlocks(t *testing.T) {
+	anchors := []comparisonAnchor{
+		{QPos: 0, TPos: 0, TTrans: 0},
+		{QPos: 80, TPos: 80, TTrans: 80},
+		{QPos: 160, TPos: 160, TTrans: 160},
+		{QPos: 14000, TPos: 14000, TTrans: 14000},
+		{QPos: 14080, TPos: 14080, TTrans: 14080},
+		{QPos: 14160, TPos: 14160, TTrans: 14160},
+	}
+	chains := buildRefinedChainsFromAnchors(anchors, true)
+	if len(chains) != 2 {
+		t.Fatalf("expected large unanchored gap to split into 2 chains, got %+v", chains)
+	}
+	if int(chains[0].Summary.QueryEnd) >= 1000 || int(chains[1].Summary.QueryStart) <= 1000 {
+		t.Fatalf("unexpected split positions: %+v", chains)
+	}
+}
+
+func TestComparisonSmallGapChainsMerge(t *testing.T) {
+	chains := []comparisonRefinedChain{
+		{
+			Summary: ComparisonBlock{
+				QueryStart: 500, QueryEnd: 675,
+				TargetStart: 3500, TargetEnd: 3675,
+				SameStrand: true,
+			},
+			OrientedStart: 3500,
+			OrientedEnd:   3675,
+			Anchors: []comparisonAnchor{
+				{QPos: 500, TPos: 3500, TTrans: 3500},
+				{QPos: 580, TPos: 3580, TTrans: 3580},
+				{QPos: 660, TPos: 3660, TTrans: 3660},
+			},
+		},
+		{
+			Summary: ComparisonBlock{
+				QueryStart: 687, QueryEnd: 862,
+				TargetStart: 3687, TargetEnd: 3862,
+				SameStrand: true,
+			},
+			OrientedStart: 3687,
+			OrientedEnd:   3862,
+			Anchors: []comparisonAnchor{
+				{QPos: 687, TPos: 3687, TTrans: 3687},
+				{QPos: 767, TPos: 3767, TTrans: 3767},
+				{QPos: 847, TPos: 3847, TTrans: 3847},
+			},
+		},
+	}
+	merged := mergeAdjacentRefinedChains(chains)
+	if len(merged) != 1 {
+		t.Fatalf("expected nearby chains to merge into 1 block, got %+v", merged)
+	}
+	if merged[0].Summary.QueryStart != 500 || merged[0].Summary.QueryEnd < 862 {
+		t.Fatalf("unexpected merged block span: %+v", merged[0].Summary)
+	}
+}
+
+func TestComparisonSmallOverlapChainsMerge(t *testing.T) {
+	chains := []comparisonRefinedChain{
+		{
+			Summary: ComparisonBlock{
+				QueryStart: 500, QueryEnd: 675,
+				TargetStart: 3500, TargetEnd: 3675,
+				SameStrand: true,
+			},
+			OrientedStart: 3500,
+			OrientedEnd:   3675,
+			Anchors: []comparisonAnchor{
+				{QPos: 500, TPos: 3500, TTrans: 3500},
+				{QPos: 580, TPos: 3580, TTrans: 3580},
+				{QPos: 660, TPos: 3660, TTrans: 3660},
+			},
+		},
+		{
+			Summary: ComparisonBlock{
+				QueryStart: 671, QueryEnd: 846,
+				TargetStart: 3671, TargetEnd: 3846,
+				SameStrand: true,
+			},
+			OrientedStart: 3671,
+			OrientedEnd:   3846,
+			Anchors: []comparisonAnchor{
+				{QPos: 671, TPos: 3671, TTrans: 3671},
+				{QPos: 751, TPos: 3751, TTrans: 3751},
+				{QPos: 831, TPos: 3831, TTrans: 3831},
+			},
+		},
+	}
+	merged := mergeAdjacentRefinedChains(chains)
+	if len(merged) != 1 {
+		t.Fatalf("expected overlapping chains to merge into 1 block, got %+v", merged)
+	}
+	if merged[0].Summary.QueryStart != 500 || merged[0].Summary.QueryEnd < 846 {
+		t.Fatalf("unexpected merged block span: %+v", merged[0].Summary)
+	}
+}
+
 func TestComparisonHighlyRepetitiveSeedsAreFiltered(t *testing.T) {
 	querySeq := strings.Repeat("A", 800)
 	targetSeq := strings.Repeat("A", 1200)
@@ -415,6 +513,39 @@ func TestGenerateComparisonTestData(t *testing.T) {
 	}
 	if !foundReverse {
 		t.Fatalf("expected generated comparison test data to yield at least one reverse-strand block")
+	}
+}
+
+func TestGeneratedComparisonDataGetBlocksByGenomes(t *testing.T) {
+	e := NewEngine()
+	paths, err := e.GenerateComparisonTestData(t.TempDir())
+	if err != nil {
+		t.Fatalf("GenerateComparisonTestData returned error: %v", err)
+	}
+	for _, path := range paths {
+		if _, err := e.AddComparisonGenome(path); err != nil {
+			t.Fatalf("AddComparisonGenome(%q) returned error: %v", path, err)
+		}
+	}
+	pairs := e.ListComparisonPairs()
+	if len(pairs) == 0 {
+		t.Fatal("expected generated test data to create comparison pairs")
+	}
+	for _, pair := range pairs {
+		blocksByPair, err := e.GetComparisonBlocks(pair.ID)
+		if err != nil {
+			t.Fatalf("GetComparisonBlocks(%d) returned error: %v", pair.ID, err)
+		}
+		blocksByGenomes, err := e.GetComparisonBlocksByGenomes(pair.TopGenomeID, pair.BottomGenomeID)
+		if err != nil {
+			t.Fatalf("GetComparisonBlocksByGenomes(%d,%d) returned error: %v", pair.TopGenomeID, pair.BottomGenomeID, err)
+		}
+		if len(blocksByPair) == 0 {
+			t.Fatalf("expected pair %d to have blocks by pair id", pair.ID)
+		}
+		if len(blocksByGenomes) == 0 {
+			t.Fatalf("expected pair %d genomes %d/%d to have blocks by genomes", pair.ID, pair.TopGenomeID, pair.BottomGenomeID)
+		}
 	}
 }
 

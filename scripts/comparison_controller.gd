@@ -295,20 +295,37 @@ func _ensure_pair_blocks(query_genome_id: int, target_genome_id: int) -> void:
 	var key := "%d:%d" % [mini(query_genome_id, target_genome_id), maxi(query_genome_id, target_genome_id)]
 	if _comparison_pair_cache.has(key):
 		var cached: Dictionary = _comparison_pair_cache[key]
-		comparison_view.set_pair_blocks(int(cached.get("query_id", query_genome_id)), int(cached.get("target_id", target_genome_id)), cached.get("blocks", []))
-		return
+		var cached_blocks: Array = cached.get("blocks", [])
+		if not cached_blocks.is_empty():
+			comparison_view.set_pair_blocks(int(cached.get("query_id", query_genome_id)), int(cached.get("target_id", target_genome_id)), cached_blocks)
+			return
+		_comparison_pair_cache.erase(key)
 	var resp: Dictionary = zem.get_comparison_blocks_by_genomes(query_genome_id, target_genome_id)
 	if not bool(resp.get("ok", false)):
 		host._set_status("Comparison query failed: %s" % str(resp.get("error", "error")), true)
 		return
+	var blocks: Array = resp.get("blocks", [])
+	if blocks.is_empty():
+		var pairs_resp: Dictionary = zem.list_comparison_pairs()
+		if bool(pairs_resp.get("ok", false)):
+			for pair_any in pairs_resp.get("pairs", []):
+				var pair: Dictionary = pair_any
+				var top_id := int(pair.get("top_genome_id", -1))
+				var bottom_id := int(pair.get("bottom_genome_id", -1))
+				if (top_id == query_genome_id and bottom_id == target_genome_id) or (top_id == target_genome_id and bottom_id == query_genome_id):
+					var pair_blocks_resp: Dictionary = zem.get_comparison_blocks(int(pair.get("id", -1)))
+					if bool(pair_blocks_resp.get("ok", false)):
+						blocks = pair_blocks_resp.get("blocks", [])
+					break
 	var payload := {
 		"query_id": query_genome_id,
 		"target_id": target_genome_id,
-		"blocks": resp.get("blocks", [])
+		"blocks": blocks
 	}
-	_comparison_pair_cache[key] = payload
+	if not blocks.is_empty():
+		_comparison_pair_cache[key] = payload
 	if comparison_view != null:
-		comparison_view.set_pair_blocks(query_genome_id, target_genome_id, resp.get("blocks", []))
+		comparison_view.set_pair_blocks(query_genome_id, target_genome_id, blocks)
 
 
 func _on_comparison_genome_order_changed(order: PackedInt32Array) -> void:

@@ -11,24 +11,27 @@ import (
 )
 
 const (
-	comparisonConcatGapBP            = 50
-	maxComparisonGenomes             = 8
-	comparisonStatusPending    uint8 = 1
-	comparisonStatusReady      uint8 = 2
-	comparisonMinimizerK             = 15
-	comparisonMinimizerWindow        = 10
-	comparisonMaxSeedHits            = 64
-	comparisonMinAnchorCount         = 3
-	comparisonMinBlockLen            = 100
-	comparisonMaxAnchorGap           = 20000
-	comparisonMaxDiagonalDrift       = 2500
-	comparisonDiagonalBinSize        = 512
-	comparisonRefineMaxSpan          = 16384
-	comparisonRefineBandPad          = 96
-	comparisonAffineMatch            = 2
-	comparisonAffineMismatch         = -3
-	comparisonAffineGapOpen          = -5
-	comparisonAffineGapExtend        = -1
+	comparisonConcatGapBP                = 50
+	maxComparisonGenomes                 = 8
+	comparisonStatusPending        uint8 = 1
+	comparisonStatusReady          uint8 = 2
+	comparisonMinimizerK                 = 15
+	comparisonMinimizerWindow            = 10
+	comparisonMaxSeedHits                = 64
+	comparisonMinAnchorCount             = 3
+	comparisonMinBlockLen                = 100
+	comparisonMaxAnchorGap               = 20000
+	comparisonMaxDiagonalDrift           = 6000
+	comparisonDiagonalBinSize            = 512
+	comparisonChainMergeGapMaxSpan       = 256
+	comparisonChainMergeOverlapMaxSpan   = 32
+	comparisonChainSplitGapMaxSpan       = 12000
+	comparisonRefineGapMaxSpan           = 2048
+	comparisonRefineBandPad              = 96
+	comparisonAffineMatch                = 2
+	comparisonAffineMismatch             = -3
+	comparisonAffineGapOpen              = -5
+	comparisonAffineGapExtend            = -1
 )
 
 type comparisonSegment struct {
@@ -54,6 +57,8 @@ type comparisonPair struct {
 	BottomGenomeID uint16
 	Status         uint8
 	Blocks         []ComparisonBlock
+	DetailPath     string
+	DetailIndex    map[string]comparisonDetailIndexEntry
 }
 
 type minimizerSeed struct {
@@ -85,6 +90,13 @@ type comparisonVariant struct {
 	TargetPos uint32
 	RefBases  string
 	AltBases  string
+}
+
+type comparisonRefinedChain struct {
+	Summary       ComparisonBlock
+	OrientedStart int
+	OrientedEnd   int
+	Anchors       []comparisonAnchor
 }
 
 func encodeSequenceSlice(start int, end int, slice string) []byte {
@@ -311,17 +323,57 @@ func (e *Engine) GetComparisonReferenceSlice(genomeID uint16, start uint32, end 
 }
 
 func (e *Engine) GetComparisonBlockDetail(queryGenomeID uint16, targetGenomeID uint16, block ComparisonBlock) (ComparisonBlockDetail, error) {
-	e.mu.RLock()
+	e.mu.Lock()
 	query := e.comparisonGenomes[queryGenomeID]
 	target := e.comparisonGenomes[targetGenomeID]
-	e.mu.RUnlock()
+	var exactPair *comparisonPair
+	var reversePair *comparisonPair
+	for _, pair := range e.comparisonPairs {
+		if pair == nil {
+			continue
+		}
+		if pair.TopGenomeID == queryGenomeID && pair.BottomGenomeID == targetGenomeID {
+			exactPair = pair
+			break
+		}
+		if pair.TopGenomeID == targetGenomeID && pair.BottomGenomeID == queryGenomeID {
+			reversePair = pair
+		}
+	}
 	if query == nil || target == nil {
+		e.mu.Unlock()
 		return ComparisonBlockDetail{}, fmt.Errorf("comparison genomes %d/%d not loaded", queryGenomeID, targetGenomeID)
 	}
+	if exactPair != nil {
+		_ = e.ensureComparisonPairDetailCacheLocked(exactPair, query, target)
+	}
+	if reversePair != nil {
+		_ = e.ensureComparisonPairDetailCacheLocked(reversePair, target, query)
+	}
+	if exactPair != nil {
+		if detail, ok, err := readComparisonDetailFromPairCache(exactPair, block); err == nil && ok {
+			e.mu.Unlock()
+			return detail, nil
+		}
+	}
+	if reversePair != nil {
+		if detail, ok, err := readComparisonDetailFromPairCache(reversePair, swappedComparisonBlock(block)); err == nil && ok {
+			e.mu.Unlock()
+			return swappedComparisonBlockDetail(detail), nil
+		}
+	}
+	e.mu.Unlock()
 	detail, ok := buildComparisonBlockDetail(query, target, block)
 	if !ok {
 		return ComparisonBlockDetail{}, fmt.Errorf("unable to refine comparison block")
 	}
+	e.mu.Lock()
+	if exactPair != nil {
+		_ = appendComparisonDetailToPairCache(exactPair, block, detail.info())
+	} else if reversePair != nil {
+		_ = appendComparisonDetailToPairCache(reversePair, swappedComparisonBlock(block), swappedComparisonBlockDetail(detail.info()))
+	}
+	e.mu.Unlock()
 	return detail.info(), nil
 }
 
@@ -424,6 +476,7 @@ func (e *Engine) rebuildComparisonPairsLocked() {
 		details, storedQueryID, storedTargetID, err := e.getOrBuildComparisonPairLocked(pair.TopGenomeID, pair.BottomGenomeID)
 		if err == nil && storedQueryID == pair.TopGenomeID && storedTargetID == pair.BottomGenomeID {
 			pair.Blocks = details
+			_ = e.ensureComparisonPairDetailCacheLocked(pair, e.comparisonGenomes[pair.TopGenomeID], e.comparisonGenomes[pair.BottomGenomeID])
 			pair.Status = comparisonStatusReady
 		}
 		e.comparisonPairs[pairID] = pair
@@ -447,6 +500,7 @@ func (e *Engine) getOrBuildComparisonPairLocked(queryGenomeID uint16, targetGeno
 		if pair.TopGenomeID == queryGenomeID && pair.BottomGenomeID == targetGenomeID {
 			if pair.Status != comparisonStatusReady {
 				pair.Blocks = buildComparisonBlocks(query, target)
+				_ = e.ensureComparisonPairDetailCacheLocked(pair, query, target)
 				pair.Status = comparisonStatusReady
 			}
 			return pair.Blocks, pair.TopGenomeID, pair.BottomGenomeID, nil
@@ -454,6 +508,7 @@ func (e *Engine) getOrBuildComparisonPairLocked(queryGenomeID uint16, targetGeno
 		if pair.TopGenomeID == targetGenomeID && pair.BottomGenomeID == queryGenomeID {
 			if pair.Status != comparisonStatusReady {
 				pair.Blocks = buildComparisonBlocks(target, query)
+				_ = e.ensureComparisonPairDetailCacheLocked(pair, target, query)
 				pair.Status = comparisonStatusReady
 			}
 			return pair.Blocks, pair.TopGenomeID, pair.BottomGenomeID, nil
@@ -488,7 +543,7 @@ func buildComparisonBlockDetail(query, target *comparisonGenome, summary Compari
 	}
 	qSpan := qEnd - qStart
 	tSpan := tEnd - tStart
-	if max(qSpan, tSpan) > comparisonRefineMaxSpan {
+	if max(qSpan, tSpan) > comparisonRefineGapMaxSpan {
 		return comparisonBlockDetail{}, false
 	}
 	querySeq := query.Sequence[qStart:qEnd]
@@ -507,6 +562,49 @@ func buildComparisonBlockDetail(query, target *comparisonGenome, summary Compari
 	return block, true
 }
 
+func buildComparisonBlockDetails(query, target *comparisonGenome) []comparisonBlockDetail {
+	if query == nil || target == nil || len(query.Sequence) < comparisonMinimizerK || len(target.Sequence) < comparisonMinimizerK {
+		return nil
+	}
+
+	querySeeds := extractMinimizers(query.Sequence, comparisonMinimizerK, comparisonMinimizerWindow, false)
+	targetForward := buildSeedIndex(extractMinimizers(target.Sequence, comparisonMinimizerK, comparisonMinimizerWindow, false))
+	targetReverse := buildSeedIndex(extractMinimizers(target.Sequence, comparisonMinimizerK, comparisonMinimizerWindow, true))
+
+	sameAnchors := make([]comparisonAnchor, 0, 1024)
+	reverseAnchors := make([]comparisonAnchor, 0, 1024)
+	for _, seed := range querySeeds {
+		if positions, ok := targetForward[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
+			for _, tPos := range positions {
+				sameAnchors = append(sameAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tPos})
+			}
+		}
+		if positions, ok := targetReverse[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
+			for _, tPos := range positions {
+				tTrans := target.Length - (tPos + comparisonMinimizerK)
+				if tTrans < 0 {
+					continue
+				}
+				reverseAnchors = append(reverseAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tTrans})
+			}
+		}
+	}
+
+	details := make([]comparisonBlockDetail, 0, 64)
+	details = append(details, buildDetailsFromAnchors(query, target, sameAnchors, true)...)
+	details = append(details, buildDetailsFromAnchors(query, target, reverseAnchors, false)...)
+	sort.Slice(details, func(i, j int) bool {
+		if details[i].Summary.QueryStart == details[j].Summary.QueryStart {
+			if details[i].Summary.QueryEnd == details[j].Summary.QueryEnd {
+				return details[i].Summary.TargetStart < details[j].Summary.TargetStart
+			}
+			return details[i].Summary.QueryEnd < details[j].Summary.QueryEnd
+		}
+		return details[i].Summary.QueryStart < details[j].Summary.QueryStart
+	})
+	return details
+}
+
 func buildComparisonBlocks(query, target *comparisonGenome) []ComparisonBlock {
 	if query == nil || target == nil || len(query.Sequence) < comparisonMinimizerK || len(target.Sequence) < comparisonMinimizerK {
 		return nil
@@ -521,11 +619,7 @@ func buildComparisonBlocks(query, target *comparisonGenome) []ComparisonBlock {
 	for _, seed := range querySeeds {
 		if positions, ok := targetForward[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
 			for _, tPos := range positions {
-				sameAnchors = append(sameAnchors, comparisonAnchor{
-					QPos:   seed.Pos,
-					TPos:   tPos,
-					TTrans: tPos,
-				})
+				sameAnchors = append(sameAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tPos})
 			}
 		}
 		if positions, ok := targetReverse[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
@@ -534,27 +628,27 @@ func buildComparisonBlocks(query, target *comparisonGenome) []ComparisonBlock {
 				if tTrans < 0 {
 					continue
 				}
-				reverseAnchors = append(reverseAnchors, comparisonAnchor{
-					QPos:   seed.Pos,
-					TPos:   tPos,
-					TTrans: tTrans,
-				})
+				reverseAnchors = append(reverseAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tTrans})
 			}
 		}
 	}
 
-	blocks := make([]ComparisonBlock, 0, 64)
-	blocks = append(blocks, buildBlocksFromAnchors(sameAnchors, true)...)
-	blocks = append(blocks, buildBlocksFromAnchors(reverseAnchors, false)...)
-	sort.Slice(blocks, func(i, j int) bool {
-		if blocks[i].QueryStart == blocks[j].QueryStart {
-			if blocks[i].QueryEnd == blocks[j].QueryEnd {
-				return blocks[i].TargetStart < blocks[j].TargetStart
+	chains := make([]comparisonRefinedChain, 0, 64)
+	chains = append(chains, buildRefinedChainsFromAnchors(sameAnchors, true)...)
+	chains = append(chains, buildRefinedChainsFromAnchors(reverseAnchors, false)...)
+	sort.Slice(chains, func(i, j int) bool {
+		if chains[i].Summary.QueryStart == chains[j].Summary.QueryStart {
+			if chains[i].Summary.QueryEnd == chains[j].Summary.QueryEnd {
+				return chains[i].Summary.TargetStart < chains[j].Summary.TargetStart
 			}
-			return blocks[i].QueryEnd < blocks[j].QueryEnd
+			return chains[i].Summary.QueryEnd < chains[j].Summary.QueryEnd
 		}
-		return blocks[i].QueryStart < blocks[j].QueryStart
+		return chains[i].Summary.QueryStart < chains[j].Summary.QueryStart
 	})
+	blocks := make([]ComparisonBlock, 0, len(chains))
+	for _, chain := range chains {
+		blocks = append(blocks, chain.Summary)
+	}
 	return blocks
 }
 
@@ -578,6 +672,164 @@ func buildBlocksFromAnchors(anchors []comparisonAnchor, sameStrand bool) []Compa
 		blocks = append(blocks, buildBlocksFromDiagonalBucket(diagBuckets[key], sameStrand)...)
 	}
 	return blocks
+}
+
+func buildDetailsFromAnchors(query, target *comparisonGenome, anchors []comparisonAnchor, sameStrand bool) []comparisonBlockDetail {
+	refinedChains := buildRefinedChainsFromAnchors(anchors, sameStrand)
+	out := make([]comparisonBlockDetail, 0, len(refinedChains))
+	for _, chain := range refinedChains {
+		detail, ok := buildComparisonDetailFromRefinedChain(query, target, chain)
+		if !ok {
+			continue
+		}
+		out = append(out, detail)
+	}
+	return out
+}
+
+func buildRefinedChainsFromAnchors(anchors []comparisonAnchor, sameStrand bool) []comparisonRefinedChain {
+	if len(anchors) == 0 {
+		return nil
+	}
+	sort.Slice(anchors, func(i, j int) bool {
+		if anchors[i].QPos == anchors[j].QPos {
+			if anchors[i].TTrans == anchors[j].TTrans {
+				return anchors[i].TPos < anchors[j].TPos
+			}
+			return anchors[i].TTrans < anchors[j].TTrans
+		}
+		return anchors[i].QPos < anchors[j].QPos
+	})
+
+	chains := make([]comparisonChain, 0, 32)
+	var current comparisonChain
+	for _, anchor := range dedupComparisonAnchors(anchors) {
+		if len(current.Anchors) == 0 {
+			current = comparisonChain{Anchors: []comparisonAnchor{anchor}, DiagMean: float64(anchor.TTrans - anchor.QPos), SameStrand: sameStrand}
+			continue
+		}
+		prev := current.Anchors[len(current.Anchors)-1]
+		qGap := anchor.QPos - prev.QPos
+		tGap := anchor.TTrans - prev.TTrans
+		diag := float64(anchor.TTrans - anchor.QPos)
+		if qGap > 0 && tGap > 0 && qGap <= comparisonMaxAnchorGap && tGap <= comparisonMaxAnchorGap && math.Abs(diag-current.DiagMean) <= comparisonMaxDiagonalDrift {
+			current.Anchors = append(current.Anchors, anchor)
+			n := float64(len(current.Anchors))
+			current.DiagMean += (diag - current.DiagMean) / n
+			continue
+		}
+		if isUsableComparisonChain(current) {
+			chains = append(chains, current)
+		}
+		current = comparisonChain{Anchors: []comparisonAnchor{anchor}, DiagMean: float64(anchor.TTrans - anchor.QPos), SameStrand: sameStrand}
+	}
+	if isUsableComparisonChain(current) {
+		chains = append(chains, current)
+	}
+
+	out := make([]comparisonRefinedChain, 0, len(chains))
+	for _, chain := range chains {
+		for _, subchain := range splitComparisonChainForRefinement(chain) {
+			refined := comparisonChainToRefinedChain(subchain)
+			if refined.Summary.QueryEnd > refined.Summary.QueryStart && refined.Summary.TargetEnd > refined.Summary.TargetStart {
+				out = append(out, refined)
+			}
+		}
+	}
+	return mergeAdjacentRefinedChains(out)
+}
+
+func mergeAdjacentRefinedChains(chains []comparisonRefinedChain) []comparisonRefinedChain {
+	if len(chains) <= 1 {
+		return chains
+	}
+	sort.Slice(chains, func(i, j int) bool {
+		if chains[i].Summary.QueryStart == chains[j].Summary.QueryStart {
+			if chains[i].Summary.QueryEnd == chains[j].Summary.QueryEnd {
+				if chains[i].OrientedStart == chains[j].OrientedStart {
+					return chains[i].OrientedEnd < chains[j].OrientedEnd
+				}
+				return chains[i].OrientedStart < chains[j].OrientedStart
+			}
+			return chains[i].Summary.QueryEnd < chains[j].Summary.QueryEnd
+		}
+		return chains[i].Summary.QueryStart < chains[j].Summary.QueryStart
+	})
+	merged := make([]comparisonRefinedChain, 0, len(chains))
+	current := chains[0]
+	for i := 1; i < len(chains); i++ {
+		next := chains[i]
+		if canMergeAdjacentRefinedChains(current, next) {
+			chain := comparisonChain{
+				Anchors:    append(append([]comparisonAnchor(nil), current.Anchors...), next.Anchors...),
+				SameStrand: current.Summary.SameStrand,
+			}
+			current = comparisonChainToRefinedChain(chain)
+			continue
+		}
+		merged = append(merged, current)
+		current = next
+	}
+	merged = append(merged, current)
+	return merged
+}
+
+func canMergeAdjacentRefinedChains(a, b comparisonRefinedChain) bool {
+	if a.Summary.SameStrand != b.Summary.SameStrand {
+		return false
+	}
+	qGap := int(b.Summary.QueryStart) - int(a.Summary.QueryEnd)
+	tGap := b.OrientedStart - a.OrientedEnd
+	if qGap < -comparisonChainMergeOverlapMaxSpan || tGap < -comparisonChainMergeOverlapMaxSpan {
+		return false
+	}
+	if max(qGap, tGap) > comparisonChainMergeGapMaxSpan {
+		return false
+	}
+	diagA := a.OrientedStart - int(a.Summary.QueryStart)
+	diagB := b.OrientedStart - int(b.Summary.QueryStart)
+	if absInt(diagA-diagB) > comparisonMaxDiagonalDrift {
+		return false
+	}
+	return true
+}
+
+func splitComparisonChainForRefinement(chain comparisonChain) []comparisonChain {
+	if len(chain.Anchors) <= 1 {
+		return []comparisonChain{chain}
+	}
+	out := make([]comparisonChain, 0, 4)
+	current := comparisonChain{
+		Anchors:    []comparisonAnchor{chain.Anchors[0]},
+		DiagMean:   float64(chain.Anchors[0].TTrans - chain.Anchors[0].QPos),
+		SameStrand: chain.SameStrand,
+	}
+	for i := 1; i < len(chain.Anchors); i++ {
+		prev := current.Anchors[len(current.Anchors)-1]
+		next := chain.Anchors[i]
+		qGap := next.QPos - (prev.QPos + comparisonMinimizerK)
+		tGap := next.TTrans - (prev.TTrans + comparisonMinimizerK)
+		if max(qGap, tGap) > comparisonChainSplitGapMaxSpan && isUsableComparisonChain(current) {
+			out = append(out, current)
+			current = comparisonChain{
+				Anchors:    []comparisonAnchor{next},
+				DiagMean:   float64(next.TTrans - next.QPos),
+				SameStrand: chain.SameStrand,
+			}
+			continue
+		}
+		current.Anchors = append(current.Anchors, next)
+		n := float64(len(current.Anchors))
+		diag := float64(next.TTrans - next.QPos)
+		current.DiagMean += (diag - current.DiagMean) / n
+	}
+	if len(current.Anchors) > 0 && isUsableComparisonChain(current) {
+		out = append(out, current)
+	}
+	if len(out) == 0 {
+		return []comparisonChain{chain}
+	}
+	return out
 }
 
 func buildBlocksFromDiagonalBucket(anchors []comparisonAnchor, sameStrand bool) []ComparisonBlock {
@@ -680,10 +932,16 @@ func isUsableComparisonChain(chain comparisonChain) bool {
 }
 
 func comparisonChainToBlock(chain comparisonChain) ComparisonBlock {
+	return comparisonChainToRefinedChain(chain).Summary
+}
+
+func comparisonChainToRefinedChain(chain comparisonChain) comparisonRefinedChain {
 	qStart := chain.Anchors[0].QPos
 	qEnd := chain.Anchors[0].QPos + comparisonMinimizerK
 	tStart := chain.Anchors[0].TPos
 	tEnd := chain.Anchors[0].TPos + comparisonMinimizerK
+	tOrientedStart := chain.Anchors[0].TTrans
+	tOrientedEnd := chain.Anchors[0].TTrans + comparisonMinimizerK
 	covered := 0
 	covStart := -1
 	covEnd := -1
@@ -699,6 +957,12 @@ func comparisonChainToBlock(chain comparisonChain) ComparisonBlock {
 		}
 		if anchor.TPos+comparisonMinimizerK > tEnd {
 			tEnd = anchor.TPos + comparisonMinimizerK
+		}
+		if anchor.TTrans < tOrientedStart {
+			tOrientedStart = anchor.TTrans
+		}
+		if anchor.TTrans+comparisonMinimizerK > tOrientedEnd {
+			tOrientedEnd = anchor.TTrans + comparisonMinimizerK
 		}
 		if covStart < 0 {
 			covStart = anchor.QPos
@@ -730,13 +994,18 @@ func comparisonChainToBlock(chain comparisonChain) ComparisonBlock {
 		}
 		pid = uint16(pct)
 	}
-	return ComparisonBlock{
-		QueryStart:       uint32(qStart),
-		QueryEnd:         uint32(qEnd),
-		TargetStart:      uint32(tStart),
-		TargetEnd:        uint32(tEnd),
-		PercentIdentX100: pid,
-		SameStrand:       chain.SameStrand,
+	return comparisonRefinedChain{
+		Summary: ComparisonBlock{
+			QueryStart:       uint32(qStart),
+			QueryEnd:         uint32(qEnd),
+			TargetStart:      uint32(tStart),
+			TargetEnd:        uint32(tEnd),
+			PercentIdentX100: pid,
+			SameStrand:       chain.SameStrand,
+		},
+		OrientedStart: tOrientedStart,
+		OrientedEnd:   tOrientedEnd,
+		Anchors:       append([]comparisonAnchor(nil), chain.Anchors...),
 	}
 }
 
@@ -749,6 +1018,82 @@ func refineComparisonBlock(query, target *comparisonGenome, block *comparisonBlo
 		return
 	}
 	*block = refined
+}
+
+func buildComparisonDetailFromRefinedChain(query, target *comparisonGenome, chain comparisonRefinedChain) (comparisonBlockDetail, bool) {
+	if query == nil || target == nil || len(chain.Anchors) == 0 {
+		return comparisonBlockDetail{}, false
+	}
+	var ops []byte
+	coveredQ := chain.Anchors[0].QPos
+	coveredT := chain.Anchors[0].TTrans
+	for _, anchor := range chain.Anchors {
+		if anchor.QPos > coveredQ || anchor.TTrans > coveredT {
+			qGapStart := coveredQ
+			qGapEnd := anchor.QPos
+			tGapStart := coveredT
+			tGapEnd := anchor.TTrans
+			if qGapEnd < qGapStart || tGapEnd < tGapStart {
+				return comparisonBlockDetail{}, false
+			}
+			if qGapEnd > qGapStart || tGapEnd > tGapStart {
+				if max(qGapEnd-qGapStart, tGapEnd-tGapStart) > comparisonRefineGapMaxSpan {
+					return comparisonBlockDetail{}, false
+				}
+				queryGap := query.Sequence[qGapStart:qGapEnd]
+				targetGap, ok := orientedTargetSlice(target, chain.Summary.SameStrand, tGapStart, tGapEnd)
+				if !ok {
+					return comparisonBlockDetail{}, false
+				}
+				aln, ok := bandedAffineAlign(queryGap, targetGap, absInt((qGapEnd-qGapStart)-(tGapEnd-tGapStart))+comparisonRefineBandPad)
+				if !ok {
+					return comparisonBlockDetail{}, false
+				}
+				ops = append(ops, aln.Ops...)
+			}
+		}
+		matchStartQ := max(anchor.QPos, coveredQ)
+		matchStartT := max(anchor.TTrans, coveredT)
+		matchLen := min(anchor.QPos+comparisonMinimizerK-matchStartQ, anchor.TTrans+comparisonMinimizerK-matchStartT)
+		if matchLen > 0 {
+			ops = appendRepeatedOp(ops, 'M', matchLen)
+			coveredQ = matchStartQ + matchLen
+			coveredT = matchStartT + matchLen
+		}
+	}
+	if coveredQ != int(chain.Summary.QueryEnd) || coveredT != chain.OrientedEnd {
+		return comparisonBlockDetail{}, false
+	}
+	detail := comparisonBlockDetail{
+		Summary: chain.Summary,
+		Ops:     string(ops),
+	}
+	aln := affineAlignment{Ops: ops}
+	detail.Summary.PercentIdentX100 = aln.percentIdentityX100()
+	detail.Variants = aln.variantsForBlock(detail.Summary)
+	return detail, true
+}
+
+func orientedTargetSlice(target *comparisonGenome, sameStrand bool, start int, end int) (string, bool) {
+	if target == nil || start < 0 || end < start || end > target.Length {
+		return "", false
+	}
+	if sameStrand {
+		return target.Sequence[start:end], true
+	}
+	actualStart := target.Length - end
+	actualEnd := target.Length - start
+	if actualStart < 0 || actualEnd < actualStart || actualEnd > len(target.Sequence) {
+		return "", false
+	}
+	return reverseComplementString(target.Sequence[actualStart:actualEnd]), true
+}
+
+func appendRepeatedOp(dst []byte, op byte, n int) []byte {
+	for i := 0; i < n; i++ {
+		dst = append(dst, op)
+	}
+	return dst
 }
 
 type affineAlignment struct {

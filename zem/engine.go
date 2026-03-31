@@ -164,6 +164,7 @@ type Engine struct {
 	comparisonPairs        map[uint16]*comparisonPair
 	comparisonPairOrder    []uint16
 	nextComparisonPairID   uint16
+	comparisonCacheDir     string
 }
 
 func NewEngine() *Engine {
@@ -192,6 +193,7 @@ func NewEngine() *Engine {
 		comparisonPairs:        make(map[uint16]*comparisonPair),
 		comparisonPairOrder:    make([]uint16, 0, 4),
 		nextComparisonPairID:   1,
+		comparisonCacheDir:     defaultComparisonCacheDir(),
 	}
 }
 
