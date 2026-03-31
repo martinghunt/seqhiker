@@ -30,6 +30,11 @@ func configure(next_host: Node, next_zem: RefCounted, next_themes_lib: RefCounte
 	comparison_view = next_view
 
 
+func _set_loading_message(message: String) -> void:
+	if comparison_view != null and comparison_view.has_method("set_loading_message"):
+		comparison_view.set_loading_message(message)
+
+
 func setup() -> void:
 	if comparison_view == null:
 		return
@@ -190,12 +195,18 @@ func reset_view_to_full_genomes() -> void:
 
 
 func add_genome(path: String) -> bool:
+	_set_loading_message("Loading comparison genome...")
 	var resp: Dictionary = zem.add_comparison_genome(path)
-	return _apply_added_comparison_genome_response(resp)
+	var ok := _apply_added_comparison_genome_response(resp)
+	_set_loading_message("")
+	return ok
 
 func add_genome_files(paths: PackedStringArray) -> bool:
+	_set_loading_message("Loading comparison genome...")
 	var resp: Dictionary = zem.add_comparison_genome_files(paths)
-	return _apply_added_comparison_genome_response(resp)
+	var ok := _apply_added_comparison_genome_response(resp)
+	_set_loading_message("")
+	return ok
 
 func _apply_added_comparison_genome_response(resp: Dictionary) -> bool:
 	if not bool(resp.get("ok", false)):
@@ -232,8 +243,10 @@ func save_session(path: String) -> bool:
 	return true
 
 func load_session(path: String) -> bool:
+	_set_loading_message("Loading comparison session...")
 	var resp: Dictionary = zem.load_comparison_session(path)
 	if not bool(resp.get("ok", false)):
+		_set_loading_message("")
 		host._set_status("Comparison load failed: %s" % str(resp.get("error", "error")), true)
 		return false
 	_comparison_pair_cache.clear()
@@ -244,6 +257,7 @@ func load_session(path: String) -> bool:
 		comparison_view.clear_view()
 	var genomes_resp: Dictionary = zem.list_comparison_genomes()
 	if not bool(genomes_resp.get("ok", false)):
+		_set_loading_message("")
 		host._set_status("Comparison load failed: could not list genomes", true)
 		return false
 	for genome_any in genomes_resp.get("genomes", []):
@@ -253,12 +267,15 @@ func load_session(path: String) -> bool:
 		_comparison_genomes.append(genome)
 	refresh_view(host.theme_option.get_item_text(host.theme_option.selected))
 	reset_view_to_full_genomes()
+	_set_loading_message("")
 	host._set_status("Loaded comparison session: %s" % path)
 	return true
 
 func clear_state() -> bool:
+	_set_loading_message("Clearing comparison view...")
 	var resp: Dictionary = zem.reset_comparison_state()
 	if not bool(resp.get("ok", false)):
+		_set_loading_message("")
 		host._set_status("Comparison reset failed: %s" % str(resp.get("error", "error")), true)
 		return false
 	_comparison_pair_cache.clear()
@@ -267,6 +284,7 @@ func clear_state() -> bool:
 	_comparison_genomes.clear()
 	if comparison_view != null and comparison_view.has_method("clear_view"):
 		comparison_view.clear_view()
+	_set_loading_message("")
 	return true
 
 func load_generated_genomes(paths: PackedStringArray) -> bool:
@@ -314,8 +332,10 @@ func _ensure_pair_blocks(query_genome_id: int, target_genome_id: int) -> void:
 			comparison_view.set_pair_blocks(int(cached.get("query_id", query_genome_id)), int(cached.get("target_id", target_genome_id)), cached_blocks)
 			return
 		_comparison_pair_cache.erase(key)
+	_set_loading_message("Calculating comparison matches...")
 	var resp: Dictionary = zem.get_comparison_blocks_by_genomes(query_genome_id, target_genome_id)
 	if not bool(resp.get("ok", false)):
+		_set_loading_message("")
 		host._set_status("Comparison query failed: %s" % str(resp.get("error", "error")), true)
 		return
 	var blocks: Array = resp.get("blocks", [])
@@ -340,6 +360,7 @@ func _ensure_pair_blocks(query_genome_id: int, target_genome_id: int) -> void:
 		_comparison_pair_cache[key] = payload
 	if comparison_view != null:
 		comparison_view.set_pair_blocks(query_genome_id, target_genome_id, blocks)
+	_set_loading_message("")
 
 
 func _on_comparison_genome_order_changed(order: PackedInt32Array) -> void:

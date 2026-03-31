@@ -53,6 +53,7 @@ var _vertical_swipe_zoom_enabled := true
 var _mouse_wheel_zoom_sensitivity := 1.0
 var _invert_mouse_wheel_zoom := false
 var _mouse_wheel_pan_sensitivity := 1.0
+var _loading_message := ""
 var _theme_colors := {
 	"text": Color.BLACK,
 	"text_muted": Color("666666"),
@@ -100,6 +101,7 @@ func clear_view() -> void:
 	_drag_genome_id = -1
 	_drag_target_index = -1
 	_view_span_bp = DEFAULT_VIEW_SPAN_BP
+	_loading_message = ""
 	_post_layout_refresh_pending = false
 	if _pan_tween != null:
 		_pan_tween.kill()
@@ -120,6 +122,11 @@ func set_theme_colors(next_colors: Dictionary) -> void:
 	for btn_any in _lock_buttons.values():
 		var btn: Button = btn_any
 		btn.queue_redraw()
+	queue_redraw()
+
+
+func set_loading_message(message: String) -> void:
+	_loading_message = message
 	queue_redraw()
 
 
@@ -507,6 +514,7 @@ func _draw() -> void:
 			else:
 				_draw_reverse_block(block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, fill)
 	_draw_drag_indicator()
+	_draw_loading_overlay()
 
 
 func _sync_row_instances() -> void:
@@ -1450,6 +1458,28 @@ func _draw_drag_indicator() -> void:
 		return
 	var y: float = row.position.y - 3.0
 	draw_line(Vector2(0.0, y), Vector2(size.x, y), _theme_colors["border"], 4.0)
+
+
+func _draw_loading_overlay() -> void:
+	if _loading_message.is_empty():
+		return
+	var overlay_color: Color = _theme_colors.get("panel_alt", Color(0.95, 0.95, 0.95, 1.0))
+	overlay_color.a = 0.82
+	draw_rect(Rect2(Vector2.ZERO, size), overlay_color, true)
+	var font := get_theme_default_font()
+	var font_size := maxi(16, get_theme_default_font_size() + 2)
+	var text_w := font.get_string_size(_loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var text_h := font.get_height(font_size)
+	var pad_x := 18.0
+	var pad_y := 12.0
+	var box := Rect2(
+		Vector2((size.x - text_w) * 0.5 - pad_x, (size.y - text_h) * 0.5 - pad_y),
+		Vector2(text_w + pad_x * 2.0, text_h + pad_y * 2.0)
+	)
+	draw_rect(box, _theme_colors.get("panel_alt", Color.WHITE), true)
+	draw_rect(box, _theme_colors.get("border", Color.BLACK), false, 1.0)
+	var baseline := box.position.y + pad_y + font.get_ascent(font_size)
+	draw_string(font, Vector2(box.position.x + pad_x, baseline), _loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text", Color.BLACK))
 
 
 func _match_band_height() -> float:
