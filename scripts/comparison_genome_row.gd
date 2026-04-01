@@ -8,12 +8,14 @@ signal drag_started(genome_id: int)
 signal offset_changed(genome_id: int, value: float)
 signal pan_step_requested(genome_id: int, fraction: float)
 signal feature_clicked(genome_id: int, feature: Dictionary, was_double_click: bool)
+signal axis_center_requested(genome_id: int, click_x_in_parent: float)
 
 const ROW_H := 96.0
 const FEATURE_H := 14.0
 const FEATURE_ROW_GAP := 3.0
 const PAN_STEP_FRAC := 0.75
 const DETAIL_TEXT_MAX_BASES := 2000
+const MIN_VIEW_SPAN_BP := 50.0
 
 @onready var drag_button: Button = $RootHBox/LeftBox/ButtonsRow/DragButton
 @onready var name_label: Label = $RootHBox/LeftBox/NameLabel
@@ -93,12 +95,12 @@ func set_theme_colors(next_colors: Dictionary) -> void:
 func configure_row(genome: Dictionary, offset: float, view_span_bp: float) -> void:
 	_genome = genome.duplicate(true)
 	_genome_id = int(_genome.get("id", -1))
-	_view_span_bp = maxf(100.0, view_span_bp)
+	_view_span_bp = maxf(MIN_VIEW_SPAN_BP, view_span_bp)
 	_offset = maxf(0.0, offset)
 	_refresh_if_ready()
 
 func set_view_span_bp(next_span: float) -> void:
-	_view_span_bp = maxf(100.0, next_span)
+	_view_span_bp = maxf(MIN_VIEW_SPAN_BP, next_span)
 	_refresh_if_ready()
 
 func set_view_offset(next_offset: float) -> void:
@@ -417,6 +419,11 @@ func _gui_input(event: InputEvent) -> void:
 			emit_signal("feature_clicked", _genome_id, feature, mb.double_click)
 			accept_event()
 			return
+		if mb.double_click and _is_in_axis_label_band(mb.position):
+			clear_selected_feature()
+			emit_signal("axis_center_requested", _genome_id, position.x + mb.position.x)
+			accept_event()
+			return
 
 
 func _set_offset_from_map(next_offset: float) -> void:
@@ -486,6 +493,14 @@ func _can_draw_nucleotide_letters(axis_rect: Rect2) -> bool:
 
 func _bp_center_x(bp: float, axis_rect: Rect2) -> float:
 	return axis_rect.position.x + ((bp - _offset + 0.5) / _view_span_bp) * axis_rect.size.x
+
+func _is_in_axis_label_band(local_pos: Vector2) -> bool:
+	if axis_bar == null:
+		return false
+	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
+	var top := _axis_line_y(axis_rect) - 6.0
+	var bottom := _axis_label_baseline_y(axis_rect, get_theme_default_font(), maxi(10, get_theme_default_font_size() - 2)) + 4.0
+	return local_pos.x >= axis_rect.position.x and local_pos.x <= axis_rect.position.x + axis_rect.size.x and local_pos.y >= top and local_pos.y <= bottom
 
 func _bp_in_segment(bp: int) -> bool:
 	var segments: Array = _genome.get("segments", [])

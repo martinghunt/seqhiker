@@ -615,6 +615,8 @@ func _sync_row_instances() -> void:
 			row.pan_step_requested.connect(_on_row_pan_step_requested)
 		if not row.feature_clicked.is_connected(_on_row_feature_clicked):
 			row.feature_clicked.connect(_on_row_feature_clicked)
+		if not row.axis_center_requested.is_connected(_on_row_axis_center_requested):
+			row.axis_center_requested.connect(_on_row_axis_center_requested)
 		if row.get_parent() != self:
 			add_child(row)
 		row.visible = true
@@ -1470,6 +1472,23 @@ func _on_row_pan_step_requested(genome_id: int, fraction: float) -> void:
 			seen[neighbor_id] = true
 			queue.append(neighbor_id)
 	_animate_offsets_to(targets)
+
+
+func _on_row_axis_center_requested(genome_id: int, click_x_in_parent: float) -> void:
+	var row = _rows.get(genome_id)
+	if row == null or not _genomes_by_id.has(genome_id):
+		return
+	var genome_len := float(_genomes_by_id.get(genome_id, {}).get("length", 0))
+	if genome_len <= 0.0:
+		return
+	var max_offset := maxf(0.0, genome_len - _view_span_bp)
+	var axis_rect: Rect2 = row.get_axis_rect_in_parent()
+	if axis_rect.size.x <= 0.0:
+		return
+	var frac := clampf((click_x_in_parent - axis_rect.position.x) / axis_rect.size.x, 0.0, 1.0)
+	var clicked_bp: float = float(_offsets.get(genome_id, 0.0)) + frac * _view_span_bp
+	var next_offset := clampf(clicked_bp - _view_span_bp * 0.5, 0.0, max_offset)
+	_animate_offsets_to(_targets_with_locked_propagation({genome_id: next_offset}))
 
 
 func _on_lock_button_pressed(key: String) -> void:
