@@ -250,6 +250,13 @@ func focus_genome_range(genome_id: int, start_bp: int, end_bp: int) -> void:
 	var next_offset := clampf(center_bp - _view_span_bp * 0.5, 0.0, max_offset)
 	_animate_offsets_to(_targets_with_locked_propagation({genome_id: next_offset}))
 
+func focus_genome_range_with_zoom(genome_id: int, start_bp: int, end_bp: int) -> void:
+	if not _genomes_by_id.has(genome_id):
+		return
+	var span_bp := maxi(1, end_bp - start_bp)
+	set_zoom_span_bp(float(span_bp))
+	focus_genome_range(genome_id, start_bp, end_bp)
+
 func _select_feature_in_rows(genome_id: int, feature: Dictionary) -> void:
 	_selected_feature_key = _feature_key(feature)
 	for row_id_any in _rows.keys():

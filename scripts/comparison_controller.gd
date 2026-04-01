@@ -211,6 +211,18 @@ func focus_search_hit(hit: Dictionary) -> void:
 		comparison_view.select_feature(genome_id, hit)
 
 
+func focus_genome_range(genome_id: int, start_bp: int, end_bp: int) -> void:
+	if comparison_view == null or not comparison_view.has_method("focus_genome_range"):
+		return
+	comparison_view.focus_genome_range(genome_id, start_bp, end_bp)
+
+
+func focus_genome_range_with_zoom(genome_id: int, start_bp: int, end_bp: int) -> void:
+	if comparison_view == null or not comparison_view.has_method("focus_genome_range_with_zoom"):
+		return
+	comparison_view.focus_genome_range_with_zoom(genome_id, start_bp, end_bp)
+
+
 func add_genome(path: String) -> bool:
 	_set_loading_message("Loading comparison genome...")
 	var resp: Dictionary = zem.add_comparison_genome(path)
