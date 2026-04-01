@@ -2335,9 +2335,9 @@ func _on_map_jump_requested(bp_center: float) -> void:
 	_navigate_to_view(float(target_start), current_bp_per_px)
 
 func _on_center_jump_requested(bp_center: float) -> void:
-	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
 	var target_start := maxi(0, int(floor(bp_center - genome_view.get_visible_span_bp() * 0.5)))
-	_navigate_to_view(float(target_start), current_bp_per_px)
+	_cancel_motion_navigation()
+	genome_view.pan_to_start(float(target_start))
 
 func _display_point_bp(bp: int) -> int:
 	return bp + 1
