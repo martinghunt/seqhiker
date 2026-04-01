@@ -3,6 +3,9 @@ class_name ComparisonGenomeRow
 
 const MapStripRendererScript = preload("res://scripts/map_strip_renderer.gd")
 const FeatureAnnotationUtilsScript = preload("res://scripts/feature_annotation_utils.gd")
+const ANONYMOUS_PRO_FONT := preload("res://fonts/Anonymous-Pro/Anonymous_Pro.ttf")
+const COURIER_NEW_FONT := preload("res://fonts/Courier-New/couriernew.ttf")
+const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 
 signal drag_started(genome_id: int)
 signal offset_changed(genome_id: int, value: float)
@@ -41,6 +44,8 @@ var _map_drag_bp_offset := 0.0
 var _reference_start_bp := 0
 var _reference_sequence := ""
 var _colorize_nucleotides := true
+var _sequence_letter_font_name := "Anonymous Pro"
+var _dejavu_sans_font: FontFile = null
 var _feature_hitboxes: Array[Dictionary] = []
 var _selected_feature_key := ""
 var _region_select_dragging := false
@@ -121,6 +126,11 @@ func set_reference_slice(slice_start: int, sequence: String) -> void:
 
 func set_colorize_nucleotides(enabled: bool) -> void:
 	_colorize_nucleotides = enabled
+	if _scene_ready:
+		queue_redraw()
+
+func set_sequence_letter_font_name(font_name: String) -> void:
+	_sequence_letter_font_name = font_name
 	if _scene_ready:
 		queue_redraw()
 
@@ -467,7 +477,7 @@ func _draw_reference_letters(axis_rect: Rect2) -> void:
 		return
 	if i_end - i_start + 1 > DETAIL_TEXT_MAX_BASES:
 		i_end = i_start + DETAIL_TEXT_MAX_BASES - 1
-	var font := get_theme_default_font()
+	var font := sequence_letter_font()
 	var font_size := maxi(11, get_theme_default_font_size())
 	var fwd_center_y := _nucleotide_center_y(axis_rect)
 	var fwd_baseline := FeatureAnnotationUtilsScript.text_baseline_for_center(fwd_center_y, font, font_size)
@@ -497,7 +507,7 @@ func _draw_reference_letters(axis_rect: Rect2) -> void:
 func _can_draw_nucleotide_letters(axis_rect: Rect2) -> bool:
 	if axis_rect.size.x <= 0.0 or _view_span_bp <= 0.0:
 		return false
-	var font := get_theme_default_font()
+	var font := sequence_letter_font()
 	var font_size := maxi(11, get_theme_default_font_size())
 	var char_px := font.get_string_size("A", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	if char_px <= 0.0:
@@ -674,3 +684,24 @@ func _nice_tick(raw: float) -> float:
 	if norm <= 5.0:
 		return 5.0 * magnitude
 	return 10.0 * magnitude
+
+func sequence_letter_font() -> Font:
+	match _sequence_letter_font_name:
+		"Noto Sans":
+			return ThemeDB.fallback_font
+		"DejaVu Sans":
+			return _load_dejavu_sans_font()
+		"Courier New":
+			return COURIER_NEW_FONT
+		_:
+			return ANONYMOUS_PRO_FONT
+
+func _load_dejavu_sans_font() -> Font:
+	if _dejavu_sans_font != null:
+		return _dejavu_sans_font
+	var font := FontFile.new()
+	var err := font.load_dynamic_font(DEJAVU_SANS_FONT_PATH)
+	if err != OK:
+		return ThemeDB.fallback_font
+	_dejavu_sans_font = font
+	return _dejavu_sans_font

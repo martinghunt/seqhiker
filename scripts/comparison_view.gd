@@ -30,6 +30,7 @@ var _detail_blocks := {}
 var _reference_slices := {}
 var _detail_request_pending := false
 var _colorize_nucleotides := true
+var _sequence_letter_font_name := "Anonymous Pro"
 var _rows := {}
 var _lock_buttons := {}
 var _pair_locks := {}
@@ -359,6 +360,14 @@ func set_colorize_nucleotides(enabled: bool) -> void:
 	for row_any in _rows.values():
 		var row = row_any
 		row.set_colorize_nucleotides(enabled)
+	queue_redraw()
+
+func set_sequence_letter_font_name(font_name: String) -> void:
+	_sequence_letter_font_name = font_name
+	for row_any in _rows.values():
+		var row = row_any
+		if row != null and row.has_method("set_sequence_letter_font_name"):
+			row.set_sequence_letter_font_name(font_name)
 	queue_redraw()
 
 func set_reference_slice(genome_id: int, slice_data: Dictionary) -> void:
@@ -698,6 +707,8 @@ func _sync_row_instances() -> void:
 		row.visible = true
 		row.set_theme_colors(_theme_colors)
 		row.set_colorize_nucleotides(_colorize_nucleotides)
+		if row.has_method("set_sequence_letter_font_name"):
+			row.set_sequence_letter_font_name(_sequence_letter_font_name)
 		row.configure_row(genome, float(_offsets.get(int(genome_id), 0.0)), _view_span_bp)
 		var slice_data: Dictionary = _reference_slices.get(int(genome_id), {})
 		if not slice_data.is_empty():

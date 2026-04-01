@@ -1188,6 +1188,8 @@ func _on_sequence_letter_font_selected(index: int) -> void:
 		return
 	_sequence_letter_font_name = sequence_letter_font_option.get_item_text(index)
 	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
+	if comparison_view != null and comparison_view.has_method("set_sequence_letter_font_name"):
+		comparison_view.set_sequence_letter_font_name(_sequence_letter_font_name)
 	_save_config()
 
 
@@ -1205,6 +1207,8 @@ func _apply_classic_font_defaults_for_theme(theme_name: String) -> void:
 			sequence_letter_font_option.select(i)
 			break
 	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
+	if comparison_view != null and comparison_view.has_method("set_sequence_letter_font_name"):
+		comparison_view.set_sequence_letter_font_name(_sequence_letter_font_name)
 
 func _setup_read_view_controls() -> void:
 	_read_view_label = Label.new()
@@ -3177,6 +3181,8 @@ func _load_or_init_config() -> void:
 			sequence_letter_font_option.select(i)
 			break
 	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
+	if comparison_view != null and comparison_view.has_method("set_sequence_letter_font_name"):
+		comparison_view.set_sequence_letter_font_name(_sequence_letter_font_name)
 	var default_anim_speed := 1.5
 	if cfg.has_section_key("ui", "animate_pan_zoom_speed"):
 		default_anim_speed = float(cfg.get_value("ui", "animate_pan_zoom_speed", 1.0))
