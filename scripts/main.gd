@@ -297,7 +297,10 @@ var _last_status_message := "Disconnected"
 var _last_status_is_error := false
 var _last_viewport_message := "0 - 0 bp  |  0 bp visible"
 var _last_bp_per_px_message := "0.00 bp/px"
-var _view_slots: Dictionary = {}
+var _view_slots := {
+	APP_MODE_BROWSER: {},
+	APP_MODE_COMPARISON: {}
+}
 var _view_slot_shortcut_buttons: Array[Button] = []
 var _pan_step_percent := 75.0
 var _loaded_file_paths := PackedStringArray()
@@ -3034,40 +3037,71 @@ func _make_view_slot_button(action_name: String, callback: Callable) -> Button:
 	return b
 
 func _save_view_slot(slot_idx: int) -> void:
+	var slot_bank: Dictionary = _view_slots.get(_app_mode, {})
+	if _app_mode == APP_MODE_COMPARISON:
+		if _comparison_controller == null or not _comparison_controller.has_genomes():
+			_set_status("No comparison genomes loaded: cannot save view slot.", true)
+			return
+		slot_bank[slot_idx] = {
+			"app_mode": APP_MODE_COMPARISON,
+			"scope_key": _comparison_controller.get_view_slot_scope_key(),
+			"comparison_state": _comparison_controller.get_view_slot_state()
+		}
+		_view_slots[_app_mode] = slot_bank
+		_set_status("Saved view slot %d." % slot_idx)
+		return
 	if _current_chr_len <= 0:
 		_set_status("No genome loaded: cannot save view slot.", true)
 		return
 	var state: Dictionary = genome_view.get_view_state()
-	_view_slots[slot_idx] = {
+	slot_bank[slot_idx] = {
 		"scope_key": _scope_cache_key(),
 		"seq_view_mode": _seq_view_mode,
 		"seq_id": _selected_seq_id,
 		"start_bp": float(state.get("start_bp", _last_start)),
 		"bp_per_px": float(state.get("bp_per_px", _last_bp_per_px))
 	}
+	_view_slots[_app_mode] = slot_bank
 	_set_status("Saved view slot %d." % slot_idx)
 
 func _load_view_slot(slot_idx: int) -> void:
-	if _current_chr_len <= 0:
-		_set_status("No genome loaded: cannot load view slot.", true)
-		return
-	if not _view_slots.has(slot_idx):
+	var slot_bank: Dictionary = _view_slots.get(_app_mode, {})
+	if not slot_bank.has(slot_idx):
 		_set_status("View slot %d is empty." % slot_idx, true)
 		return
-	var slot_any = _view_slots[slot_idx]
+	var slot_any = slot_bank[slot_idx]
 	if typeof(slot_any) != TYPE_DICTIONARY:
 		_set_status("View slot %d is invalid." % slot_idx, true)
 		return
 	var slot: Dictionary = slot_any
+	var slot_mode := int(slot.get("app_mode", APP_MODE_BROWSER))
+	if slot_mode == APP_MODE_COMPARISON:
+		if _comparison_controller == null or not _comparison_controller.has_genomes():
+			_set_status("No comparison genomes loaded: cannot load view slot.", true)
+			return
+		var slot_scope_cmp := str(slot.get("scope_key", ""))
+		if slot_scope_cmp != _comparison_controller.get_view_slot_scope_key():
+			_set_status("View slot %d is from a different comparison scope." % slot_idx, true)
+			return
+		var cmp_state_any: Variant = slot.get("comparison_state", {})
+		if typeof(cmp_state_any) != TYPE_DICTIONARY:
+			_set_status("View slot %d is invalid." % slot_idx, true)
+			return
+		_comparison_controller.apply_view_slot_state(cmp_state_any)
+		_set_status("Loaded view slot %d." % slot_idx)
+		return
+	if _current_chr_len <= 0:
+		_set_status("No genome loaded: cannot load view slot.", true)
+		return
 	var slot_scope := str(slot.get("scope_key", ""))
 	if slot_scope != _scope_cache_key():
 		_set_status("View slot %d is from a different genome/session scope." % slot_idx, true)
 		return
-	var slot_mode := int(slot.get("seq_view_mode", _seq_view_mode))
-	if slot_mode != _seq_view_mode:
-		_seq_view_option.select(slot_mode)
-		_on_seq_view_selected(slot_mode)
-	if slot_mode == SEQ_VIEW_SINGLE:
+	var seq_slot_mode := int(slot.get("seq_view_mode", _seq_view_mode))
+	if seq_slot_mode != _seq_view_mode:
+		_seq_view_option.select(seq_slot_mode)
+		_on_seq_view_selected(seq_slot_mode)
+	if seq_slot_mode == SEQ_VIEW_SINGLE:
 		var target_id := int(slot.get("seq_id", _selected_seq_id))
 		for i in range(_seq_option.item_count):
 			if int(_seq_option.get_item_id(i)) == target_id:

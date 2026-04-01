@@ -382,6 +382,52 @@ func pair_cached(query_genome_id: int, target_genome_id: int) -> bool:
 func get_order() -> PackedInt32Array:
 	return _order
 
+func get_view_slot_state() -> Dictionary:
+	var offsets: Dictionary = {}
+	for genome_id_any in _order:
+		var genome_id := int(genome_id_any)
+		offsets[genome_id] = float(_offsets.get(genome_id, 0.0))
+	return {
+		"order": _order,
+		"view_span_bp": _view_span_bp,
+		"offsets": offsets
+	}
+
+func apply_view_slot_state(state: Dictionary) -> void:
+	if state.is_empty():
+		return
+	var order_any: Variant = state.get("order", PackedInt32Array())
+	var saved_order := PackedInt32Array()
+	if order_any is PackedInt32Array:
+		saved_order = order_any
+	elif order_any is Array:
+		for genome_id_any in order_any:
+			saved_order.append(int(genome_id_any))
+	var next_order := PackedInt32Array()
+	for genome_id in saved_order:
+		if _genomes_by_id.has(int(genome_id)) and not next_order.has(int(genome_id)):
+			next_order.append(int(genome_id))
+	for genome_id_any in _genomes_by_id.keys():
+		var genome_id := int(genome_id_any)
+		if not next_order.has(genome_id):
+			next_order.append(genome_id)
+	_order = next_order
+	var offsets_any: Variant = state.get("offsets", {})
+	var offsets_dict: Dictionary = offsets_any if typeof(offsets_any) == TYPE_DICTIONARY else {}
+	var next_span := float(state.get("view_span_bp", _view_span_bp))
+	var longest := _longest_genome_len()
+	_view_span_bp = clampf(next_span, MIN_VIEW_SPAN_BP, maxf(MIN_VIEW_SPAN_BP, longest))
+	for genome_id_any in _order:
+		var genome_id := int(genome_id_any)
+		var genome_len := float(_genomes_by_id.get(genome_id, {}).get("length", 0))
+		var max_offset := maxf(0.0, genome_len - _view_span_bp)
+		_offsets[genome_id] = clampf(float(offsets_dict.get(genome_id, 0.0)), 0.0, max_offset)
+	_sync_row_instances()
+	_layout_rows_and_locks()
+	_schedule_post_layout_refresh()
+	_schedule_detail_request()
+	queue_redraw()
+
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:

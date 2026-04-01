@@ -61,6 +61,29 @@ func has_genomes() -> bool:
 func get_genomes() -> Array[Dictionary]:
 	return _comparison_genomes.duplicate(true)
 
+func get_view_slot_scope_key() -> String:
+	if _comparison_genomes.is_empty():
+		return ""
+	var ids: Array[int] = []
+	for genome_any in _comparison_genomes:
+		var genome: Dictionary = genome_any
+		ids.append(int(genome.get("id", -1)))
+	ids.sort()
+	var id_parts: PackedStringArray = []
+	for genome_id in ids:
+		id_parts.append(str(genome_id))
+	return "comparison:%s" % ",".join(id_parts)
+
+func get_view_slot_state() -> Dictionary:
+	if comparison_view == null or not comparison_view.has_method("get_view_slot_state"):
+		return {}
+	return comparison_view.get_view_slot_state()
+
+func apply_view_slot_state(state: Dictionary) -> void:
+	if comparison_view == null or not comparison_view.has_method("apply_view_slot_state"):
+		return
+	comparison_view.apply_view_slot_state(state)
+
 
 func setup_settings(view_box: VBoxContainer) -> void:
 	if view_box == null:
