@@ -735,6 +735,7 @@ func _draw_to(target) -> void:
 		if row != null and row.has_method("export_to"):
 			row.export_to(target)
 	if target == self:
+		_draw_empty_state_prompt()
 		_draw_drag_indicator()
 		_draw_loading_overlay()
 
@@ -1756,6 +1757,23 @@ func _draw_drag_indicator() -> void:
 		return
 	var y: float = row.position.y - 3.0
 	draw_line(Vector2(0.0, y), Vector2(size.x, y), _theme_colors["border"], 4.0)
+
+
+func _draw_empty_state_prompt() -> void:
+	if not _loading_message.is_empty():
+		return
+	var message := ""
+	if _order.is_empty():
+		message = "Drag genome files one-by-one to compare"
+	elif _order.size() == 1:
+		message = "Drag another genome to compare"
+	else:
+		return
+	var font := get_theme_default_font()
+	var font_size := maxi(18, get_theme_default_font_size() + 2)
+	var text_size := font.get_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var pos := Vector2((size.x - text_size.x) * 0.5, (size.y + font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5)
+	draw_string(font, pos, message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text", Color.BLACK))
 
 
 func _draw_loading_overlay() -> void:
