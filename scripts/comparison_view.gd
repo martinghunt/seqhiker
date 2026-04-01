@@ -21,6 +21,7 @@ const LOCK_BTN_X := 18.0
 const MIN_VIEW_SPAN_BP := 50.0
 const DEFAULT_VIEW_SPAN_BP := 10000.0
 const DETAIL_MAX_BLOCKS_PER_PAIR := 24
+const REGION_SELECT_DRAG_THRESHOLD_PX := 6.0
 
 var _genomes_by_id := {}
 var _order := PackedInt32Array()
@@ -42,6 +43,10 @@ var _pending_click_payload: Dictionary = {}
 var _drag_active := false
 var _drag_genome_id := -1
 var _drag_target_index := -1
+var _region_select_pending := false
+var _region_select_pending_genome_id := -1
+var _region_select_pending_edge := 0.0
+var _region_select_pending_start_point := Vector2.ZERO
 var _region_select_dragging := false
 var _region_select_has_selection := false
 var _region_select_genome_id := -1
@@ -116,6 +121,10 @@ func clear_view() -> void:
 	_drag_active = false
 	_drag_genome_id = -1
 	_drag_target_index = -1
+	_region_select_pending = false
+	_region_select_pending_genome_id = -1
+	_region_select_pending_edge = 0.0
+	_region_select_pending_start_point = Vector2.ZERO
 	_view_span_bp = DEFAULT_VIEW_SPAN_BP
 	_loading_message = ""
 	_post_layout_refresh_pending = false
@@ -514,6 +523,13 @@ func _input(event: InputEvent) -> void:
 			accept_event()
 			return
 	if event is InputEventMouseMotion:
+		if _region_select_pending:
+			var local_motion_pending := _local_input_point((event as InputEventMouseMotion).position)
+			if local_motion_pending.distance_to(_region_select_pending_start_point) >= REGION_SELECT_DRAG_THRESHOLD_PX:
+				_start_region_selection(_region_select_pending_genome_id, _region_select_pending_edge)
+				_update_region_selection_drag(local_motion_pending)
+			accept_event()
+			return
 		if _region_select_dragging:
 			var local_motion := _local_input_point((event as InputEventMouseMotion).position)
 			_update_region_selection_drag(local_motion)
@@ -524,6 +540,10 @@ func _input(event: InputEvent) -> void:
 		_drag_target_index = _row_index_for_y(get_local_mouse_position().y)
 		queue_redraw()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		if _region_select_pending:
+			_cancel_pending_region_selection()
+			accept_event()
+			return
 		if _region_select_dragging:
 			var local_release := _local_input_point((event as InputEventMouseButton).position)
 			_finish_region_selection_drag(local_release)
@@ -541,6 +561,7 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.double_click:
 		var mb := event as InputEventMouseButton
+		_cancel_pending_region_selection()
 		var feature_hit := _hit_test_feature(mb.position)
 		if not feature_hit.is_empty():
 			_on_row_feature_clicked(int(feature_hit.get("genome_id", -1)), feature_hit.get("feature", {}), true)
@@ -575,7 +596,7 @@ func _gui_input(event: InputEvent) -> void:
 			if row_hit.is_empty():
 				_clear_region_selection(true)
 				return
-			_start_region_selection(int(row_hit.get("genome_id", -1)), float(row_hit.get("bp", 0.0)))
+			_begin_pending_region_selection(int(row_hit.get("genome_id", -1)), float(row_hit.get("bp", 0.0)), mb.position)
 			accept_event()
 			return
 		var payload: Dictionary = hit.get("payload", {})
@@ -1757,6 +1778,7 @@ func _row_hit_for_point(point_parent: Vector2) -> Dictionary:
 	return {}
 
 func _start_region_selection(genome_id: int, edge_bp: float) -> void:
+	_cancel_pending_region_selection()
 	_drag_active = false
 	_drag_genome_id = -1
 	_drag_target_index = -1
@@ -1766,6 +1788,18 @@ func _start_region_selection(genome_id: int, edge_bp: float) -> void:
 	_region_select_start_edge = edge_bp
 	_region_select_end_edge = edge_bp
 	_update_region_selection_rows()
+
+func _begin_pending_region_selection(genome_id: int, edge_bp: float, start_point: Vector2) -> void:
+	_region_select_pending = true
+	_region_select_pending_genome_id = genome_id
+	_region_select_pending_edge = edge_bp
+	_region_select_pending_start_point = start_point
+
+func _cancel_pending_region_selection() -> void:
+	_region_select_pending = false
+	_region_select_pending_genome_id = -1
+	_region_select_pending_edge = 0.0
+	_region_select_pending_start_point = Vector2.ZERO
 
 func _update_region_selection_drag(point_parent: Vector2) -> void:
 	if not _region_select_dragging:
@@ -1801,6 +1835,7 @@ func _update_region_selection_rows() -> void:
 
 func _clear_region_selection(emit_cleared: bool = false) -> void:
 	var had_selection := _region_select_has_selection or _region_select_dragging
+	_cancel_pending_region_selection()
 	_region_select_dragging = false
 	_region_select_has_selection = false
 	_region_select_genome_id = -1
