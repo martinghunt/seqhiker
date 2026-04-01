@@ -1021,6 +1021,7 @@ func _draw_detail_block(block: Dictionary, top_genome_id: int, bottom_genome_id:
 	var snp_color: Color = _theme_colors.get("snp", Color("f59e0b"))
 	var line_width := 1.0
 	var x_tolerance := 8.0
+	var bp_px := minf(_pixels_per_bp(top_axis), _pixels_per_bp(bottom_axis))
 	for i in range(ops.length()):
 		var op := ops.substr(i, 1)
 		match op:
@@ -1028,18 +1029,38 @@ func _draw_detail_block(block: Dictionary, top_genome_id: int, bottom_genome_id:
 				var qx := float(top_row.get_bp_center_x_in_parent(float(q_pos)))
 				var tx := float(bottom_row.get_bp_center_x_in_parent(float(t_pos)))
 				if _x_within_axis(qx, top_axis, x_tolerance) and _x_within_axis(tx, bottom_axis, x_tolerance):
-					draw_line(
-						Vector2(qx, top_y),
-						Vector2(tx, bottom_y),
-						snp_color if op == "X" else match_color,
-						line_width
-					)
+					var start_pt := Vector2(qx, top_y)
+					var end_pt := Vector2(tx, bottom_y)
+					if op == "X":
+						_draw_snp_connector(start_pt, end_pt, snp_color, bp_px)
+					else:
+						draw_line(start_pt, end_pt, match_color, line_width)
 				q_pos += 1
 				t_pos += 1 if same else -1
 			"I":
 				q_pos += 1
 			"D":
 				t_pos += 1 if same else -1
+
+func _draw_snp_connector(start_pt: Vector2, end_pt: Vector2, color: Color, bp_px: float) -> void:
+	var delta := end_pt - start_pt
+	var length := delta.length()
+	if length <= 0.000001:
+		draw_circle(start_pt, 1.5, color)
+		return
+	var tangent := delta / length
+	var normal := Vector2(-tangent.y, tangent.x)
+	var amp := maxf(0.5, bp_px * 0.1)
+	var poly := PackedVector2Array([start_pt])
+	var wavelength_px := 20.0
+	var segment_count := maxi(6, int(ceil(length / 2.0)))
+	for i in range(1, segment_count):
+		var frac := float(i) / float(segment_count)
+		var dist := length * frac
+		var phase := dist / wavelength_px * PI * 2.0
+		poly.append(start_pt + delta * frac + normal * sin(phase) * amp)
+	poly.append(end_pt)
+	draw_polyline(poly, color, 2.0)
 
 
 func _focus_match_left(payload: Dictionary) -> void:
@@ -1693,8 +1714,6 @@ func _draw_loading_overlay() -> void:
 func _match_band_height() -> float:
 	if _order.size() <= 1:
 		return MIN_MATCH_BAND_H
-	if _detail_mode_active():
-		return DETAIL_MATCH_BAND_H
 	var free_h := maxf(0.0, size.y - TOP_PAD - BOTTOM_PAD - ROW_H * float(_order.size()))
 	return maxf(MIN_MATCH_BAND_H, free_h / float(_order.size() - 1))
 

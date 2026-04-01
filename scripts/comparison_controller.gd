@@ -208,7 +208,7 @@ func refresh_view(theme_name: String) -> void:
 			"same_strand": palette.get("comparison_same_strand", Color("cb4934")),
 			"opp_strand": palette.get("comparison_opp_strand", Color("2c7fb8")),
 			"selection_outline": palette.get("text", Color.BLACK),
-			"snp": palette.get("snp", Color("f59e0b")),
+			"snp": palette.get("comparison_snp", palette.get("snp", Color("f59e0b"))),
 			"region_select_fill": palette.get("region_select_fill", palette.get("genome", Color("3f5a7a"))),
 			"region_select_outline": palette.get("region_select_outline", palette.get("text", Color.BLACK))
 		})

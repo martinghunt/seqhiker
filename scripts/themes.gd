@@ -46,6 +46,7 @@ const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 #  - feature_text: annotation feature label/border color
 #  - comparison_same_strand: comparison-match fill for same-strand hits
 #  - comparison_opp_strand: comparison-match fill for opposite-strand hits
+#  - comparison_snp: comparison-detail SNP connector color
 
 
 const THEMES := {
@@ -94,6 +95,7 @@ const THEMES := {
 			"D": Color("4a4a4a")
 		},
 		"snp": Color("ff0000"),
+		"comparison_snp": Color("ff00ff"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("0000ff"),
 		"aa_reverse": Color("00aa00"),
@@ -148,6 +150,7 @@ const THEMES := {
 			"D": Color("2f2f2f")
 		},
 		"snp": Color("2f2f2f"),
+		"comparison_snp": Color("2f2f2f"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("5f5f5f"),
 		"aa_reverse": Color("8a8a8a"),
@@ -202,6 +205,7 @@ const THEMES := {
 			"D": Color("4a5568")
 		},
 		"snp": Color("b11f47"),
+		"comparison_snp": Color("7a00ff"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("8a4fff"),
 		"aa_reverse": Color("f39237"),
@@ -256,6 +260,7 @@ const THEMES := {
 			"D": Color("4f5f4d")
 		},
 		"snp": Color("7a143a"),
+		"comparison_snp": Color("7b2cbf"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("588157"),
 		"aa_reverse": Color("bc4749"),
@@ -310,6 +315,7 @@ const THEMES := {
 			"D": Color("4b5563")
 		},
 		"snp": Color("d7263d"),
+		"comparison_snp": Color("7a00ff"),
 		"snp_text": Color("ffffff"),
 		"aa_forward": Color("5c6784"),
 		"aa_reverse": Color("f4a259"),
@@ -364,6 +370,7 @@ const THEMES := {
 			"D": Color("aab6c2")
 		},
 		"snp": Color("ff7b72"),
+		"comparison_snp": Color("ffd166"),
 		"snp_text": Color("111111"),
 		"aa_forward": Color("b392f0"),
 		"aa_reverse": Color("ffb86b"),
@@ -418,6 +425,7 @@ const THEMES := {
 			"D": Color("f0f0f0")
 		},
 		"snp": Color("f0f0f0"),
+		"comparison_snp": Color("f0f0f0"),
 		"snp_text": Color("111111"),
 		"aa_forward": Color("bababa"),
 		"aa_reverse": Color("727272"),
@@ -472,6 +480,7 @@ const THEMES := {
 			"D": Color("657b83")
 		},
 		"snp": Color("d33682"),
+		"comparison_snp": Color("6c71c4"),
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
 		"aa_reverse": Color("cb4b16"),
@@ -526,6 +535,7 @@ const THEMES := {
 			"D": Color("839496")
 		},
 		"snp": Color("d33682"),
+		"comparison_snp": Color("b58900"),
 		"snp_text": Color("fdf6e3"),
 		"aa_forward": Color("6c71c4"),
 		"aa_reverse": Color("cb4b16"),
