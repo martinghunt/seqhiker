@@ -10,6 +10,7 @@ const TRACK_ROW_SCENE := preload("res://scenes/Track.tscn")
 const ReadLayoutHelperScript = preload("res://scripts/read_layout_helper.gd")
 const ReadTrackRendererScript = preload("res://scripts/read_track_renderer.gd")
 const AnnotationRendererScript = preload("res://scripts/annotation_renderer.gd")
+const FeatureAnnotationUtilsScript = preload("res://scripts/feature_annotation_utils.gd")
 const SVGCanvasScript = preload("res://scripts/svg_canvas.gd")
 const MotionReadLayerScript = preload("res://scripts/motion_read_layer.gd")
 const DETAILED_READ_MAX_BP_PER_PX := 48.0
@@ -1578,14 +1579,7 @@ func clear_selected_feature() -> void:
 	queue_redraw()
 
 func _feature_key(feature: Dictionary) -> String:
-	if feature.is_empty():
-		return ""
-	var start_bp := int(feature.get("start", 0))
-	var end_bp := int(feature.get("end", start_bp))
-	var seq_name := str(feature.get("seq_name", ""))
-	var feat_name := str(feature.get("name", ""))
-	var ftype := str(feature.get("type", ""))
-	return "%s|%d|%d|%s|%s" % [seq_name, start_bp, end_bp, feat_name, ftype]
+	return FeatureAnnotationUtilsScript.feature_key(feature)
 
 func set_selected_read(read: Dictionary, read_index: int, track_id: String, toggle: bool = false) -> void:
 	if read_index < 0:

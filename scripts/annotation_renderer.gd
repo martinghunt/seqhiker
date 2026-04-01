@@ -1,6 +1,8 @@
 extends RefCounted
 class_name AnnotationRenderer
 
+const FeatureAnnotationUtilsScript = preload("res://scripts/feature_annotation_utils.gd")
+
 var view: GenomeView = null
 
 
@@ -413,15 +415,11 @@ func draw_genome_feature_tracks(area: Rect2, line_y: float, target = null) -> vo
 
 
 func text_center_y(font: Font, font_size: int, baseline_y: float) -> float:
-	var ascent := font.get_ascent(font_size)
-	var descent := font.get_descent(font_size)
-	return baseline_y + (descent - ascent) * 0.5
+	return FeatureAnnotationUtilsScript.text_center_y(font, font_size, baseline_y)
 
 
 func text_baseline_for_center(center_y: float, font: Font, font_size: int) -> float:
-	var ascent := font.get_ascent(font_size)
-	var descent := font.get_descent(font_size)
-	return center_y + (ascent - descent) * 0.5
+	return FeatureAnnotationUtilsScript.text_baseline_for_center(center_y, font, font_size)
 
 
 func aa_frame_row_center_y(area_start: float, frame: int) -> float:
@@ -516,57 +514,21 @@ func is_hidden_full_length_region(feature: Dictionary) -> bool:
 func feature_annotation_label(feature: Dictionary, max_width: float) -> String:
 	if max_width <= 0.0:
 		return ""
-	var font := view.get_theme_default_font()
-	var font_size := view._font_size_small
-	var label_name := str(feature.get("name", "")).strip_edges()
-	var id := str(feature.get("id", "")).strip_edges()
-	if label_name.is_empty():
-		label_name = str(feature.get("type", "")).strip_edges()
-	if label_name.is_empty() and id.is_empty():
-		return ""
-	if id.is_empty() or id == label_name:
-		return truncate_label_to_width(label_name, max_width, view.FEATURE_LABEL_MIN_CHARS, font, font_size)
-	var combined := "%s / %s" % [label_name, id]
-	var combined_w := font.get_string_size(combined, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	if combined_w <= max_width:
-		return combined
-	return truncate_label_to_width(label_name, max_width, view.FEATURE_LABEL_MIN_CHARS, font, font_size)
+	return FeatureAnnotationUtilsScript.feature_annotation_label(
+		feature,
+		max_width,
+		view.get_theme_default_font(),
+		view._font_size_small,
+		view.FEATURE_LABEL_MIN_CHARS
+	)
 
 
 func truncate_label_to_width(text: String, max_width: float, min_chars: int, font: Font, font_size: int) -> String:
-	if text.is_empty() or max_width <= 0.0:
-		return ""
-	var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	if full_w <= max_width:
-		return text
-	var ellipsis := "..."
-	var n := text.length()
-	var min_n := mini(maxi(1, min_chars), n)
-	var min_candidate := text.substr(0, min_n) + ellipsis
-	var min_w := font.get_string_size(min_candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	if min_w > max_width:
-		return ""
-	var lo := min_n
-	var hi := n
-	var best := min_n
-	while lo <= hi:
-		var mid := lo + ((hi - lo) >> 1)
-		var candidate := text.substr(0, mid) + ellipsis
-		var w := font.get_string_size(candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		if w <= max_width:
-			best = mid
-			lo = mid + 1
-		else:
-			hi = mid - 1
-	return text.substr(0, best) + ellipsis
+	return FeatureAnnotationUtilsScript.truncate_label_to_width(text, max_width, min_chars, font, font_size)
 
 
 func intersects_any(rect: Rect2, existing: Array) -> bool:
-	for r_any in existing:
-		var r: Rect2 = r_any
-		if r.intersects(rect):
-			return true
-	return false
+	return FeatureAnnotationUtilsScript.intersects_any(rect, existing)
 
 
 func feature_to_frame(feature: Dictionary) -> int:
@@ -591,9 +553,4 @@ func feature_shows_in_aa_track(feature: Dictionary) -> bool:
 
 
 func feature_to_genome_row(feature: Dictionary) -> int:
-	var strand := str(feature.get("strand", "")).strip_edges()
-	if strand == "+":
-		return 0
-	if strand == "-":
-		return 2
-	return 1
+	return FeatureAnnotationUtilsScript.feature_to_collapsed_genome_row(feature, 1)

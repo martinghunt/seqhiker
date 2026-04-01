@@ -45,11 +45,17 @@ func setup() -> void:
 		comparison_view.comparison_match_selected.connect(_on_comparison_match_selected)
 	if comparison_view.has_signal("comparison_match_cleared") and not comparison_view.comparison_match_cleared.is_connected(_on_comparison_match_cleared):
 		comparison_view.comparison_match_cleared.connect(_on_comparison_match_cleared)
+	if comparison_view.has_signal("comparison_feature_selected") and not comparison_view.comparison_feature_selected.is_connected(_on_comparison_feature_selected):
+		comparison_view.comparison_feature_selected.connect(_on_comparison_feature_selected)
 	if comparison_view.has_signal("detail_requested") and not comparison_view.detail_requested.is_connected(_on_detail_requested):
 		comparison_view.detail_requested.connect(_on_detail_requested)
 
 func has_genomes() -> bool:
 	return not _comparison_genomes.is_empty()
+
+
+func get_genomes() -> Array[Dictionary]:
+	return _comparison_genomes.duplicate(true)
 
 
 func setup_settings(view_box: VBoxContainer) -> void:
@@ -192,6 +198,17 @@ func refresh_view(theme_name: String) -> void:
 func reset_view_to_full_genomes() -> void:
 	if comparison_view != null and comparison_view.has_method("reset_view_to_full_genomes"):
 		comparison_view.reset_view_to_full_genomes()
+
+
+func focus_search_hit(hit: Dictionary) -> void:
+	if comparison_view == null or not comparison_view.has_method("focus_genome_range"):
+		return
+	var genome_id := int(hit.get("genome_id", -1))
+	if genome_id < 0:
+		return
+	comparison_view.focus_genome_range(genome_id, int(hit.get("start", 0)), int(hit.get("end", 0)))
+	if str(hit.get("kind", "")) == "annotation" and comparison_view.has_method("select_feature"):
+		comparison_view.select_feature(genome_id, hit)
 
 
 func add_genome(path: String) -> bool:
@@ -391,6 +408,11 @@ func _on_comparison_match_selected(match: Dictionary, was_double_click: bool) ->
 func _on_comparison_match_cleared() -> void:
 	if host != null and host.has_method("_on_comparison_match_cleared"):
 		host._on_comparison_match_cleared()
+
+
+func _on_comparison_feature_selected(feature: Dictionary, was_double_click: bool) -> void:
+	if host != null and host.has_method("_on_comparison_feature_selected"):
+		host._on_comparison_feature_selected(feature, was_double_click)
 
 
 func _on_detail_requested(request: Dictionary) -> void:

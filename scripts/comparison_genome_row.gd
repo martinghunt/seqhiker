@@ -2,10 +2,12 @@ extends Control
 class_name ComparisonGenomeRow
 
 const MapStripRendererScript = preload("res://scripts/map_strip_renderer.gd")
+const FeatureAnnotationUtilsScript = preload("res://scripts/feature_annotation_utils.gd")
 
 signal drag_started(genome_id: int)
 signal offset_changed(genome_id: int, value: float)
 signal pan_step_requested(genome_id: int, fraction: float)
+signal feature_clicked(genome_id: int, feature: Dictionary, was_double_click: bool)
 
 const ROW_H := 96.0
 const FEATURE_H := 14.0
@@ -17,6 +19,10 @@ const DETAIL_TEXT_MAX_BASES := 2000
 @onready var name_label: Label = $RootHBox/LeftBox/NameLabel
 @onready var pan_left_button: Button = $RootHBox/LeftBox/ButtonsRow/PanLeftButton
 @onready var pan_right_button: Button = $RootHBox/LeftBox/ButtonsRow/PanRightButton
+@onready var root_hbox: HBoxContainer = $RootHBox
+@onready var left_box: VBoxContainer = $RootHBox/LeftBox
+@onready var buttons_row: HBoxContainer = $RootHBox/LeftBox/ButtonsRow
+@onready var right_box: VBoxContainer = $RootHBox/RightBox
 @onready var axis_wrap: Control = $RootHBox/RightBox/AxisWrap
 @onready var axis_bar: HScrollBar = $RootHBox/RightBox/AxisWrap/AxisBar
 @onready var axis_input: Control = $RootHBox/RightBox/AxisWrap/AxisInput
@@ -33,6 +39,8 @@ var _map_drag_bp_offset := 0.0
 var _reference_start_bp := 0
 var _reference_sequence := ""
 var _colorize_nucleotides := true
+var _feature_hitboxes: Array[Dictionary] = []
+var _selected_feature_key := ""
 var _theme_colors := {
 	"text": Color.BLACK,
 	"text_muted": Color("666666"),
@@ -44,13 +52,22 @@ var _theme_colors := {
 	"map_view_fill": Color("3f5a7a"),
 	"map_view_outline": Color.BLACK,
 	"feature": Color("dce8f7"),
-	"feature_text": Color("1e3557")
+	"feature_text": Color("1e3557"),
+	"selection_outline": Color.BLACK
 }
 
 func _ready() -> void:
 	_scene_ready = true
 	custom_minimum_size.y = ROW_H
 	_apply_axis_track_overrides()
+	mouse_filter = Control.MOUSE_FILTER_PASS
+	root_hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	left_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	buttons_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	right_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	axis_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottom_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	drag_button.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	drag_button.button_down.connect(func() -> void:
 		emit_signal("drag_started", _genome_id)
@@ -155,6 +172,18 @@ func get_bp_edge_x_in_parent(bp: float) -> float:
 	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
 	return position.x + (axis_rect.position.x + ((bp - _offset) / _view_span_bp) * axis_rect.size.x)
 
+func hit_test_feature_in_parent(point_parent: Vector2) -> Dictionary:
+	var local_point := point_parent - position
+	for i in range(_feature_hitboxes.size() - 1, -1, -1):
+		var hit: Dictionary = _feature_hitboxes[i]
+		var rect: Rect2 = hit.get("rect", Rect2())
+		if rect.has_point(local_point):
+			return {
+				"genome_id": _genome_id,
+				"feature": hit.get("feature", {})
+			}
+	return {}
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED and _scene_ready:
 		_apply_axis_range()
@@ -185,6 +214,7 @@ func _draw() -> void:
 	draw_rect(Rect2(0.0, 0.0, size.x, ROW_H), _theme_colors["border"], false, 1.0)
 	if axis_bar == null:
 		return
+	_feature_hitboxes.clear()
 	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
 	_draw_contig_segments(axis_rect)
 	_draw_row_features(axis_rect)
@@ -209,8 +239,8 @@ func _draw_contig_segments(axis_rect: Rect2) -> void:
 		font_size,
 		Callable(self, "_draw_rect_local"),
 		Callable(self, "_draw_string_local"),
-		Callable(self, "_truncate_label_to_width"),
-		Callable(self, "_text_baseline_for_center"),
+		Callable(FeatureAnnotationUtilsScript, "truncate_label_to_width"),
+		Callable(FeatureAnnotationUtilsScript, "text_baseline_for_center"),
 		true,
 		_offset,
 		_view_span_bp,
@@ -239,16 +269,22 @@ func _draw_row_features(axis_rect: Rect2) -> void:
 		var center_y := _feature_center_y(axis_rect, row)
 		var rect := Rect2(x0, center_y - FEATURE_H * 0.5, maxf(1.5, x1 - x0), FEATURE_H)
 		draw_rect(rect, _theme_colors["feature"], true)
+		if FeatureAnnotationUtilsScript.feature_key(feat) == _selected_feature_key:
+			draw_rect(rect, _theme_colors["selection_outline"], false, 1.0)
+		_feature_hitboxes.append({
+			"rect": rect,
+			"feature": feat
+		})
 		var label_x_min := maxf(rect.position.x + 4.0, axis_rect.position.x + 2.0)
 		var label_x_max := minf(rect.position.x + rect.size.x - 4.0, axis_rect.position.x + axis_rect.size.x - 2.0)
 		var label_w := maxf(0.0, label_x_max - label_x_min)
-		var label := _feature_annotation_label(feat, label_w, font, font_size)
+		var label := FeatureAnnotationUtilsScript.feature_annotation_label(feat, label_w, font, font_size, 6)
 		if label.is_empty():
 			continue
 		var draw_w := minf(label_w, font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x)
-		var baseline := _text_baseline_for_center(center_y, font, font_size)
+		var baseline := FeatureAnnotationUtilsScript.text_baseline_for_center(center_y, font, font_size)
 		var label_rect := Rect2(label_x_min, rect.position.y + 1.0, draw_w, rect.size.y - 2.0)
-		if _intersects_any(label_rect, label_boxes[row]):
+		if FeatureAnnotationUtilsScript.intersects_any(label_rect, label_boxes[row]):
 			continue
 		label_boxes[row].append(label_rect)
 		label_draws.append({
@@ -366,6 +402,22 @@ func _on_axis_gui_input(event: InputEvent) -> void:
 		_set_offset_from_map(clampf(anchor_bp - _map_drag_bp_offset, 0.0, maxf(0.0, genome_len - _view_span_bp)))
 		accept_event()
 
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT or not mb.pressed:
+			return
+		for i in range(_feature_hitboxes.size() - 1, -1, -1):
+			var hit: Dictionary = _feature_hitboxes[i]
+			var rect: Rect2 = hit.get("rect", Rect2())
+			if not rect.has_point(mb.position):
+				continue
+			var feature: Dictionary = hit.get("feature", {})
+			set_selected_feature(feature, false)
+			emit_signal("feature_clicked", _genome_id, feature, mb.double_click)
+			accept_event()
+			return
+
 
 func _set_offset_from_map(next_offset: float) -> void:
 	_syncing = true
@@ -397,7 +449,7 @@ func _draw_reference_letters(axis_rect: Rect2) -> void:
 	var font := get_theme_default_font()
 	var font_size := maxi(11, get_theme_default_font_size())
 	var fwd_center_y := _nucleotide_center_y(axis_rect)
-	var fwd_baseline := _text_baseline_for_center(fwd_center_y, font, font_size)
+	var fwd_baseline := FeatureAnnotationUtilsScript.text_baseline_for_center(fwd_center_y, font, font_size)
 	var base_colors := {
 		"A": Color("2b9348"),
 		"C": Color("1d4ed8"),
@@ -447,13 +499,28 @@ func _bp_in_segment(bp: int) -> bool:
 			return true
 	return false
 
+func set_selected_feature(feature: Dictionary, toggle: bool = false) -> void:
+	var next_key := FeatureAnnotationUtilsScript.feature_key(feature)
+	if next_key.is_empty():
+		return
+	if toggle and next_key == _selected_feature_key:
+		_selected_feature_key = ""
+	else:
+		_selected_feature_key = next_key
+	queue_redraw()
+
+func clear_selected_feature() -> void:
+	if _selected_feature_key.is_empty():
+		return
+	_selected_feature_key = ""
+	queue_redraw()
+
+func set_selected_feature_key(key: String) -> void:
+	_selected_feature_key = key
+	queue_redraw()
+
 func _feature_to_genome_row(feature: Dictionary) -> int:
-	var strand := str(feature.get("strand", "")).strip_edges()
-	if strand == "+":
-		return 0
-	if strand == "-":
-		return 2
-	return 0
+	return FeatureAnnotationUtilsScript.feature_to_collapsed_genome_row(feature, 0)
 
 func _feature_center_y(row_rect: Rect2, row: int) -> float:
 	if row == 2:
@@ -484,57 +551,6 @@ func _is_hidden_full_length_region(feature: Dictionary, genome_len: int) -> bool
 	var start_bp := int(feature.get("start", 0))
 	var end_bp := int(feature.get("end", 0))
 	return start_bp <= 0 and end_bp >= genome_len
-
-func _feature_annotation_label(feature: Dictionary, max_width: float, font: Font, font_size: int) -> String:
-	if max_width <= 0.0:
-		return ""
-	var label_name := str(feature.get("name", "")).strip_edges()
-	var feature_id := str(feature.get("id", "")).strip_edges()
-	if label_name.is_empty():
-		label_name = str(feature.get("type", "")).strip_edges()
-	if label_name.is_empty() and feature_id.is_empty():
-		return ""
-	if feature_id.is_empty() or feature_id == label_name:
-		return _truncate_label_to_width(label_name, max_width, 6, font, font_size)
-	var combined := "%s / %s" % [label_name, feature_id]
-	if font.get_string_size(combined, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x <= max_width:
-		return combined
-	return _truncate_label_to_width(label_name, max_width, 6, font, font_size)
-
-func _truncate_label_to_width(text: String, max_width: float, min_chars: int, font: Font, font_size: int) -> String:
-	if text.is_empty() or max_width <= 0.0:
-		return ""
-	if font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x <= max_width:
-		return text
-	var ellipsis := "..."
-	var n := text.length()
-	var min_n := mini(maxi(1, min_chars), n)
-	if font.get_string_size(text.substr(0, min_n) + ellipsis, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > max_width:
-		return ""
-	var lo := min_n
-	var hi := n
-	var best := min_n
-	while lo <= hi:
-		var mid := lo + ((hi - lo) >> 1)
-		var candidate := text.substr(0, mid) + ellipsis
-		if font.get_string_size(candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x <= max_width:
-			best = mid
-			lo = mid + 1
-		else:
-			hi = mid - 1
-	return text.substr(0, best) + ellipsis
-
-func _intersects_any(rect: Rect2, existing: Array) -> bool:
-	for rect_any in existing:
-		var other: Rect2 = rect_any
-		if other.intersects(rect):
-			return true
-	return false
-
-func _text_baseline_for_center(center_y: float, font: Font, font_size: int) -> float:
-	var ascent := font.get_ascent(font_size)
-	var descent := font.get_descent(font_size)
-	return center_y + (ascent - descent) * 0.5
 
 func _format_bp_label(bp: int) -> String:
 	var n := maxi(0, bp)

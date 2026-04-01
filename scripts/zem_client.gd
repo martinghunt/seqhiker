@@ -34,6 +34,7 @@ const MSG_GENERATE_COMPARISON_TEST_DATA := 30
 const MSG_GET_COMPARISON_REFERENCE_SLICE := 31
 const MSG_GET_COMPARISON_BLOCK_DETAIL := 32
 const MSG_ADD_COMPARISON_GENOME_FILES := 33
+const MSG_SEARCH_COMPARISON_DNA_EXACT := 34
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -304,6 +305,22 @@ func search_dna_exact(chr_id: int, pattern: String, include_revcomp: bool, max_h
 	for i in range(pattern_bytes.size()):
 		payload[7 + i] = pattern_bytes[i]
 	var resp := _send_request(MSG_SEARCH_DNA_EXACT, payload)
+	if not resp.get("ok", false):
+		return resp
+	resp.merge(_parse_dna_exact_hits(resp["payload"]), true)
+	return resp
+
+func search_comparison_dna_exact(genome_id: int, pattern: String, include_revcomp: bool, max_hits: int = 5000) -> Dictionary:
+	var pattern_bytes := pattern.to_upper().to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(7 + pattern_bytes.size())
+	payload.encode_u16(0, genome_id)
+	payload.encode_u16(2, max(1, min(max_hits, 65535)))
+	payload[4] = 1 if include_revcomp else 0
+	payload.encode_u16(5, pattern_bytes.size())
+	for i in range(pattern_bytes.size()):
+		payload[7 + i] = pattern_bytes[i]
+	var resp := _send_request(MSG_SEARCH_COMPARISON_DNA_EXACT, payload)
 	if not resp.get("ok", false):
 		return resp
 	resp.merge(_parse_dna_exact_hits(resp["payload"]), true)

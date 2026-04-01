@@ -4,6 +4,7 @@ class_name ComparisonView
 signal genome_order_changed(order: PackedInt32Array)
 signal comparison_match_selected(match: Dictionary, was_double_click: bool)
 signal comparison_match_cleared()
+signal comparison_feature_selected(feature: Dictionary, was_double_click: bool)
 signal detail_requested(request: Dictionary)
 
 const ROW_SCENE = preload("res://scenes/ComparisonGenomeRow.tscn")
@@ -32,6 +33,7 @@ var _lock_buttons := {}
 var _pair_locks := {}
 var _drawn_match_hitboxes := []
 var _selected_match_key := ""
+var _selected_feature_key := ""
 var _pending_click_serial := 0
 var _pending_click_payload: Dictionary = {}
 var _drag_active := false
@@ -95,6 +97,7 @@ func clear_view() -> void:
 	_pair_locks.clear()
 	_drawn_match_hitboxes.clear()
 	_selected_match_key = ""
+	_selected_feature_key = ""
 	_pending_click_serial = 0
 	_pending_click_payload.clear()
 	_drag_active = false
@@ -226,6 +229,49 @@ func move_all_to_boundary(at_end: bool) -> void:
 		targets[int(genome_id)] = next_offset
 	_animate_offsets_to(targets)
 
+func select_feature(genome_id: int, feature: Dictionary) -> void:
+	_select_feature_in_rows(genome_id, feature)
+
+func clear_selected_feature() -> void:
+	_selected_feature_key = ""
+	for row_any in _rows.values():
+		var row = row_any
+		if row != null and row.has_method("clear_selected_feature"):
+			row.clear_selected_feature()
+
+func focus_genome_range(genome_id: int, start_bp: int, end_bp: int) -> void:
+	if not _genomes_by_id.has(genome_id):
+		return
+	var genome_len := float(_genomes_by_id.get(genome_id, {}).get("length", 0))
+	if genome_len <= 0.0:
+		return
+	var center_bp := 0.5 * float(start_bp + maxi(start_bp + 1, end_bp))
+	var max_offset := maxf(0.0, genome_len - _view_span_bp)
+	var next_offset := clampf(center_bp - _view_span_bp * 0.5, 0.0, max_offset)
+	_animate_offsets_to(_targets_with_locked_propagation({genome_id: next_offset}))
+
+func _select_feature_in_rows(genome_id: int, feature: Dictionary) -> void:
+	_selected_feature_key = _feature_key(feature)
+	for row_id_any in _rows.keys():
+		var row_id := int(row_id_any)
+		var row = _rows.get(row_id)
+		if row == null:
+			continue
+		if row_id == genome_id:
+			row.set_selected_feature_key(_selected_feature_key)
+		else:
+			row.clear_selected_feature()
+
+func _feature_key(feature: Dictionary) -> String:
+	if feature.is_empty():
+		return ""
+	var start_bp := int(feature.get("start", 0))
+	var end_bp := int(feature.get("end", start_bp))
+	var seq_name := str(feature.get("seq_name", ""))
+	var feat_name := str(feature.get("name", ""))
+	var ftype := str(feature.get("type", ""))
+	return "%s|%d|%d|%s|%s" % [seq_name, start_bp, end_bp, feat_name, ftype]
+
 
 func set_max_draw_blocks_per_pair(value: int) -> void:
 	_max_draw_blocks_per_pair = maxi(1, value)
@@ -326,6 +372,15 @@ func _notification(what: int) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if visible and not _event_over_overlay_panel(event) and event is InputEventMouseButton:
+		var mb_feature := event as InputEventMouseButton
+		if mb_feature.button_index == MOUSE_BUTTON_LEFT and mb_feature.pressed:
+			var local_feature_point := _local_input_point(mb_feature.position)
+			var feature_hit := _hit_test_feature(local_feature_point)
+			if not feature_hit.is_empty():
+				_on_row_feature_clicked(int(feature_hit.get("genome_id", -1)), feature_hit.get("feature", {}), mb_feature.double_click)
+				accept_event()
+				return
 	if not visible:
 		return
 	if _event_over_overlay_panel(event):
@@ -400,6 +455,11 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.double_click:
 		var mb := event as InputEventMouseButton
+		var feature_hit := _hit_test_feature(mb.position)
+		if not feature_hit.is_empty():
+			_on_row_feature_clicked(int(feature_hit.get("genome_id", -1)), feature_hit.get("feature", {}), true)
+			accept_event()
+			return
 		var hit := _hit_test_match(mb.position)
 		if hit.is_empty():
 			return
@@ -413,6 +473,11 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		var mb := event as InputEventMouseButton
+		var feature_hit := _hit_test_feature(mb.position)
+		if not feature_hit.is_empty():
+			_on_row_feature_clicked(int(feature_hit.get("genome_id", -1)), feature_hit.get("feature", {}), false)
+			accept_event()
+			return
 		var hit := _hit_test_match(mb.position)
 		if hit.is_empty():
 			if not _selected_match_key.is_empty():
@@ -426,6 +491,17 @@ func _gui_input(event: InputEvent) -> void:
 		queue_redraw()
 		_schedule_single_click_dispatch(payload)
 		accept_event()
+
+func _hit_test_feature(point_parent: Vector2) -> Dictionary:
+	for genome_id_any in _order:
+		var genome_id := int(genome_id_any)
+		var row = _rows.get(genome_id)
+		if row == null or not row.has_method("hit_test_feature_in_parent"):
+			continue
+		var hit: Dictionary = row.hit_test_feature_in_parent(point_parent)
+		if not hit.is_empty():
+			return hit
+	return {}
 
 
 func _event_over_overlay_panel(event: InputEvent) -> bool:
@@ -524,10 +600,11 @@ func _sync_row_instances() -> void:
 		var row = _rows.get(int(genome_id))
 		if row == null:
 			row = ROW_SCENE.instantiate()
-			row.drag_started.connect(_on_row_drag_started)
-			row.offset_changed.connect(_on_row_offset_changed)
-			row.pan_step_requested.connect(_on_row_pan_step_requested)
-			add_child(row)
+		row.drag_started.connect(_on_row_drag_started)
+		row.offset_changed.connect(_on_row_offset_changed)
+		row.pan_step_requested.connect(_on_row_pan_step_requested)
+		row.feature_clicked.connect(_on_row_feature_clicked)
+		add_child(row)
 		row.visible = true
 		row.set_theme_colors(_theme_colors)
 		row.set_colorize_nucleotides(_colorize_nucleotides)
@@ -1332,6 +1409,10 @@ func _on_row_drag_started(genome_id: int) -> void:
 	_drag_genome_id = genome_id
 	_drag_target_index = _order.find(genome_id)
 	queue_redraw()
+
+func _on_row_feature_clicked(genome_id: int, feature: Dictionary, was_double_click: bool) -> void:
+	_select_feature_in_rows(genome_id, feature)
+	emit_signal("comparison_feature_selected", feature, was_double_click)
 
 
 func _on_row_offset_changed(genome_id: int, value: float) -> void:

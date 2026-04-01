@@ -103,6 +103,64 @@ func (e *Engine) SearchDNAExact(chrID uint16, pattern string, includeRevComp boo
 	return encodeDNAExactHits(truncated, hits), nil
 }
 
+func (e *Engine) SearchComparisonDNAExact(genomeID uint16, pattern string, includeRevComp bool, maxHits uint16) ([]byte, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	genome := e.comparisonGenomes[genomeID]
+	if genome == nil {
+		return nil, fmt.Errorf("unknown comparison genome id %d", genomeID)
+	}
+	seq := genome.Sequence
+	if seq == "" {
+		return nil, fmt.Errorf("no sequence loaded for comparison genome %d", genomeID)
+	}
+	pattern = strings.ToUpper(strings.TrimSpace(pattern))
+	if pattern == "" {
+		return nil, errors.New("search pattern must not be empty")
+	}
+	limit := int(maxHits)
+	if limit <= 0 {
+		limit = 5000
+	}
+	hits := make([]DNAExactHit, 0, min(limit, 256))
+	truncated := false
+	appendHits := func(query string, strand byte) bool {
+		offset := 0
+		for {
+			at := strings.Index(seq[offset:], query)
+			if at < 0 {
+				return false
+			}
+			at += offset
+			hits = append(hits, DNAExactHit{
+				Start:  at,
+				End:    at + len(query),
+				Strand: strand,
+			})
+			if len(hits) >= limit {
+				return true
+			}
+			offset = at + 1
+			if offset >= len(seq) {
+				return false
+			}
+		}
+	}
+	if appendHits(pattern, '+') {
+		truncated = true
+		return encodeDNAExactHits(truncated, hits), nil
+	}
+	if includeRevComp {
+		rcPattern, ok := reverseComplementDNA(pattern)
+		if ok && rcPattern != pattern && appendHits(rcPattern, '-') {
+			truncated = true
+			return encodeDNAExactHits(truncated, hits), nil
+		}
+	}
+	return encodeDNAExactHits(truncated, hits), nil
+}
+
 func reverseComplementDNA(seq string) (string, bool) {
 	out := make([]byte, len(seq))
 	for i := 0; i < len(seq); i++ {

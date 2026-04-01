@@ -228,6 +228,21 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		resp, err := engine.SearchDNAExact(chrID, pattern, includeRevComp, maxHits)
 		return MsgSearchDNAExact, resp, err
 
+	case MsgSearchComparisonDNAExact:
+		if len(payload) < 7 {
+			return 0, nil, fmt.Errorf("invalid comparison dna search payload")
+		}
+		genomeID := binary.LittleEndian.Uint16(payload[0:2])
+		maxHits := binary.LittleEndian.Uint16(payload[2:4])
+		includeRevComp := payload[4] != 0
+		patternLen := int(binary.LittleEndian.Uint16(payload[5:7]))
+		if len(payload) < 7+patternLen {
+			return 0, nil, fmt.Errorf("invalid comparison dna search payload length")
+		}
+		pattern := string(payload[7 : 7+patternLen])
+		resp, err := engine.SearchComparisonDNAExact(genomeID, pattern, includeRevComp, maxHits)
+		return MsgSearchComparisonDNAExact, resp, err
+
 	case MsgDownloadGenome:
 		accession, cacheDir, maxBytes, err := decodeDownloadGenomePayload(payload)
 		if err != nil {

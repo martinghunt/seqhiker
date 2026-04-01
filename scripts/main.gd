@@ -481,6 +481,8 @@ func _set_app_mode(next_mode: int) -> void:
 	genome_view.visible = not comparison_active
 	if comparison_view != null:
 		comparison_view.visible = comparison_active
+	if _search_controller != null:
+		_search_controller.refresh_context()
 	_refresh_comparison_topbar_state()
 	if viewport_label != null:
 		viewport_label.text = "Comparison view" if comparison_active else _last_viewport_message
@@ -1517,7 +1519,9 @@ func _setup_track_settings_panel() -> void:
 			mapq_spin.value_changed.connect(_on_active_read_track_min_mapq_changed)
 	_search_controller.setup(feature_content, {
 		"get_zem": Callable(self, "_search_get_zem"),
+		"get_app_mode": Callable(self, "_search_get_app_mode"),
 		"get_chromosomes": Callable(self, "_search_get_chromosomes"),
+		"get_comparison_genomes": Callable(self, "_search_get_comparison_genomes"),
 		"get_selected_seq_id": Callable(self, "_search_get_selected_seq_id"),
 		"on_hit_selected": Callable(self, "_jump_to_search_hit")
 	})
@@ -2315,6 +2319,11 @@ func _hide_context_subpanels() -> void:
 
 func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	var hit: Dictionary = hit_any
+	if str(hit.get("context", "")) == "comparison":
+		if _app_mode != APP_MODE_COMPARISON:
+			return
+		_comparison_controller.focus_search_hit(hit)
+		return
 	var hit_kind := str(hit.get("kind", ""))
 	var chr_id := int(hit.get("chr_id", -1))
 	var start_bp := int(hit.get("start", 0))
@@ -2459,8 +2468,16 @@ func _apply_go_request() -> void:
 func _search_get_zem() -> RefCounted:
 	return _zem
 
+func _search_get_app_mode() -> int:
+	return _app_mode
+
 func _search_get_chromosomes() -> Array[Dictionary]:
 	return _chromosomes
+
+func _search_get_comparison_genomes() -> Array[Dictionary]:
+	if _comparison_controller == null:
+		return []
+	return _comparison_controller.get_genomes()
 
 func _search_get_selected_seq_id() -> int:
 	return _selected_seq_id
@@ -3299,6 +3316,12 @@ func _on_comparison_match_selected(match: Dictionary, was_double_click: bool = f
 	if was_double_click and not _feature_panel_open:
 		return
 	_feature_panel_controller.on_comparison_match_clicked(match)
+
+func _on_comparison_feature_selected(feature: Dictionary, was_double_click: bool = false) -> void:
+	if was_double_click:
+		_feature_panel_controller.on_feature_clicked(feature)
+	else:
+		_feature_panel_controller.on_feature_selected(feature)
 
 func _on_comparison_match_cleared() -> void:
 	if not _feature_panel_open:
