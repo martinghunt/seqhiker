@@ -485,7 +485,13 @@ func _set_app_mode(next_mode: int) -> void:
 		_search_controller.refresh_context()
 	_refresh_comparison_topbar_state()
 	if viewport_label != null:
-		viewport_label.text = "Comparison view" if comparison_active else _last_viewport_message
+		if comparison_active:
+			if _comparison_controller != null and _comparison_controller.has_genomes():
+				viewport_label.text = _format_comparison_viewport_label(comparison_view.get_visible_span_bp())
+			else:
+				viewport_label.text = "Comparison view"
+		else:
+			viewport_label.text = _last_viewport_message
 	_refresh_settings_sections()
 
 func _refresh_comparison_topbar_state() -> void:
@@ -714,6 +720,7 @@ func _connect_ui() -> void:
 	go_button.pressed.connect(_toggle_go_panel)
 	download_button.pressed.connect(_toggle_download_panel)
 	genome_view.viewport_changed.connect(_on_viewport_changed)
+	comparison_view.viewport_changed.connect(_on_comparison_viewport_changed)
 	genome_view.map_jump_requested.connect(_on_map_jump_requested)
 	genome_view.center_jump_requested.connect(_on_center_jump_requested)
 	genome_view.feature_clicked.connect(_on_feature_selected)
@@ -888,6 +895,14 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_prev_view_start = start_bp
 	_prev_view_end = end_bp
 
+func _on_comparison_viewport_changed(visible_span_bp: int) -> void:
+	if _app_mode != APP_MODE_COMPARISON or viewport_label == null:
+		return
+	if _comparison_controller != null and _comparison_controller.has_genomes():
+		viewport_label.text = _format_comparison_viewport_label(visible_span_bp)
+	else:
+		viewport_label.text = "Comparison view"
+
 func _format_viewport_label(start_bp: int, end_bp: int, _bp_per_px: float) -> String:
 	var coord_start := start_bp
 	var coord_end := end_bp
@@ -938,6 +953,18 @@ func _format_viewport_label(start_bp: int, end_bp: int, _bp_per_px: float) -> St
 	if overlaps.size() > 2:
 		prefix += " (+%d)" % (overlaps.size() - 2)
 	return "%s  |  %d bp %s" % [prefix, span_bp, span_text]
+
+func _format_comparison_viewport_label(visible_span_bp: int) -> String:
+	return "%s bp visible" % _format_int_with_commas(maxi(0, visible_span_bp))
+
+func _format_int_with_commas(value: int) -> String:
+	var n := maxi(0, value)
+	var text := str(n)
+	var out := ""
+	while text.length() > 3:
+		out = "," + text.substr(text.length() - 3, 3) + out
+		text = text.substr(0, text.length() - 3)
+	return text + out
 
 func _on_region_selection_changed(active: bool, start_bp: int, end_bp: int) -> void:
 	_selection_active = active

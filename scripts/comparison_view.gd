@@ -4,6 +4,7 @@ class_name ComparisonView
 const SVGCanvasScript = preload("res://scripts/svg_canvas.gd")
 
 signal genome_order_changed(order: PackedInt32Array)
+signal viewport_changed(visible_span_bp: int)
 signal comparison_match_selected(match: Dictionary, was_double_click: bool)
 signal comparison_match_cleared()
 signal comparison_feature_selected(feature: Dictionary, was_double_click: bool)
@@ -136,6 +137,7 @@ func clear_view() -> void:
 	if _zoom_tween != null:
 		_zoom_tween.kill()
 		_zoom_tween = null
+	_emit_viewport_changed()
 	queue_redraw()
 
 func export_current_view_svg(path: String) -> bool:
@@ -205,6 +207,7 @@ func set_zoom_span_bp(next_span: float) -> void:
 		if not slice_data.is_empty():
 			row.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
 	_schedule_detail_request()
+	_emit_viewport_changed()
 	queue_redraw()
 
 
@@ -223,6 +226,7 @@ func reset_view_to_full_genomes() -> void:
 		row.clear_reference_slice()
 	_reference_slices.clear()
 	_schedule_detail_request()
+	_emit_viewport_changed()
 	queue_redraw()
 
 
@@ -359,6 +363,7 @@ func set_genomes(genomes: Array) -> void:
 	_schedule_post_layout_refresh()
 	_schedule_detail_request()
 	emit_signal("genome_order_changed", _order)
+	_emit_viewport_changed()
 	queue_redraw()
 
 
@@ -408,6 +413,9 @@ func pair_cached(query_genome_id: int, target_genome_id: int) -> bool:
 func get_order() -> PackedInt32Array:
 	return _order
 
+func get_visible_span_bp() -> int:
+	return int(round(_view_span_bp))
+
 func get_view_slot_state() -> Dictionary:
 	var offsets: Dictionary = {}
 	for genome_id_any in _order:
@@ -452,7 +460,11 @@ func apply_view_slot_state(state: Dictionary) -> void:
 	_layout_rows_and_locks()
 	_schedule_post_layout_refresh()
 	_schedule_detail_request()
+	_emit_viewport_changed()
 	queue_redraw()
+
+func _emit_viewport_changed() -> void:
+	emit_signal("viewport_changed", int(round(_view_span_bp)))
 
 
 func _notification(what: int) -> void:
@@ -1330,6 +1342,7 @@ func _set_zoom_span_animated(span_value: float, anchors: Dictionary, anchor_x: f
 			if not slice_data.is_empty():
 				row.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
 	_schedule_detail_request()
+	_emit_viewport_changed()
 	queue_redraw()
 
 
