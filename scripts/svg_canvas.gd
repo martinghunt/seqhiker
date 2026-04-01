@@ -155,7 +155,7 @@ func save(path: String) -> bool:
 
 func to_svg() -> String:
 	return """<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="%s" height="%s" viewBox="0 0 %s %s">
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="%spx" height="%spx" viewBox="0 0 %s %s">
 %s
 </svg>
 """ % [_fmt(width), _fmt(height), _fmt(width), _fmt(height), "\n".join(_elements)]
