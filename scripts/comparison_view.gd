@@ -1,6 +1,8 @@
 extends Control
 class_name ComparisonView
 
+const SVGCanvasScript = preload("res://scripts/svg_canvas.gd")
+
 signal genome_order_changed(order: PackedInt32Array)
 signal comparison_match_selected(match: Dictionary, was_double_click: bool)
 signal comparison_match_cleared()
@@ -135,6 +137,12 @@ func clear_view() -> void:
 		_zoom_tween.kill()
 		_zoom_tween = null
 	queue_redraw()
+
+func export_current_view_svg(path: String) -> bool:
+	var svg = SVGCanvasScript.new()
+	svg.configure(size.x, size.y)
+	_draw_to(svg)
+	return svg.save(path)
 
 
 func set_theme_colors(next_colors: Dictionary) -> void:
@@ -643,7 +651,13 @@ func _event_over_overlay_panel(event: InputEvent) -> bool:
 
 
 func _draw() -> void:
-	_drawn_match_hitboxes.clear()
+	_draw_to(self)
+
+func _draw_to(target) -> void:
+	if target == self:
+		_drawn_match_hitboxes.clear()
+	else:
+		_draw_rect_on(target, Rect2(Vector2.ZERO, size), _theme_colors.get("panel_alt", Color.WHITE), true)
 	for idx in range(_order.size() - 1):
 		var top_id := int(_order[idx])
 		var bottom_id := int(_order[idx + 1])
@@ -675,16 +689,17 @@ func _draw() -> void:
 					if not detail_poly.is_empty():
 						detail_poly = _clip_polygon_x(detail_poly, x_min, x_max)
 						if detail_poly.size() >= 3 and _polygon_area_abs(detail_poly) > 0.25:
-							draw_colored_polygon(detail_poly, detail_fill)
+							_draw_colored_polygon_on(target, detail_poly, detail_fill)
 							var detail_closed := detail_poly.duplicate()
 							detail_closed.append(detail_closed[0])
-							draw_polyline(detail_closed, detail_fill.darkened(0.18), 1.0)
-							_register_match_hitbox(display_block, top_id, bottom_id, detail_poly)
+							_draw_polyline_on(target, detail_closed, detail_fill.darkened(0.18), 1.0)
+							if target == self:
+								_register_match_hitbox(display_block, top_id, bottom_id, detail_poly)
 							if _match_key_for_display_block(display_block, top_id, bottom_id) == _selected_match_key:
-								draw_polyline(detail_closed, _theme_colors["selection_outline"], 2.0)
+								_draw_polyline_on(target, detail_closed, _theme_colors["selection_outline"], 2.0)
 				else:
-					_draw_reverse_block(display_block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, detail_fill, 0.5)
-				_draw_detail_block(block, top_id, bottom_id, top_axis, bottom_axis, detail_top_y, detail_bottom_y)
+					_draw_reverse_block(target, display_block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, detail_fill, 0.5)
+				_draw_detail_block(target, block, top_id, bottom_id, top_axis, bottom_axis, detail_top_y, detail_bottom_y)
 				continue
 			var fill := _block_color(block)
 			if bool(block.get("same_strand", true)):
@@ -694,16 +709,22 @@ func _draw() -> void:
 				poly = _clip_polygon_x(poly, x_min, x_max)
 				if poly.size() < 3 or _polygon_area_abs(poly) <= 0.25:
 					continue
-				draw_colored_polygon(poly, fill)
+				_draw_colored_polygon_on(target, poly, fill)
 				poly.append(poly[0])
-				draw_polyline(poly, fill.darkened(0.18), 1.0)
-				_register_match_hitbox(block, top_id, bottom_id, poly.slice(0, poly.size() - 1))
+				_draw_polyline_on(target, poly, fill.darkened(0.18), 1.0)
+				if target == self:
+					_register_match_hitbox(block, top_id, bottom_id, poly.slice(0, poly.size() - 1))
 				if _match_key_for_display_block(block, top_id, bottom_id) == _selected_match_key:
-					draw_polyline(poly, _theme_colors["selection_outline"], 2.0)
+					_draw_polyline_on(target, poly, _theme_colors["selection_outline"], 2.0)
 			else:
-				_draw_reverse_block(block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, fill)
-	_draw_drag_indicator()
-	_draw_loading_overlay()
+				_draw_reverse_block(target, block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, fill)
+	for genome_id_any in _order:
+		var row = _rows.get(int(genome_id_any))
+		if row != null and row.has_method("export_to"):
+			row.export_to(target)
+	if target == self:
+		_draw_drag_indicator()
+		_draw_loading_overlay()
 
 
 func _sync_row_instances() -> void:
@@ -1032,7 +1053,7 @@ func _aligned_block_from_detail(block: Dictionary, detail: Dictionary) -> Dictio
 	return out
 
 
-func _draw_detail_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float) -> void:
+func _draw_detail_block(target, block: Dictionary, top_genome_id: int, bottom_genome_id: int, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float) -> void:
 	var detail: Dictionary = _detail_blocks.get(_detail_block_key(top_genome_id, bottom_genome_id, block), {})
 	if detail.is_empty():
 		return
@@ -1064,9 +1085,9 @@ func _draw_detail_block(block: Dictionary, top_genome_id: int, bottom_genome_id:
 					var start_pt := Vector2(qx, top_y)
 					var end_pt := Vector2(tx, bottom_y)
 					if op == "X":
-						_draw_snp_connector(start_pt, end_pt, snp_color, bp_px)
+						_draw_snp_connector(target, start_pt, end_pt, snp_color, bp_px)
 					else:
-						draw_line(start_pt, end_pt, match_color, line_width)
+						_draw_line_on(target, start_pt, end_pt, match_color, line_width)
 				q_pos += 1
 				t_pos += 1 if same else -1
 			"I":
@@ -1074,11 +1095,12 @@ func _draw_detail_block(block: Dictionary, top_genome_id: int, bottom_genome_id:
 			"D":
 				t_pos += 1 if same else -1
 
-func _draw_snp_connector(start_pt: Vector2, end_pt: Vector2, color: Color, bp_px: float) -> void:
+func _draw_snp_connector(target, start_pt: Vector2, end_pt: Vector2, color: Color, bp_px: float) -> void:
 	var delta := end_pt - start_pt
 	var length := delta.length()
 	if length <= 0.000001:
-		draw_circle(start_pt, 1.5, color)
+		if target == self:
+			draw_circle(start_pt, 1.5, color)
 		return
 	var tangent := delta / length
 	var normal := Vector2(-tangent.y, tangent.x)
@@ -1092,7 +1114,7 @@ func _draw_snp_connector(start_pt: Vector2, end_pt: Vector2, color: Color, bp_px
 		var phase := dist / wavelength_px * PI * 2.0
 		poly.append(start_pt + delta * frac + normal * sin(phase) * amp)
 	poly.append(end_pt)
-	draw_polyline(poly, color, 2.0)
+	_draw_polyline_on(target, poly, color, 2.0)
 
 
 func _focus_match_left(payload: Dictionary) -> void:
@@ -1459,7 +1481,7 @@ func _project_block_polygon_for_rows(block: Dictionary, top_row, bottom_row, top
 	return poly
 
 
-func _draw_reverse_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int, top_offset: float, bottom_offset: float, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float, x_min: float, x_max: float, fill: Color, edge_inset_px: float = 0.0) -> void:
+func _draw_reverse_block(target, block: Dictionary, top_genome_id: int, bottom_genome_id: int, top_offset: float, bottom_offset: float, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float, x_min: float, x_max: float, fill: Color, edge_inset_px: float = 0.0) -> void:
 	var q0 := _bp_edge_x(float(block.get("query_start", 0)), top_offset, top_axis)
 	var q1 := _bp_edge_x(float(block.get("query_end", 0)), top_offset, top_axis)
 	var t0 := _bp_edge_x(float(block.get("target_start", 0)), bottom_offset, bottom_axis)
@@ -1477,19 +1499,21 @@ func _draw_reverse_block(block: Dictionary, top_genome_id: int, bottom_genome_id
 	top_tri = _clip_polygon_x(top_tri, x_min, x_max)
 	bottom_tri = _clip_polygon_x(bottom_tri, x_min, x_max)
 	if top_tri.size() >= 3 and _polygon_area_abs(top_tri) > 0.25:
-		draw_colored_polygon(top_tri, fill)
-		_register_match_hitbox(block, top_genome_id, bottom_genome_id, top_tri)
+		_draw_colored_polygon_on(target, top_tri, fill)
+		if target == self:
+			_register_match_hitbox(block, top_genome_id, bottom_genome_id, top_tri)
 		top_tri.append(top_tri[0])
-		draw_polyline(top_tri, fill.darkened(0.18), 1.0)
+		_draw_polyline_on(target, top_tri, fill.darkened(0.18), 1.0)
 		if _match_key_for_display_block(block, top_genome_id, bottom_genome_id) == _selected_match_key:
-			draw_polyline(top_tri, _theme_colors["selection_outline"], 2.0)
+			_draw_polyline_on(target, top_tri, _theme_colors["selection_outline"], 2.0)
 	if bottom_tri.size() >= 3 and _polygon_area_abs(bottom_tri) > 0.25:
-		draw_colored_polygon(bottom_tri, fill)
-		_register_match_hitbox(block, top_genome_id, bottom_genome_id, bottom_tri)
+		_draw_colored_polygon_on(target, bottom_tri, fill)
+		if target == self:
+			_register_match_hitbox(block, top_genome_id, bottom_genome_id, bottom_tri)
 		bottom_tri.append(bottom_tri[0])
-		draw_polyline(bottom_tri, fill.darkened(0.18), 1.0)
+		_draw_polyline_on(target, bottom_tri, fill.darkened(0.18), 1.0)
 		if _match_key_for_display_block(block, top_genome_id, bottom_genome_id) == _selected_match_key:
-			draw_polyline(bottom_tri, _theme_colors["selection_outline"], 2.0)
+			_draw_polyline_on(target, bottom_tri, _theme_colors["selection_outline"], 2.0)
 
 
 func _line_intersection(a0: Vector2, a1: Vector2, b0: Vector2, b1: Vector2) -> Vector2:
@@ -1741,6 +1765,30 @@ func _draw_loading_overlay() -> void:
 	draw_rect(box, _theme_colors.get("border", Color.BLACK), false, 1.0)
 	var baseline := box.position.y + pad_y + font.get_ascent(font_size)
 	draw_string(font, Vector2(box.position.x + pad_x, baseline), _loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text", Color.BLACK))
+
+func _draw_rect_on(target, rect: Rect2, color: Color, filled: bool, width: float = 1.0) -> void:
+	if target == self:
+		draw_rect(rect, color, filled, width)
+	else:
+		target.draw_rect(rect, color, filled, width)
+
+func _draw_line_on(target, p0: Vector2, p1: Vector2, color: Color, width: float = 1.0) -> void:
+	if target == self:
+		draw_line(p0, p1, color, width)
+	else:
+		target.draw_line(p0, p1, color, width)
+
+func _draw_polyline_on(target, points: PackedVector2Array, color: Color, width: float = 1.0) -> void:
+	if target == self:
+		draw_polyline(points, color, width)
+	else:
+		target.draw_polyline(points, color, width)
+
+func _draw_colored_polygon_on(target, points: PackedVector2Array, color: Color) -> void:
+	if target == self:
+		draw_colored_polygon(points, color)
+	else:
+		target.draw_colored_polygon(points, color)
 
 
 func _match_band_height() -> float:

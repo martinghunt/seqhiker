@@ -235,19 +235,28 @@ func _apply_axis_range() -> void:
 	_syncing = false
 
 func _draw() -> void:
-	draw_rect(Rect2(0.0, 0.0, size.x, ROW_H), _theme_colors["panel_alt"], true)
-	draw_rect(Rect2(0.0, 0.0, size.x, ROW_H), _theme_colors["border"], false, 1.0)
+	_draw_to(self)
+
+func export_to(target) -> void:
+	target.draw_set_transform(position, 0.0, Vector2.ONE)
+	_draw_to(target)
+	target.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+func _draw_to(target) -> void:
+	_draw_rect_on(target, Rect2(0.0, 0.0, size.x, ROW_H), _theme_colors["panel_alt"], true)
+	_draw_rect_on(target, Rect2(0.0, 0.0, size.x, ROW_H), _theme_colors["border"], false, 1.0)
 	if axis_bar == null:
 		return
-	_feature_hitboxes.clear()
+	if target == self:
+		_feature_hitboxes.clear()
 	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
-	_draw_contig_segments(axis_rect)
-	_draw_row_features(axis_rect)
-	_draw_reference_letters(axis_rect)
-	_draw_axis_ticks(axis_rect)
-	_draw_region_selection(axis_rect)
+	_draw_contig_segments(axis_rect, target)
+	_draw_row_features(axis_rect, target)
+	_draw_reference_letters(axis_rect, target)
+	_draw_axis_ticks(axis_rect, target)
+	_draw_region_selection(axis_rect, target)
 
-func _draw_contig_segments(axis_rect: Rect2) -> void:
+func _draw_contig_segments(axis_rect: Rect2, target = self) -> void:
 	var segments: Array = _genome.get("segments", [])
 	var font := get_theme_default_font()
 	var font_size := maxi(10, get_theme_default_font_size() - 2)
@@ -256,7 +265,7 @@ func _draw_contig_segments(axis_rect: Rect2) -> void:
 	if strip_segments.is_empty():
 		strip_segments = [{"name": str(_genome.get("name", "Genome %d" % _genome_id)), "start": 0, "end": genome_len}]
 	MapStripRendererScript.draw_strip(
-		self,
+		target,
 		axis_rect,
 		genome_len,
 		strip_segments,
@@ -274,7 +283,7 @@ func _draw_contig_segments(axis_rect: Rect2) -> void:
 		4.0
 	)
 
-func _draw_row_features(axis_rect: Rect2) -> void:
+func _draw_row_features(axis_rect: Rect2, target = self) -> void:
 	var features: Array = _genome.get("features", [])
 	var view_end := _offset + _view_span_bp
 	var font := get_theme_default_font()
@@ -294,13 +303,14 @@ func _draw_row_features(axis_rect: Rect2) -> void:
 		var x1 := axis_rect.position.x + (minf(feat_end, view_end) - _offset) / _view_span_bp * axis_rect.size.x
 		var center_y := _feature_center_y(axis_rect, row)
 		var rect := Rect2(x0, center_y - FEATURE_H * 0.5, maxf(1.5, x1 - x0), FEATURE_H)
-		draw_rect(rect, _theme_colors["feature"], true)
+		_draw_rect_on(target, rect, _theme_colors["feature"], true)
 		if FeatureAnnotationUtilsScript.feature_key(feat) == _selected_feature_key:
-			draw_rect(rect, _theme_colors["selection_outline"], false, 1.0)
-		_feature_hitboxes.append({
-			"rect": rect,
-			"feature": feat
-		})
+			_draw_rect_on(target, rect, _theme_colors["selection_outline"], false, 1.0)
+		if target == self:
+			_feature_hitboxes.append({
+				"rect": rect,
+				"feature": feat
+			})
 		var label_x_min := maxf(rect.position.x + 4.0, axis_rect.position.x + 2.0)
 		var label_x_max := minf(rect.position.x + rect.size.x - 4.0, axis_rect.position.x + axis_rect.size.x - 2.0)
 		var label_w := maxf(0.0, label_x_max - label_x_min)
@@ -321,7 +331,8 @@ func _draw_row_features(axis_rect: Rect2) -> void:
 		})
 	for draw_any in label_draws:
 		var draw_data: Dictionary = draw_any
-		draw_string(
+		_draw_string_on(
+			target,
 			font,
 			Vector2(float(draw_data.get("x", 0.0)), float(draw_data.get("baseline", 0.0))),
 			str(draw_data.get("label", "")),
@@ -331,7 +342,7 @@ func _draw_row_features(axis_rect: Rect2) -> void:
 			_theme_colors["feature_text"]
 		)
 
-func _draw_axis_ticks(axis_rect: Rect2) -> void:
+func _draw_axis_ticks(axis_rect: Rect2, target = self) -> void:
 	var genome_len := int(_genome.get("length", 0))
 	if genome_len <= 0:
 		return
@@ -343,7 +354,8 @@ func _draw_axis_ticks(axis_rect: Rect2) -> void:
 	var tick_step := _axis_tick_step(float(span))
 	var axis_line_y := _axis_line_y(axis_rect)
 	var baseline := _axis_label_baseline_y(axis_rect, font, font_size)
-	draw_line(
+	_draw_line_on(
+		target,
 		Vector2(axis_rect.position.x, axis_line_y),
 		Vector2(axis_rect.position.x + axis_rect.size.x, axis_line_y),
 		_theme_colors["text_muted"],
@@ -356,10 +368,10 @@ func _draw_axis_ticks(axis_rect: Rect2) -> void:
 		while tick <= view_end:
 			if tick >= offset and tick <= genome_len:
 				var x := _bp_center_x(float(tick), axis_rect)
-				draw_line(Vector2(x, axis_line_y - 3.0), Vector2(x, axis_line_y + 2.0), _theme_colors["text_muted"], 1.0)
+				_draw_line_on(target, Vector2(x, axis_line_y - 3.0), Vector2(x, axis_line_y + 2.0), _theme_colors["text_muted"], 1.0)
 				var label := _format_bp_label(tick + 1)
 				var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-				draw_string(font, Vector2(x - label_w * 0.5, baseline), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors["text_muted"])
+				_draw_string_on(target, font, Vector2(x - label_w * 0.5, baseline), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors["text_muted"])
 			tick += tick_step
 		return
 	for segment_any in segments:
@@ -370,10 +382,10 @@ func _draw_axis_ticks(axis_rect: Rect2) -> void:
 			continue
 		if seg_start >= offset and seg_start <= view_end:
 			var start_x := _bp_center_x(float(seg_start), axis_rect)
-			draw_line(Vector2(start_x, axis_line_y - 3.0), Vector2(start_x, axis_line_y + 2.0), _theme_colors["text_muted"], 1.0)
+			_draw_line_on(target, Vector2(start_x, axis_line_y - 3.0), Vector2(start_x, axis_line_y + 2.0), _theme_colors["text_muted"], 1.0)
 			var start_label := _format_bp_label(1)
 			var start_label_w := font.get_string_size(start_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-			draw_string(font, Vector2(start_x - start_label_w * 0.5, baseline), start_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors["text_muted"])
+			_draw_string_on(target, font, Vector2(start_x - start_label_w * 0.5, baseline), start_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors["text_muted"])
 		var local_start := maxi(0, offset - seg_start)
 		var local_end := mini(seg_end - seg_start, view_end - seg_start)
 		var first_local_tick := int(floor(float(local_start) / float(tick_step)) * tick_step)
@@ -385,10 +397,10 @@ func _draw_axis_ticks(axis_rect: Rect2) -> void:
 					continue
 				var tick_bp := seg_start + local_tick
 				var x := _bp_center_x(float(tick_bp), axis_rect)
-				draw_line(Vector2(x, axis_line_y - 3.0), Vector2(x, axis_line_y + 2.0), _theme_colors["text_muted"], 1.0)
+				_draw_line_on(target, Vector2(x, axis_line_y - 3.0), Vector2(x, axis_line_y + 2.0), _theme_colors["text_muted"], 1.0)
 				var label := _format_bp_label(local_tick + 1)
 				var label_w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-				draw_string(font, Vector2(x - label_w * 0.5, baseline), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors["text_muted"])
+				_draw_string_on(target, font, Vector2(x - label_w * 0.5, baseline), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors["text_muted"])
 			local_tick += tick_step
 
 func _on_axis_value_changed(value: float) -> void:
@@ -458,7 +470,7 @@ func _set_offset_from_map(next_offset: float) -> void:
 	queue_redraw()
 	emit_signal("offset_changed", _genome_id, next_offset)
 
-func _draw_reference_letters(axis_rect: Rect2) -> void:
+func _draw_reference_letters(axis_rect: Rect2, target = self) -> void:
 	if _reference_sequence.is_empty():
 		return
 	if not _can_draw_nucleotide_letters(axis_rect):
@@ -502,7 +514,7 @@ func _draw_reference_letters(axis_rect: Rect2) -> void:
 		if _colorize_nucleotides:
 			color = base_colors.get(base, _theme_colors["text"])
 		var text_w := font.get_string_size(base, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		draw_string(font, Vector2(x - text_w * 0.5, fwd_baseline), base, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+		_draw_string_on(target, font, Vector2(x - text_w * 0.5, fwd_baseline), base, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 
 func _can_draw_nucleotide_letters(axis_rect: Rect2) -> bool:
 	if axis_rect.size.x <= 0.0 or _view_span_bp <= 0.0:
@@ -643,7 +655,7 @@ func _apply_axis_track_overrides() -> void:
 	axis_bar.add_theme_stylebox_override("grabber_highlight", clear_grabber.duplicate())
 	axis_bar.add_theme_stylebox_override("grabber_pressed", clear_grabber.duplicate())
 
-func _draw_region_selection(axis_rect: Rect2) -> void:
+func _draw_region_selection(axis_rect: Rect2, target = self) -> void:
 	if not _region_select_has_selection:
 		return
 	var x0 := get_bp_edge_x_in_parent(_region_select_start_edge) - position.x
@@ -657,19 +669,39 @@ func _draw_region_selection(axis_rect: Rect2) -> void:
 	fill.a = 0.28
 	var border: Color = _theme_colors.get("region_select_outline", _theme_colors.get("text", Color.BLACK))
 	border.a = 0.55
-	draw_rect(rect, fill, true)
-	draw_rect(rect, border, false, 1.0)
+	_draw_rect_on(target, rect, fill, true)
+	_draw_rect_on(target, rect, border, false, 1.0)
 
 
-func _draw_rect_local(_target, rect: Rect2, color: Color, filled: bool, width: float = 1.0) -> void:
-	if filled:
-		draw_rect(rect, color, true)
+func _draw_rect_on(target, rect: Rect2, color: Color, filled: bool, width: float = 1.0) -> void:
+	if target == self:
+		if filled:
+			draw_rect(rect, color, true)
+		else:
+			draw_rect(rect, color, false, width)
 	else:
-		draw_rect(rect, color, false, width)
+		if filled:
+			target.draw_rect(rect, color, true)
+		else:
+			target.draw_rect(rect, color, false, width)
 
+func _draw_line_on(target, p0: Vector2, p1: Vector2, color: Color, width: float = 1.0) -> void:
+	if target == self:
+		draw_line(p0, p1, color, width)
+	else:
+		target.draw_line(p0, p1, color, width)
 
-func _draw_string_local(_target, font: Font, pos: Vector2, text: String, align: int, max_width: float, font_size: int, color: Color) -> void:
-	draw_string(font, pos, text, align, max_width, font_size, color)
+func _draw_string_on(target, font: Font, pos: Vector2, text: String, align: int, max_width: float, font_size: int, color: Color) -> void:
+	if target == self:
+		draw_string(font, pos, text, align, max_width, font_size, color)
+	else:
+		target.draw_string(font, pos, text, align, max_width, font_size, color)
+
+func _draw_rect_local(target, rect: Rect2, color: Color, filled: bool, width: float = 1.0) -> void:
+	_draw_rect_on(target, rect, color, filled, width)
+
+func _draw_string_local(target, font: Font, pos: Vector2, text: String, align: int, max_width: float, font_size: int, color: Color) -> void:
+	_draw_string_on(target, font, pos, text, align, max_width, font_size, color)
 
 func _nice_tick(raw: float) -> float:
 	if raw <= 0.0:

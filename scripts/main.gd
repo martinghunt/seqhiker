@@ -507,7 +507,12 @@ func _on_screenshot_file_selected(path: String) -> void:
 	var out_path := path
 	if not out_path.to_lower().ends_with(".svg"):
 		out_path += ".svg"
-	if genome_view.export_current_view_svg(out_path):
+	var ok := false
+	if _app_mode == APP_MODE_COMPARISON:
+		ok = comparison_view != null and comparison_view.has_method("export_current_view_svg") and comparison_view.export_current_view_svg(out_path)
+	else:
+		ok = genome_view.export_current_view_svg(out_path)
+	if ok:
 		_set_status("Saved screenshot: %s" % out_path)
 	else:
 		_set_status("Failed to save screenshot: %s" % out_path, true)
