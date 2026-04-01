@@ -223,7 +223,24 @@ func focus_genome_range_with_zoom(genome_id: int, start_bp: int, end_bp: int) ->
 	comparison_view.focus_genome_range_with_zoom(genome_id, start_bp, end_bp)
 
 
+func _ensure_empty_state_ready() -> bool:
+	if not _comparison_genomes.is_empty():
+		return true
+	var resp: Dictionary = zem.reset_comparison_state()
+	if not bool(resp.get("ok", false)):
+		host._set_status("Comparison reset failed: %s" % str(resp.get("error", "error")), true)
+		return false
+	_comparison_pair_cache.clear()
+	_comparison_detail_cache.clear()
+	_comparison_reference_cache.clear()
+	if comparison_view != null and comparison_view.has_method("clear_view"):
+		comparison_view.clear_view()
+	return true
+
+
 func add_genome(path: String) -> bool:
+	if not _ensure_empty_state_ready():
+		return false
 	_set_loading_message("Loading comparison genome...")
 	var resp: Dictionary = zem.add_comparison_genome(path)
 	var ok := _apply_added_comparison_genome_response(resp)
@@ -231,6 +248,8 @@ func add_genome(path: String) -> bool:
 	return ok
 
 func add_genome_files(paths: PackedStringArray) -> bool:
+	if not _ensure_empty_state_ready():
+		return false
 	_set_loading_message("Loading comparison genome...")
 	var resp: Dictionary = zem.add_comparison_genome_files(paths)
 	var ok := _apply_added_comparison_genome_response(resp)
@@ -327,14 +346,11 @@ func load_generated_genomes(paths: PackedStringArray) -> bool:
 	return true
 
 
-func handle_files_dropped(files: PackedStringArray) -> void:
+func add_input_files(files: PackedStringArray) -> bool:
 	var drop_info: Dictionary = host._inspect_dropped_files(files)
 	if bool(drop_info.get("ok", false)) and bool(drop_info.get("has_sequence", false)) and int(drop_info.get("sequence_root_count", 0)) == 1 and files.size() > 1:
 		if add_genome_files(files):
-			refresh_view(host.theme_option.get_item_text(host.theme_option.selected))
-			if _comparison_genomes.size() == 1:
-				reset_view_to_full_genomes()
-		return
+			return true
 	var added_any := false
 	for file_any in files:
 		var path := str(file_any)
@@ -345,9 +361,23 @@ func handle_files_dropped(files: PackedStringArray) -> void:
 			continue
 		if add_genome(path):
 			added_any = true
+	return added_any
+
+
+func finalize_added_genomes() -> void:
+	host._set_app_mode(host.APP_MODE_COMPARISON)
 	refresh_view(host.theme_option.get_item_text(host.theme_option.selected))
-	if added_any and _comparison_genomes.size() == 1:
+	if _comparison_genomes.size() == 1:
 		reset_view_to_full_genomes()
+	host._refresh_comparison_topbar_state()
+
+
+func handle_files_dropped(files: PackedStringArray) -> void:
+	if not add_input_files(files):
+		host._set_status("Could not add a comparison genome from dropped files.", true)
+		host._refresh_comparison_topbar_state()
+		return
+	finalize_added_genomes()
 
 
 func _ensure_pair_blocks(query_genome_id: int, target_genome_id: int) -> void:

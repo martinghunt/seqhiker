@@ -607,11 +607,16 @@ func _sync_row_instances() -> void:
 		var row = _rows.get(int(genome_id))
 		if row == null:
 			row = ROW_SCENE.instantiate()
-		row.drag_started.connect(_on_row_drag_started)
-		row.offset_changed.connect(_on_row_offset_changed)
-		row.pan_step_requested.connect(_on_row_pan_step_requested)
-		row.feature_clicked.connect(_on_row_feature_clicked)
-		add_child(row)
+		if not row.drag_started.is_connected(_on_row_drag_started):
+			row.drag_started.connect(_on_row_drag_started)
+		if not row.offset_changed.is_connected(_on_row_offset_changed):
+			row.offset_changed.connect(_on_row_offset_changed)
+		if not row.pan_step_requested.is_connected(_on_row_pan_step_requested):
+			row.pan_step_requested.connect(_on_row_pan_step_requested)
+		if not row.feature_clicked.is_connected(_on_row_feature_clicked):
+			row.feature_clicked.connect(_on_row_feature_clicked)
+		if row.get_parent() != self:
+			add_child(row)
 		row.visible = true
 		row.set_theme_colors(_theme_colors)
 		row.set_colorize_nucleotides(_colorize_nucleotides)

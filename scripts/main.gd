@@ -2494,6 +2494,13 @@ func _finish_download_genome(result_any: Variant) -> void:
 	if files.is_empty():
 		_set_download_status("Download failed: no genome files returned.", true)
 		return
+	if _app_mode == APP_MODE_COMPARISON and _comparison_controller != null:
+		if not _comparison_controller.add_input_files(files):
+			_set_download_status("Downloaded files, but could not add a comparison genome.", true)
+			return
+		_comparison_controller.finalize_added_genomes()
+		_set_download_status("Downloaded and added to comparison:\n%s" % "\n".join(files))
+		return
 	_session_loader.apply_already_loaded_genome(files)
 	_set_download_status("Downloaded and loaded:\n%s" % "\n".join(files))
 
