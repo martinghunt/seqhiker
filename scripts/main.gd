@@ -43,6 +43,7 @@ const CONTEXT_PANEL_TRACK_SETTINGS := 2
 const CONTEXT_PANEL_SEARCH := 3
 const CONTEXT_PANEL_GO := 4
 const CONTEXT_PANEL_DOWNLOAD := 5
+const CONTEXT_PANEL_SELECTED_MATCHES := 6
 const DEFAULT_PLOT_HEIGHT := 100.0
 const MIN_PLOT_HEIGHT := 50.0
 const MAX_PLOT_HEIGHT := 360.0
@@ -2290,6 +2291,8 @@ func _prepare_context_panel(mode: int, title: String, show_detail_labels: bool) 
 func _hide_context_subpanels() -> void:
 	if _track_settings_box != null:
 		_track_settings_box.visible = false
+	if _feature_panel_controller != null:
+		_feature_panel_controller.hide_subpanels()
 	if _search_controller != null:
 		_search_controller.hide_panel()
 	if _go_controller != null:
@@ -3273,6 +3276,21 @@ func _on_comparison_match_cleared() -> void:
 		return
 	_close_feature_panel()
 
+func _on_comparison_region_selected(selection: Dictionary) -> void:
+	_feature_panel_controller.show_selected_matches(selection)
+
+func _on_comparison_region_cleared() -> void:
+	if not _feature_panel_open:
+		return
+	if feature_title_label.text != "selected matches":
+		return
+	_close_feature_panel()
+
+func _on_selected_comparison_region_match(match: Dictionary) -> void:
+	if _comparison_controller == null:
+		return
+	_comparison_controller.focus_match_payload(match)
+
 func _jump_to_mate(start_bp: int, end_bp: int) -> void:
 	_feature_panel_controller.jump_to_mate(start_bp, end_bp)
 
@@ -3280,6 +3298,8 @@ func _format_read_flags(flags: int) -> String:
 	return _feature_panel_controller.format_read_flags(flags)
 
 func _close_feature_panel() -> void:
+	if _context_panel_mode == CONTEXT_PANEL_SELECTED_MATCHES and _comparison_controller != null:
+		_comparison_controller.clear_region_selection()
 	_feature_panel_controller.close_feature_panel()
 
 func _process(_delta: float) -> void:

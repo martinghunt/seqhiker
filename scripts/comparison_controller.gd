@@ -47,6 +47,10 @@ func setup() -> void:
 		comparison_view.comparison_match_cleared.connect(_on_comparison_match_cleared)
 	if comparison_view.has_signal("comparison_feature_selected") and not comparison_view.comparison_feature_selected.is_connected(_on_comparison_feature_selected):
 		comparison_view.comparison_feature_selected.connect(_on_comparison_feature_selected)
+	if comparison_view.has_signal("comparison_region_selected") and not comparison_view.comparison_region_selected.is_connected(_on_comparison_region_selected):
+		comparison_view.comparison_region_selected.connect(_on_comparison_region_selected)
+	if comparison_view.has_signal("comparison_region_cleared") and not comparison_view.comparison_region_cleared.is_connected(_on_comparison_region_cleared):
+		comparison_view.comparison_region_cleared.connect(_on_comparison_region_cleared)
 	if comparison_view.has_signal("detail_requested") and not comparison_view.detail_requested.is_connected(_on_detail_requested):
 		comparison_view.detail_requested.connect(_on_detail_requested)
 
@@ -181,7 +185,9 @@ func refresh_view(theme_name: String) -> void:
 			"same_strand": palette.get("comparison_same_strand", Color("cb4934")),
 			"opp_strand": palette.get("comparison_opp_strand", Color("2c7fb8")),
 			"selection_outline": palette.get("text", Color.BLACK),
-			"snp": palette.get("snp", Color("f59e0b"))
+			"snp": palette.get("snp", Color("f59e0b")),
+			"region_select_fill": palette.get("region_select_fill", palette.get("genome", Color("3f5a7a"))),
+			"region_select_outline": palette.get("region_select_outline", palette.get("text", Color.BLACK))
 		})
 	if comparison_view.has_method("set_genomes"):
 		comparison_view.set_genomes(_comparison_genomes)
@@ -221,6 +227,16 @@ func focus_genome_range_with_zoom(genome_id: int, start_bp: int, end_bp: int) ->
 	if comparison_view == null or not comparison_view.has_method("focus_genome_range_with_zoom"):
 		return
 	comparison_view.focus_genome_range_with_zoom(genome_id, start_bp, end_bp)
+
+func focus_match_payload(match: Dictionary) -> void:
+	if comparison_view == null or not comparison_view.has_method("focus_match_payload"):
+		return
+	comparison_view.focus_match_payload(match)
+
+func clear_region_selection() -> void:
+	if comparison_view == null or not comparison_view.has_method("clear_region_selection"):
+		return
+	comparison_view.clear_region_selection()
 
 
 func _ensure_empty_state_ready() -> bool:
@@ -455,6 +471,14 @@ func _on_comparison_match_cleared() -> void:
 func _on_comparison_feature_selected(feature: Dictionary, was_double_click: bool) -> void:
 	if host != null and host.has_method("_on_comparison_feature_selected"):
 		host._on_comparison_feature_selected(feature, was_double_click)
+
+func _on_comparison_region_selected(selection: Dictionary) -> void:
+	if host != null and host.has_method("_on_comparison_region_selected"):
+		host._on_comparison_region_selected(selection)
+
+func _on_comparison_region_cleared() -> void:
+	if host != null and host.has_method("_on_comparison_region_cleared"):
+		host._on_comparison_region_cleared()
 
 
 func _on_detail_requested(request: Dictionary) -> void:

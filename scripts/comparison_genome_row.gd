@@ -43,6 +43,10 @@ var _reference_sequence := ""
 var _colorize_nucleotides := true
 var _feature_hitboxes: Array[Dictionary] = []
 var _selected_feature_key := ""
+var _region_select_dragging := false
+var _region_select_has_selection := false
+var _region_select_start_edge := 0.0
+var _region_select_end_edge := 0.0
 var _theme_colors := {
 	"text": Color.BLACK,
 	"text_muted": Color("666666"),
@@ -55,7 +59,9 @@ var _theme_colors := {
 	"map_view_outline": Color.BLACK,
 	"feature": Color("dce8f7"),
 	"feature_text": Color("1e3557"),
-	"selection_outline": Color.BLACK
+	"selection_outline": Color.BLACK,
+	"region_select_fill": Color("3f5a7a"),
+	"region_select_outline": Color.BLACK
 }
 
 func _ready() -> void:
@@ -174,6 +180,13 @@ func get_bp_edge_x_in_parent(bp: float) -> float:
 	var axis_rect := Rect2(axis_bar.global_position - global_position, axis_bar.size)
 	return position.x + (axis_rect.position.x + ((bp - _offset) / _view_span_bp) * axis_rect.size.x)
 
+func get_bp_edge_at_x_in_parent(x_parent: float) -> float:
+	var axis_rect := get_axis_rect_in_parent()
+	if axis_rect.size.x <= 0.0:
+		return _offset
+	var frac := clampf((x_parent - axis_rect.position.x) / axis_rect.size.x, 0.0, 1.0)
+	return _offset + frac * _view_span_bp
+
 func hit_test_feature_in_parent(point_parent: Vector2) -> Dictionary:
 	var local_point := point_parent - position
 	for i in range(_feature_hitboxes.size() - 1, -1, -1):
@@ -222,6 +235,7 @@ func _draw() -> void:
 	_draw_row_features(axis_rect)
 	_draw_reference_letters(axis_rect)
 	_draw_axis_ticks(axis_rect)
+	_draw_region_selection(axis_rect)
 
 func _draw_contig_segments(axis_rect: Rect2) -> void:
 	var segments: Array = _genome.get("segments", [])
@@ -514,6 +528,22 @@ func _bp_in_segment(bp: int) -> bool:
 			return true
 	return false
 
+func set_region_selection(start_bp: float, end_bp: float, dragging: bool = false) -> void:
+	_region_select_has_selection = true
+	_region_select_dragging = dragging
+	_region_select_start_edge = start_bp
+	_region_select_end_edge = end_bp
+	queue_redraw()
+
+func clear_region_selection() -> void:
+	if not _region_select_has_selection and not _region_select_dragging:
+		return
+	_region_select_dragging = false
+	_region_select_has_selection = false
+	_region_select_start_edge = 0.0
+	_region_select_end_edge = 0.0
+	queue_redraw()
+
 func set_selected_feature(feature: Dictionary, toggle: bool = false) -> void:
 	var next_key := FeatureAnnotationUtilsScript.feature_key(feature)
 	if next_key.is_empty():
@@ -602,6 +632,23 @@ func _apply_axis_track_overrides() -> void:
 	axis_bar.add_theme_stylebox_override("grabber", clear_grabber)
 	axis_bar.add_theme_stylebox_override("grabber_highlight", clear_grabber.duplicate())
 	axis_bar.add_theme_stylebox_override("grabber_pressed", clear_grabber.duplicate())
+
+func _draw_region_selection(axis_rect: Rect2) -> void:
+	if not _region_select_has_selection:
+		return
+	var x0 := get_bp_edge_x_in_parent(_region_select_start_edge) - position.x
+	var x1 := get_bp_edge_x_in_parent(_region_select_end_edge) - position.x
+	var left := clampf(minf(x0, x1), axis_rect.position.x, axis_rect.position.x + axis_rect.size.x)
+	var right := clampf(maxf(x0, x1), axis_rect.position.x, axis_rect.position.x + axis_rect.size.x)
+	if right <= left:
+		right = minf(axis_rect.position.x + axis_rect.size.x, left + 1.0)
+	var rect := Rect2(left, 0.0, right - left, ROW_H)
+	var fill: Color = _theme_colors.get("region_select_fill", _theme_colors.get("genome", Color("3f5a7a")))
+	fill.a = 0.28
+	var border: Color = _theme_colors.get("region_select_outline", _theme_colors.get("text", Color.BLACK))
+	border.a = 0.55
+	draw_rect(rect, fill, true)
+	draw_rect(rect, border, false, 1.0)
 
 
 func _draw_rect_local(_target, rect: Rect2, color: Color, filled: bool, width: float = 1.0) -> void:

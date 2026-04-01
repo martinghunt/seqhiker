@@ -5,6 +5,8 @@ signal genome_order_changed(order: PackedInt32Array)
 signal comparison_match_selected(match: Dictionary, was_double_click: bool)
 signal comparison_match_cleared()
 signal comparison_feature_selected(feature: Dictionary, was_double_click: bool)
+signal comparison_region_selected(selection: Dictionary)
+signal comparison_region_cleared()
 signal detail_requested(request: Dictionary)
 
 const ROW_SCENE = preload("res://scenes/ComparisonGenomeRow.tscn")
@@ -39,6 +41,11 @@ var _pending_click_payload: Dictionary = {}
 var _drag_active := false
 var _drag_genome_id := -1
 var _drag_target_index := -1
+var _region_select_dragging := false
+var _region_select_has_selection := false
+var _region_select_genome_id := -1
+var _region_select_start_edge := 0.0
+var _region_select_end_edge := 0.0
 var _view_span_bp := DEFAULT_VIEW_SPAN_BP
 var _syncing_offsets := false
 var _max_draw_blocks_per_pair := 500
@@ -98,6 +105,11 @@ func clear_view() -> void:
 	_drawn_match_hitboxes.clear()
 	_selected_match_key = ""
 	_selected_feature_key = ""
+	_region_select_dragging = false
+	_region_select_has_selection = false
+	_region_select_genome_id = -1
+	_region_select_start_edge = 0.0
+	_region_select_end_edge = 0.0
 	_pending_click_serial = 0
 	_pending_click_payload.clear()
 	_drag_active = false
@@ -446,12 +458,24 @@ func _input(event: InputEvent) -> void:
 			zoom_by_at_x(1.0 / scaled_factor, local_magnify_point.x, 0.12)
 			accept_event()
 			return
-	if not _drag_active:
-		return
 	if event is InputEventMouseMotion:
+		if _region_select_dragging:
+			var local_motion := _local_input_point((event as InputEventMouseMotion).position)
+			_update_region_selection_drag(local_motion)
+			accept_event()
+			return
+		if not _drag_active:
+			return
 		_drag_target_index = _row_index_for_y(get_local_mouse_position().y)
 		queue_redraw()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		if _region_select_dragging:
+			var local_release := _local_input_point((event as InputEventMouseButton).position)
+			_finish_region_selection_drag(local_release)
+			accept_event()
+			return
+		if not _drag_active:
+			return
 		_finish_row_drag(_drag_target_index)
 
 
@@ -492,6 +516,12 @@ func _gui_input(event: InputEvent) -> void:
 				_cancel_pending_click_dispatch()
 				queue_redraw()
 				emit_signal("comparison_match_cleared")
+			var row_hit := _row_hit_for_point(mb.position)
+			if row_hit.is_empty():
+				_clear_region_selection(true)
+				return
+			_start_region_selection(int(row_hit.get("genome_id", -1)), float(row_hit.get("bp", 0.0)))
+			accept_event()
 			return
 		var payload: Dictionary = hit.get("payload", {})
 		_selected_match_key = _match_key_for_payload(payload)
@@ -713,27 +743,7 @@ func _set_row_offset_animated(genome_id: int, value: float) -> void:
 
 func _register_match_hitbox(block: Dictionary, top_genome_id: int, bottom_genome_id: int, poly: PackedVector2Array) -> void:
 	var bounds := _polygon_bounds(poly)
-	var top_match := _segment_match_for_interval(_genomes_by_id.get(top_genome_id, {}), int(block.get("query_start", 0)), int(block.get("query_end", 0)))
-	var bottom_match := _segment_match_for_interval(_genomes_by_id.get(bottom_genome_id, {}), int(block.get("target_start", 0)), int(block.get("target_end", 0)))
-	var payload := {
-		"top_genome_id": top_genome_id,
-		"bottom_genome_id": bottom_genome_id,
-		"query_start": int(block.get("query_start", 0)),
-		"query_end": int(block.get("query_end", 0)),
-		"target_start": int(block.get("target_start", 0)),
-		"target_end": int(block.get("target_end", 0)),
-		"percent_identity": float(block.get("percent_identity", 0.0)),
-		"percent_identity_x100": int(block.get("percent_identity_x100", 0)),
-		"same_strand": bool(block.get("same_strand", true)),
-		"top_name": str(_genomes_by_id.get(top_genome_id, {}).get("name", "Genome %d" % top_genome_id)),
-		"bottom_name": str(_genomes_by_id.get(bottom_genome_id, {}).get("name", "Genome %d" % bottom_genome_id)),
-		"top_contig": str(top_match.get("name", "")),
-		"bottom_contig": str(bottom_match.get("name", "")),
-		"top_local_start": int(top_match.get("local_start", int(block.get("query_start", 0)))),
-		"top_local_end": int(top_match.get("local_end", int(block.get("query_end", 0)))),
-		"bottom_local_start": int(bottom_match.get("local_start", int(block.get("target_start", 0)))),
-		"bottom_local_end": int(bottom_match.get("local_end", int(block.get("target_end", 0))))
-	}
+	var payload := _payload_for_block(block, top_genome_id, bottom_genome_id)
 	_drawn_match_hitboxes.append({
 		"bounds": bounds,
 		"poly": poly,
@@ -811,6 +821,29 @@ func _segment_match_for_interval(genome: Dictionary, start_bp: int, end_bp: int)
 		"name": str(best_seg.get("name", "")),
 		"local_start": local_start,
 		"local_end": local_end
+	}
+
+func _payload_for_block(block: Dictionary, top_genome_id: int, bottom_genome_id: int) -> Dictionary:
+	var top_match := _segment_match_for_interval(_genomes_by_id.get(top_genome_id, {}), int(block.get("query_start", 0)), int(block.get("query_end", 0)))
+	var bottom_match := _segment_match_for_interval(_genomes_by_id.get(bottom_genome_id, {}), int(block.get("target_start", 0)), int(block.get("target_end", 0)))
+	return {
+		"top_genome_id": top_genome_id,
+		"bottom_genome_id": bottom_genome_id,
+		"query_start": int(block.get("query_start", 0)),
+		"query_end": int(block.get("query_end", 0)),
+		"target_start": int(block.get("target_start", 0)),
+		"target_end": int(block.get("target_end", 0)),
+		"percent_identity": float(block.get("percent_identity", 0.0)),
+		"percent_identity_x100": int(block.get("percent_identity_x100", 0)),
+		"same_strand": bool(block.get("same_strand", true)),
+		"top_name": str(_genomes_by_id.get(top_genome_id, {}).get("name", "Genome %d" % top_genome_id)),
+		"bottom_name": str(_genomes_by_id.get(bottom_genome_id, {}).get("name", "Genome %d" % bottom_genome_id)),
+		"top_contig": str(top_match.get("name", "")),
+		"bottom_contig": str(bottom_match.get("name", "")),
+		"top_local_start": int(top_match.get("local_start", int(block.get("query_start", 0)))),
+		"top_local_end": int(top_match.get("local_end", int(block.get("query_end", 0)))),
+		"bottom_local_start": int(bottom_match.get("local_start", int(block.get("target_start", 0)))),
+		"bottom_local_end": int(bottom_match.get("local_end", int(block.get("target_end", 0))))
 	}
 
 
@@ -983,6 +1016,16 @@ func _focus_match_left(payload: Dictionary) -> void:
 		var next_offset := clampf(start_bp - _view_span_bp * left_frac, 0.0, max_offset)
 		direct_targets[genome_id] = next_offset
 	_animate_offsets_to(_targets_with_locked_propagation(direct_targets))
+
+func focus_match_payload(payload: Dictionary) -> void:
+	if payload.is_empty():
+		return
+	_selected_match_key = _match_key_for_payload(payload)
+	queue_redraw()
+	_focus_match_left(payload)
+
+func clear_region_selection() -> void:
+	_clear_region_selection()
 
 
 func _targets_with_locked_propagation(direct_targets: Dictionary) -> Dictionary:
@@ -1205,6 +1248,10 @@ func _update_lock_buttons(match_band_h: float) -> void:
 
 
 func _display_blocks_for_pair(top_genome_id: int, bottom_genome_id: int) -> Array:
+	var ordered_blocks := _blocks_for_pair_in_display_order(top_genome_id, bottom_genome_id)
+	return _visible_blocks_for_pair(ordered_blocks, top_genome_id, bottom_genome_id)
+
+func _blocks_for_pair_in_display_order(top_genome_id: int, bottom_genome_id: int) -> Array:
 	var payload: Dictionary = _pair_blocks.get(_pair_key(top_genome_id, bottom_genome_id), {})
 	if payload.is_empty():
 		return []
@@ -1212,7 +1259,7 @@ func _display_blocks_for_pair(top_genome_id: int, bottom_genome_id: int) -> Arra
 	var stored_target_id := int(payload.get("target_id", bottom_genome_id))
 	var blocks: Array = payload.get("blocks", [])
 	if stored_query_id == top_genome_id and stored_target_id == bottom_genome_id:
-		return _visible_blocks_for_pair(blocks, top_genome_id, bottom_genome_id)
+		return blocks.duplicate(true)
 	var swapped := []
 	for block_any in blocks:
 		var block: Dictionary = block_any
@@ -1225,7 +1272,7 @@ func _display_blocks_for_pair(top_genome_id: int, bottom_genome_id: int) -> Arra
 			"percent_identity": float(block.get("percent_identity", 0.0)),
 			"same_strand": bool(block.get("same_strand", true))
 		})
-	return _visible_blocks_for_pair(swapped, top_genome_id, bottom_genome_id)
+	return swapped
 
 
 func _visible_blocks_for_pair(blocks: Array, top_genome_id: int, bottom_genome_id: int) -> Array:
@@ -1419,12 +1466,14 @@ func _polygon_area_abs(poly: PackedVector2Array) -> float:
 
 
 func _on_row_drag_started(genome_id: int) -> void:
+	_clear_region_selection()
 	_drag_active = true
 	_drag_genome_id = genome_id
 	_drag_target_index = _order.find(genome_id)
 	queue_redraw()
 
 func _on_row_feature_clicked(genome_id: int, feature: Dictionary, was_double_click: bool) -> void:
+	_clear_region_selection()
 	_select_feature_in_rows(genome_id, feature)
 	emit_signal("comparison_feature_selected", feature, was_double_click)
 
@@ -1475,6 +1524,7 @@ func _on_row_pan_step_requested(genome_id: int, fraction: float) -> void:
 
 
 func _on_row_axis_center_requested(genome_id: int, click_x_in_parent: float) -> void:
+	_clear_region_selection()
 	var row = _rows.get(genome_id)
 	if row == null or not _genomes_by_id.has(genome_id):
 		return
@@ -1613,3 +1663,127 @@ func _longest_genome_len() -> float:
 
 func _pair_key(a: int, b: int) -> String:
 	return "%d:%d" % [mini(a, b), maxi(a, b)]
+
+func _row_hit_for_point(point_parent: Vector2) -> Dictionary:
+	for genome_id_any in _order:
+		var genome_id := int(genome_id_any)
+		var row = _rows.get(genome_id)
+		if row == null:
+			continue
+		var axis_rect: Rect2 = row.get_axis_rect_in_parent()
+		var row_rect := Rect2(Vector2(axis_rect.position.x, row.position.y), Vector2(axis_rect.size.x, ROW_H))
+		if not row_rect.has_point(point_parent):
+			continue
+		return {
+			"genome_id": genome_id,
+			"bp": float(row.get_bp_edge_at_x_in_parent(point_parent.x))
+		}
+	return {}
+
+func _start_region_selection(genome_id: int, edge_bp: float) -> void:
+	_drag_active = false
+	_drag_genome_id = -1
+	_drag_target_index = -1
+	_region_select_dragging = true
+	_region_select_has_selection = true
+	_region_select_genome_id = genome_id
+	_region_select_start_edge = edge_bp
+	_region_select_end_edge = edge_bp
+	_update_region_selection_rows()
+
+func _update_region_selection_drag(point_parent: Vector2) -> void:
+	if not _region_select_dragging:
+		return
+	var row = _rows.get(_region_select_genome_id)
+	if row == null:
+		return
+	_region_select_end_edge = float(row.get_bp_edge_at_x_in_parent(point_parent.x))
+	_update_region_selection_rows()
+
+func _finish_region_selection_drag(point_parent: Vector2) -> void:
+	if not _region_select_dragging:
+		return
+	_update_region_selection_drag(point_parent)
+	_region_select_dragging = false
+	_update_region_selection_rows()
+	var selection := _selection_payload()
+	if selection.is_empty():
+		_clear_region_selection(true)
+		return
+	emit_signal("comparison_region_selected", selection)
+
+func _update_region_selection_rows() -> void:
+	for genome_id_any in _rows.keys():
+		var genome_id := int(genome_id_any)
+		var row = _rows.get(genome_id)
+		if row == null:
+			continue
+		if _region_select_has_selection and genome_id == _region_select_genome_id:
+			row.set_region_selection(_region_select_start_edge, _region_select_end_edge, _region_select_dragging)
+		else:
+			row.clear_region_selection()
+
+func _clear_region_selection(emit_cleared: bool = false) -> void:
+	var had_selection := _region_select_has_selection or _region_select_dragging
+	_region_select_dragging = false
+	_region_select_has_selection = false
+	_region_select_genome_id = -1
+	_region_select_start_edge = 0.0
+	_region_select_end_edge = 0.0
+	_update_region_selection_rows()
+	if had_selection and emit_cleared:
+		emit_signal("comparison_region_cleared")
+
+func _selection_payload() -> Dictionary:
+	if not _region_select_has_selection or _region_select_genome_id < 0:
+		return {}
+	var start_bp := int(floor(minf(_region_select_start_edge, _region_select_end_edge)))
+	var end_bp := int(ceil(maxf(_region_select_start_edge, _region_select_end_edge)))
+	if end_bp <= start_bp:
+		end_bp = start_bp + 1
+	var genome: Dictionary = _genomes_by_id.get(_region_select_genome_id, {})
+	if genome.is_empty():
+		return {}
+	var selected_match: Dictionary = _segment_match_for_interval(genome, start_bp, end_bp)
+	var idx := _order.find(_region_select_genome_id)
+	var matches_above: Array = []
+	var matches_below: Array = []
+	if idx > 0:
+		var above_id := int(_order[idx - 1])
+		matches_above = _overlapping_match_payloads_for_pair(above_id, _region_select_genome_id, start_bp, end_bp, false)
+	if idx >= 0 and idx < _order.size() - 1:
+		var below_id := int(_order[idx + 1])
+		matches_below = _overlapping_match_payloads_for_pair(_region_select_genome_id, below_id, start_bp, end_bp, true)
+	return {
+		"genome_id": _region_select_genome_id,
+		"genome_name": str(genome.get("name", "Genome %d" % _region_select_genome_id)),
+		"contig": str(selected_match.get("name", "")),
+		"start_bp": start_bp,
+		"end_bp": end_bp,
+		"local_start": int(selected_match.get("local_start", start_bp)),
+		"local_end": int(selected_match.get("local_end", end_bp)),
+		"matches_above": matches_above,
+		"matches_below": matches_below
+	}
+
+func _overlapping_match_payloads_for_pair(top_genome_id: int, bottom_genome_id: int, start_bp: int, end_bp: int, selected_is_top: bool) -> Array:
+	var payload: Dictionary = _pair_blocks.get(_pair_key(top_genome_id, bottom_genome_id), {})
+	if payload.is_empty():
+		return []
+	var blocks := _blocks_for_pair_in_display_order(top_genome_id, bottom_genome_id)
+	var out := []
+	for block_any in blocks:
+		var block: Dictionary = block_any
+		var block_start := int(block.get("query_start", 0)) if selected_is_top else int(block.get("target_start", 0))
+		var block_end := int(block.get("query_end", 0)) if selected_is_top else int(block.get("target_end", 0))
+		if block_end <= start_bp or block_start >= end_bp:
+			continue
+		out.append(_payload_for_block(block, top_genome_id, bottom_genome_id))
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_start := int(a.get("query_start", 0)) if selected_is_top else int(a.get("target_start", 0))
+		var b_start := int(b.get("query_start", 0)) if selected_is_top else int(b.get("target_start", 0))
+		if a_start == b_start:
+			return float(a.get("percent_identity", 0.0)) > float(b.get("percent_identity", 0.0))
+		return a_start < b_start
+	)
+	return out
