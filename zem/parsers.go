@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,6 +14,23 @@ import (
 
 var digitsRegexp = regexp.MustCompile(`\d+`)
 
+func nextLongLine(r *bufio.Reader) (string, error) {
+	var out []byte
+	for {
+		frag, isPrefix, err := r.ReadLine()
+		if err != nil {
+			if err == io.EOF && len(out) > 0 {
+				return string(out), nil
+			}
+			return "", err
+		}
+		out = append(out, frag...)
+		if !isPrefix {
+			return string(out), nil
+		}
+	}
+}
+
 func parseFASTA(path string) (map[string]string, error) {
 	f, err := xopen.Ropen(path)
 	if err != nil {
@@ -20,7 +38,7 @@ func parseFASTA(path string) (map[string]string, error) {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
+	reader := bufio.NewReader(f)
 	seqs := make(map[string]string)
 	var current string
 	var b strings.Builder
@@ -33,8 +51,15 @@ func parseFASTA(path string) (map[string]string, error) {
 		b.Reset()
 	}
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	for {
+		rawLine, err := nextLongLine(reader)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		line := strings.TrimSpace(rawLine)
 		if line == "" {
 			continue
 		}
@@ -57,9 +82,6 @@ func parseFASTA(path string) (map[string]string, error) {
 			}
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
 	flush()
 
 	if len(seqs) == 0 {
@@ -75,7 +97,7 @@ func parseGFF3(path string) (map[string]string, map[string][]Feature, error) {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
+	reader := bufio.NewReader(f)
 	out := make(map[string][]Feature)
 	seqs := make(map[string]string)
 	inFASTA := false
@@ -96,8 +118,14 @@ func parseGFF3(path string) (map[string]string, map[string][]Feature, error) {
 		return nil
 	}
 
-	for scanner.Scan() {
-		rawLine := scanner.Text()
+	for {
+		rawLine, err := nextLongLine(reader)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, nil, err
+		}
 		line := strings.TrimSpace(rawLine)
 		if inFASTA {
 			if line == "" {
@@ -161,9 +189,6 @@ func parseGFF3(path string) (map[string]string, map[string][]Feature, error) {
 			Attributes: cols[8],
 		}
 		out[feat.SeqName] = append(out[feat.SeqName], feat)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, nil, err
 	}
 	if inFASTA {
 		if err := flushFASTA(); err != nil {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -117,6 +118,24 @@ func TestParseFASTAUppercasesAndKeepsAmbiguousBases(t *testing.T) {
 	}
 	if got := seqs["chr2"]; got != "NNNN" {
 		t.Fatalf("chr2 sequence = %q, want %q", got, "NNNN")
+	}
+}
+
+func TestParseFASTASingleLongLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ref.fa")
+	longSeq := strings.Repeat("ACGT", 50000)
+	content := ">chr1\n" + longSeq + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	seqs, err := parseFASTA(path)
+	if err != nil {
+		t.Fatalf("parseFASTA returned error: %v", err)
+	}
+	if got := seqs["chr1"]; got != longSeq {
+		t.Fatalf("long chr1 sequence length = %d, want %d", len(got), len(longSeq))
 	}
 }
 
