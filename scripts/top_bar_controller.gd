@@ -1,6 +1,27 @@
 extends RefCounted
 class_name TopBarController
 
+const CLEAR_DISSOLVE_SHADER := """
+shader_type canvas_item;
+
+uniform float progress : hint_range(0.0, 1.0) = 0.0;
+
+float hash21(vec2 p) {
+	p = fract(p * vec2(123.34, 456.21));
+	p += dot(p, p + 45.32);
+	return fract(p.x * p.y);
+}
+
+void fragment() {
+	vec4 tex = texture(TEXTURE, UV);
+	vec2 cell = floor(UV * vec2(220.0, 140.0));
+	float noise = hash21(cell);
+	float edge = smoothstep(progress - 0.10, progress + 0.02, noise);
+	float glow = smoothstep(0.0, 0.08, edge) * (1.0 - smoothstep(0.08, 0.22, edge));
+	vec3 fizz = tex.rgb + vec3(glow * 0.22);
+	COLOR = vec4(fizz, tex.a * (1.0 - edge));
+}
+"""
 
 var host: Node = null
 var _comparison_toggle_tween: Tween
@@ -8,6 +29,9 @@ var _comparison_toggle_icon_label: Label
 var _comparison_clear_tween: Tween
 var _comparison_clear_icon_label: Label
 var _view_mode_tween: Tween
+var _clear_effect_tween: Tween
+var _clear_effect_overlay: TextureRect
+var _clear_effect_material: ShaderMaterial
 
 
 func configure(next_host: Node) -> void:
@@ -127,6 +151,13 @@ func on_clear_pressed() -> void:
 	if not _active_view_has_data_to_clear():
 		return
 	_spin_clear_button()
+	var clear_action := Callable(self, "_clear_comparison_view") if host._app_mode == host.APP_MODE_COMPARISON else Callable(self, "_clear_browser_view")
+	if _play_clear_effect(clear_action):
+		return
+	clear_action.call()
+
+
+func _clear_comparison_view() -> void:
 	if host._app_mode == host.APP_MODE_COMPARISON:
 		if host._comparison_controller == null:
 			return
@@ -137,10 +168,124 @@ func on_clear_pressed() -> void:
 		refresh_comparison_topbar_state()
 		host._set_status("Cleared comparison view")
 		return
+
+
+func _clear_browser_view() -> void:
 	host._reset_loaded_state()
 	host._close_feature_panel()
 	refresh_comparison_topbar_state()
 	host._set_status("Cleared browser view")
+
+
+func _play_clear_effect(clear_action: Callable) -> bool:
+	if host == null:
+		return false
+	var active_view: Control = host.comparison_view if host._app_mode == host.APP_MODE_COMPARISON else host.genome_view
+	if active_view == null or host._viewport_layer == null:
+		return false
+	var global_rect := active_view.get_global_rect()
+	if global_rect.size.x < 2.0 or global_rect.size.y < 2.0:
+		return false
+	var viewport_tex := host.get_viewport().get_texture()
+	if viewport_tex == null:
+		return false
+	var image := viewport_tex.get_image()
+	if image == null or image.is_empty():
+		return false
+	var visible_rect: Rect2 = host.get_viewport().get_visible_rect()
+	var viewport_scale := Vector2(
+		float(image.get_width()) / maxf(1.0, visible_rect.size.x),
+		float(image.get_height()) / maxf(1.0, visible_rect.size.y)
+	)
+	var canvas_origin: Vector2 = active_view.get_global_transform_with_canvas().origin
+	var crop_pos: Vector2 = (canvas_origin * viewport_scale).round()
+	var crop_size: Vector2 = (global_rect.size * viewport_scale).round()
+	var crop_rect := Rect2i(
+		clampi(int(crop_pos.x), 0, image.get_width()),
+		clampi(int(crop_pos.y), 0, image.get_height()),
+		clampi(int(crop_size.x), 0, image.get_width()),
+		clampi(int(crop_size.y), 0, image.get_height())
+	)
+	crop_rect.size.x = mini(crop_rect.size.x, image.get_width() - crop_rect.position.x)
+	crop_rect.size.y = mini(crop_rect.size.y, image.get_height() - crop_rect.position.y)
+	if crop_rect.size.x <= 0 or crop_rect.size.y <= 0:
+		return false
+	var cropped := image.get_region(crop_rect)
+	if cropped == null or cropped.is_empty():
+		return false
+	_ensure_clear_effect_overlay()
+	if _clear_effect_overlay == null or _clear_effect_material == null:
+		return false
+	var layer_origin: Vector2 = host._viewport_layer.get_global_rect().position
+	_clear_effect_overlay.position = global_rect.position - layer_origin
+	_clear_effect_overlay.size = global_rect.size
+	_clear_effect_overlay.texture = ImageTexture.create_from_image(cropped)
+	_clear_effect_overlay.visible = true
+	_clear_effect_overlay.modulate = Color(1, 1, 1, 1)
+	_clear_effect_material.set_shader_parameter("progress", 0.0)
+	var duration := _effective_clear_animation_duration(0.34)
+	if duration <= 0.0:
+		clear_action.call()
+		_hide_clear_effect_overlay()
+		return true
+	if _clear_effect_tween != null and _clear_effect_tween.is_running():
+		_clear_effect_tween.kill()
+	_clear_effect_tween = host.create_tween()
+	_clear_effect_tween.set_trans(Tween.TRANS_CUBIC)
+	_clear_effect_tween.set_ease(Tween.EASE_IN)
+	_clear_effect_tween.tween_method(_set_clear_effect_progress, 0.0, 1.0, duration)
+	_clear_effect_tween.finished.connect(func() -> void:
+		_clear_effect_tween = null
+		clear_action.call()
+		_hide_clear_effect_overlay()
+	, CONNECT_ONE_SHOT)
+	return true
+
+
+func _ensure_clear_effect_overlay() -> void:
+	if _clear_effect_overlay != null and is_instance_valid(_clear_effect_overlay):
+		return
+	if host == null or host._viewport_layer == null:
+		return
+	_clear_effect_overlay = TextureRect.new()
+	_clear_effect_overlay.name = "ClearEffectOverlay"
+	_clear_effect_overlay.visible = false
+	_clear_effect_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_clear_effect_overlay.stretch_mode = TextureRect.STRETCH_SCALE
+	_clear_effect_overlay.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_clear_effect_material = ShaderMaterial.new()
+	var shader := Shader.new()
+	shader.code = CLEAR_DISSOLVE_SHADER
+	_clear_effect_material.shader = shader
+	_clear_effect_overlay.material = _clear_effect_material
+	host._viewport_layer.add_child(_clear_effect_overlay)
+	if host.settings_panel != null:
+		host._viewport_layer.move_child(_clear_effect_overlay, host.settings_panel.get_index())
+
+
+func _set_clear_effect_progress(value: float) -> void:
+	if _clear_effect_material == null:
+		return
+	_clear_effect_material.set_shader_parameter("progress", value)
+
+
+func _hide_clear_effect_overlay() -> void:
+	if _clear_effect_overlay == null:
+		return
+	_clear_effect_overlay.visible = false
+	_clear_effect_overlay.texture = null
+
+
+func _effective_clear_animation_duration(base_duration: float) -> float:
+	if host == null or base_duration <= 0.0:
+		return 0.0
+	var speed := 1.0
+	if host.animate_pan_zoom_slider != null:
+		speed = clampf(host.animate_pan_zoom_slider.value, 1.0, 3.0)
+	if speed >= 3.0:
+		return 0.0
+	var t := inverse_lerp(1.0, 3.0, speed)
+	return lerpf(base_duration * 1.5, 0.0, t)
 
 
 func apply_topbar_button_font_size() -> void:
