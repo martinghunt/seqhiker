@@ -85,6 +85,7 @@ var _theme_colors := {
 	"feature_text": Color("1e3557"),
 	"same_strand": Color("cb4934"),
 	"opp_strand": Color("2c7fb8"),
+	"selected_fill": Color("ffd84d"),
 	"selection_outline": Color.BLACK,
 	"snp": Color("f59e0b")
 }
@@ -712,7 +713,7 @@ func _draw_to(target) -> void:
 			if _detail_mode_active() and _has_block_detail(top_id, bottom_id, block):
 				var detail: Dictionary = _detail_blocks.get(_detail_block_key(top_id, bottom_id, block), {})
 				var display_block := _aligned_block_from_detail(block, detail)
-				var detail_fill := _block_color(display_block)
+				var detail_fill := _block_color(display_block, top_id, bottom_id)
 				if bool(display_block.get("same_strand", true)):
 					var detail_poly := _project_block_polygon_for_rows(display_block, top_row, bottom_row, top_y, bottom_y, 0.5)
 					if not detail_poly.is_empty():
@@ -730,7 +731,7 @@ func _draw_to(target) -> void:
 					_draw_reverse_block(target, display_block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, detail_fill, 0.5)
 				_draw_detail_block(target, block, top_id, bottom_id, top_axis, bottom_axis, detail_top_y, detail_bottom_y)
 				continue
-			var fill := _block_color(block)
+			var fill := _block_color(block, top_id, bottom_id)
 			if bool(block.get("same_strand", true)):
 				var poly := _project_block_polygon_for_rows(block, top_row, bottom_row, top_y, bottom_y)
 				if poly.is_empty():
@@ -1560,7 +1561,12 @@ func _line_intersection(a0: Vector2, a1: Vector2, b0: Vector2, b1: Vector2) -> V
 	return a0 + r * t
 
 
-func _block_color(block: Dictionary) -> Color:
+func _block_color(block: Dictionary, top_genome_id: int = -1, bottom_genome_id: int = -1) -> Color:
+	if top_genome_id >= 0 and bottom_genome_id >= 0:
+		if _match_key_for_display_block(block, top_genome_id, bottom_genome_id) == _selected_match_key:
+			var selected_fill: Color = _theme_colors.get("selected_fill", Color("ffd84d"))
+			selected_fill.a = 0.78
+			return selected_fill
 	var base: Color = _theme_colors["same_strand"] if bool(block.get("same_strand", true)) else _theme_colors["opp_strand"]
 	var pct := clampf(float(block.get("percent_identity", 0.0)), 0.0, 100.0) / 100.0
 	base.a = lerpf(0.18, 0.82, pct)
