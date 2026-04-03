@@ -133,13 +133,6 @@ func setup_settings(view_box: VBoxContainer) -> void:
 	_max_identity_spin.value = 100.0
 	_max_identity_spin.value_changed.connect(_on_comparison_filters_changed)
 
-	_generate_test_genomes_button = Button.new()
-	_generate_test_genomes_button.text = "Use comparison test genomes"
-	_generate_test_genomes_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_generate_test_genomes_button.pressed.connect(func() -> void:
-		host._start_generate_comparison_test_data()
-	)
-
 	view_box.add_child(_comparison_block_cap_label)
 	view_box.add_child(_comparison_block_cap_spin)
 	view_box.add_child(_min_block_len_label)
@@ -150,10 +143,13 @@ func setup_settings(view_box: VBoxContainer) -> void:
 	view_box.add_child(_min_identity_spin)
 	view_box.add_child(_max_identity_label)
 	view_box.add_child(_max_identity_spin)
-	view_box.add_child(_generate_test_genomes_button)
 	refresh_settings(int(host._app_mode))
 	_on_comparison_block_cap_changed(_comparison_block_cap_spin.value)
 	_on_comparison_filters_changed(0.0)
+
+
+func set_generate_test_genomes_button(button: Button) -> void:
+	_generate_test_genomes_button = button
 
 
 func refresh_settings(app_mode: int) -> void:
@@ -165,8 +161,6 @@ func refresh_settings(app_mode: int) -> void:
 	for node in [_min_block_len_label, _min_block_len_spin, _max_block_len_label, _max_block_len_spin, _min_identity_label, _min_identity_spin, _max_identity_label, _max_identity_spin]:
 		if node != null:
 			node.visible = visible
-	if _generate_test_genomes_button != null:
-		_generate_test_genomes_button.visible = visible
 
 func set_generate_test_genomes_enabled(enabled: bool) -> void:
 	if _generate_test_genomes_button != null:

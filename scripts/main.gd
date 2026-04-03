@@ -160,6 +160,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var _genome_cache_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/GenomeCacheSpin
 @onready var _genome_cache_clear_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ClearGenomeCacheButton
 @onready var _generate_test_data_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UseTestDataButton
+@onready var _generate_comparison_test_data_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UseComparisonTestDataButton
 @onready var _open_user_data_dir_button: Button = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/OpenUserDataDirButton
 @onready var _debug_toggle: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/DebugToggle
 @onready var _debug_stats_label: RichTextLabel = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/DebugStatsLabel
@@ -460,6 +461,7 @@ func _setup_settings_sections() -> void:
 
 	if _comparison_controller != null:
 		_comparison_controller.setup_settings(_settings_view_box)
+		_comparison_controller.set_generate_test_genomes_button(_generate_comparison_test_data_button)
 
 	_shared_colorize_nucleotides_cb = CheckButton.new()
 	_shared_colorize_nucleotides_cb.text = "Color nucleotides by base"
@@ -1316,6 +1318,8 @@ func _setup_debug_controls() -> void:
 		_genome_cache_clear_button.pressed.connect(_clear_genome_cache)
 	if not _generate_test_data_button.pressed.is_connected(_start_generate_test_data):
 		_generate_test_data_button.pressed.connect(_start_generate_test_data)
+	if _generate_comparison_test_data_button != null and not _generate_comparison_test_data_button.pressed.is_connected(_start_generate_comparison_test_data):
+		_generate_comparison_test_data_button.pressed.connect(_start_generate_comparison_test_data)
 	if not _open_user_data_dir_button.pressed.is_connected(_open_user_data_dir):
 		_open_user_data_dir_button.pressed.connect(_open_user_data_dir)
 	_debug_toggle.button_pressed = _debug_enabled
@@ -1451,6 +1455,7 @@ func _finish_generate_test_data(result_any: Variant) -> void:
 	if files.is_empty():
 		_set_status("Generate test data failed: no files returned.", true)
 		return
+	_set_app_mode(APP_MODE_BROWSER)
 	var load_resp: Dictionary = _session_loader.load_server_paths(files)
 	if not load_resp.get("ok", false):
 		_set_status("Generate test data load failed: %s" % load_resp.get("error", "error"), true)

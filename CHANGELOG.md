@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Go panel, top bar, and context panel logic were extracted into dedicated controllers to reduce `main.gd` complexity.
 - SVG exports now write explicit pixel units so saved screenshots open at sensible sizes in external tools.
 - Windows release packaging now produces `.zip` archives instead of bare `.exe` artifacts.
+- Settings now always show both built-in test-data buttons, with the single-genome button renamed and each button switching to the appropriate view before loading data.
 
 ### Fixed
 - Handle FASTA inputs without line breaks.
