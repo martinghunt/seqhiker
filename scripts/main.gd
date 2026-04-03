@@ -138,6 +138,8 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var mouse_wheel_pan_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/MouseWheelPanSlider
 @onready var pan_step_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepRow/PanStepSlider
 @onready var pan_step_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PanStepRow/PanStepValue
+@onready var _play_speed_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedLabel
+@onready var _play_speed_row: HBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow
 @onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedSlider
 @onready var play_speed_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedValue
 @onready var animate_pan_zoom_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/AnimatePanZoomSlider
@@ -282,6 +284,7 @@ var _track_settings_box: VBoxContainer
 var _read_track_settings_panel: VBoxContainer
 var _track_settings_open := false
 var _active_track_settings_id := ""
+var _hidden_settings_holder: Control
 var _debug_enabled := false
 var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
 var _genome_cache_max_mb := GENOME_CACHE_MAX_MB_DEFAULT
@@ -409,6 +412,11 @@ func _setup_comparison_save_dialog() -> void:
 func _setup_settings_sections() -> void:
 	if settings_content == null:
 		return
+	if _hidden_settings_holder == null:
+		_hidden_settings_holder = Control.new()
+		_hidden_settings_holder.name = "HiddenSettingsHolder"
+		_hidden_settings_holder.visible = false
+		add_child(_hidden_settings_holder)
 	_settings_view_label = Label.new()
 	_settings_view_box = VBoxContainer.new()
 	_settings_view_box.add_theme_constant_override("separation", 8)
@@ -441,6 +449,14 @@ func _setup_settings_sections() -> void:
 		else:
 			settings_content.remove_child(child)
 			_settings_shared_box.add_child(child)
+	if _play_speed_label != null and _hidden_settings_holder != null:
+		if _play_speed_label.get_parent() != null:
+			_play_speed_label.get_parent().remove_child(_play_speed_label)
+		_hidden_settings_holder.add_child(_play_speed_label)
+	if _play_speed_row != null and _hidden_settings_holder != null:
+		if _play_speed_row.get_parent() != null:
+			_play_speed_row.get_parent().remove_child(_play_speed_row)
+		_hidden_settings_holder.add_child(_play_speed_row)
 
 	if _comparison_controller != null:
 		_comparison_controller.setup_settings(_settings_view_box)
