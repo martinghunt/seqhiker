@@ -42,6 +42,7 @@ var _lock_buttons := {}
 var _pair_locks := {}
 var _drawn_match_hitboxes := []
 var _selected_match_key := ""
+var _hovered_match_key := ""
 var _selected_feature_key := ""
 var _pending_click_serial := 0
 var _pending_click_payload: Dictionary = {}
@@ -94,6 +95,7 @@ var _theme_colors := {
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	clip_contents = false
+	mouse_exited.connect(_on_mouse_exited)
 
 
 func clear_view() -> void:
@@ -117,6 +119,7 @@ func clear_view() -> void:
 	_pair_locks.clear()
 	_drawn_match_hitboxes.clear()
 	_selected_match_key = ""
+	_hovered_match_key = ""
 	_selected_feature_key = ""
 	_region_select_dragging = false
 	_region_select_has_selection = false
@@ -642,6 +645,17 @@ func _gui_input(event: InputEvent) -> void:
 		queue_redraw()
 		_schedule_single_click_dispatch(payload)
 		accept_event()
+	elif event is InputEventMouseMotion:
+		if _drag_active or _region_select_pending or _region_select_dragging:
+			return
+		var motion := event as InputEventMouseMotion
+		var hover_hit := _hit_test_match(motion.position)
+		var next_hover_key := ""
+		if not hover_hit.is_empty():
+			next_hover_key = _match_key_for_payload(hover_hit.get("payload", {}))
+		if next_hover_key != _hovered_match_key:
+			_hovered_match_key = next_hover_key
+			queue_redraw()
 
 func _hit_test_feature(point_parent: Vector2) -> Dictionary:
 	for genome_id_any in _order:
@@ -653,6 +667,13 @@ func _hit_test_feature(point_parent: Vector2) -> Dictionary:
 		if not hit.is_empty():
 			return hit
 	return {}
+
+
+func _on_mouse_exited() -> void:
+	if _hovered_match_key.is_empty():
+		return
+	_hovered_match_key = ""
+	queue_redraw()
 
 
 func _event_over_overlay_panel(event: InputEvent) -> bool:
@@ -708,46 +729,16 @@ func _draw_to(target) -> void:
 		if bottom_y <= top_y:
 			continue
 		var visible_blocks: Array = _display_blocks_for_pair(top_id, bottom_id)
+		var selected_blocks: Array = []
 		for block_any in visible_blocks:
 			var block: Dictionary = block_any
-			if _detail_mode_active() and _has_block_detail(top_id, bottom_id, block):
-				var detail: Dictionary = _detail_blocks.get(_detail_block_key(top_id, bottom_id, block), {})
-				var display_block := _aligned_block_from_detail(block, detail)
-				var detail_fill := _block_color(display_block, top_id, bottom_id)
-				if bool(display_block.get("same_strand", true)):
-					var detail_poly := _project_block_polygon_for_rows(display_block, top_row, bottom_row, top_y, bottom_y, 0.5)
-					if not detail_poly.is_empty():
-						detail_poly = _clip_polygon_x(detail_poly, x_min, x_max)
-						if detail_poly.size() >= 3 and _polygon_area_abs(detail_poly) > 0.25:
-							_draw_colored_polygon_on(target, detail_poly, detail_fill)
-							var detail_closed := detail_poly.duplicate()
-							detail_closed.append(detail_closed[0])
-							_draw_polyline_on(target, detail_closed, detail_fill.darkened(0.18), 1.0)
-							if target == self:
-								_register_match_hitbox(display_block, top_id, bottom_id, detail_poly)
-							if _match_key_for_display_block(display_block, top_id, bottom_id) == _selected_match_key:
-								_draw_polyline_on(target, detail_closed, _theme_colors["selection_outline"], 2.0)
-				else:
-					_draw_reverse_block(target, display_block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, detail_fill, 0.5)
-				_draw_detail_block(target, block, top_id, bottom_id, top_axis, bottom_axis, detail_top_y, detail_bottom_y)
+			if _match_key_for_display_block(block, top_id, bottom_id) == _selected_match_key:
+				selected_blocks.append(block)
 				continue
-			var fill := _block_color(block, top_id, bottom_id)
-			if bool(block.get("same_strand", true)):
-				var poly := _project_block_polygon_for_rows(block, top_row, bottom_row, top_y, bottom_y)
-				if poly.is_empty():
-					continue
-				poly = _clip_polygon_x(poly, x_min, x_max)
-				if poly.size() < 3 or _polygon_area_abs(poly) <= 0.25:
-					continue
-				_draw_colored_polygon_on(target, poly, fill)
-				poly.append(poly[0])
-				_draw_polyline_on(target, poly, fill.darkened(0.18), 1.0)
-				if target == self:
-					_register_match_hitbox(block, top_id, bottom_id, poly.slice(0, poly.size() - 1))
-				if _match_key_for_display_block(block, top_id, bottom_id) == _selected_match_key:
-					_draw_polyline_on(target, poly, _theme_colors["selection_outline"], 2.0)
-			else:
-				_draw_reverse_block(target, block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, fill)
+			_draw_pair_block(target, block, top_id, bottom_id, top_row, bottom_row, top_axis, bottom_axis, top_y, bottom_y, detail_top_y, detail_bottom_y, x_min, x_max)
+		for selected_block_any in selected_blocks:
+			var selected_block: Dictionary = selected_block_any
+			_draw_pair_block(target, selected_block, top_id, bottom_id, top_row, bottom_row, top_axis, bottom_axis, top_y, bottom_y, detail_top_y, detail_bottom_y, x_min, x_max)
 	for genome_id_any in _order:
 		var row = _rows.get(int(genome_id_any))
 		if row != null and row.has_method("export_to"):
@@ -756,6 +747,47 @@ func _draw_to(target) -> void:
 		_draw_empty_state_prompt()
 		_draw_drag_indicator()
 		_draw_loading_overlay()
+
+
+func _draw_pair_block(target, block: Dictionary, top_id: int, bottom_id: int, top_row, bottom_row, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float, detail_top_y: float, detail_bottom_y: float, x_min: float, x_max: float) -> void:
+	if _detail_mode_active() and _has_block_detail(top_id, bottom_id, block):
+		var detail: Dictionary = _detail_blocks.get(_detail_block_key(top_id, bottom_id, block), {})
+		var display_block := _aligned_block_from_detail(block, detail)
+		var detail_fill := _block_color(display_block, top_id, bottom_id)
+		if bool(display_block.get("same_strand", true)):
+			var detail_poly := _project_block_polygon_for_rows(display_block, top_row, bottom_row, top_y, bottom_y, 0.5)
+			if not detail_poly.is_empty():
+				detail_poly = _clip_polygon_x(detail_poly, x_min, x_max)
+				if detail_poly.size() >= 3 and _polygon_area_abs(detail_poly) > 0.25:
+					_draw_colored_polygon_on(target, detail_poly, detail_fill)
+					var detail_closed := detail_poly.duplicate()
+					detail_closed.append(detail_closed[0])
+					_draw_polyline_on(target, detail_closed, detail_fill.darkened(0.18), 1.0)
+					if target == self:
+						_register_match_hitbox(display_block, top_id, bottom_id, detail_poly)
+					if _match_is_emphasized(_match_key_for_display_block(display_block, top_id, bottom_id)):
+						_draw_polyline_on(target, detail_closed, _theme_colors["selection_outline"], 2.0)
+		else:
+			_draw_reverse_block(target, display_block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, detail_fill, 0.5)
+		_draw_detail_block(target, block, top_id, bottom_id, top_axis, bottom_axis, detail_top_y, detail_bottom_y)
+		return
+	var fill := _block_color(block, top_id, bottom_id)
+	if bool(block.get("same_strand", true)):
+		var poly := _project_block_polygon_for_rows(block, top_row, bottom_row, top_y, bottom_y)
+		if poly.is_empty():
+			return
+		poly = _clip_polygon_x(poly, x_min, x_max)
+		if poly.size() < 3 or _polygon_area_abs(poly) <= 0.25:
+			return
+		_draw_colored_polygon_on(target, poly, fill)
+		poly.append(poly[0])
+		_draw_polyline_on(target, poly, fill.darkened(0.18), 1.0)
+		if target == self:
+			_register_match_hitbox(block, top_id, bottom_id, poly.slice(0, poly.size() - 1))
+		if _match_is_emphasized(_match_key_for_display_block(block, top_id, bottom_id)):
+			_draw_polyline_on(target, poly, _theme_colors["selection_outline"], 2.0)
+	else:
+		_draw_reverse_block(target, block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, fill)
 
 
 func _sync_row_instances() -> void:
@@ -1538,7 +1570,7 @@ func _draw_reverse_block(target, block: Dictionary, top_genome_id: int, bottom_g
 			_register_match_hitbox(block, top_genome_id, bottom_genome_id, top_tri)
 		top_tri.append(top_tri[0])
 		_draw_polyline_on(target, top_tri, fill.darkened(0.18), 1.0)
-		if _match_key_for_display_block(block, top_genome_id, bottom_genome_id) == _selected_match_key:
+		if _match_is_emphasized(_match_key_for_display_block(block, top_genome_id, bottom_genome_id)):
 			_draw_polyline_on(target, top_tri, _theme_colors["selection_outline"], 2.0)
 	if bottom_tri.size() >= 3 and _polygon_area_abs(bottom_tri) > 0.25:
 		_draw_colored_polygon_on(target, bottom_tri, fill)
@@ -1546,8 +1578,12 @@ func _draw_reverse_block(target, block: Dictionary, top_genome_id: int, bottom_g
 			_register_match_hitbox(block, top_genome_id, bottom_genome_id, bottom_tri)
 		bottom_tri.append(bottom_tri[0])
 		_draw_polyline_on(target, bottom_tri, fill.darkened(0.18), 1.0)
-		if _match_key_for_display_block(block, top_genome_id, bottom_genome_id) == _selected_match_key:
+		if _match_is_emphasized(_match_key_for_display_block(block, top_genome_id, bottom_genome_id)):
 			_draw_polyline_on(target, bottom_tri, _theme_colors["selection_outline"], 2.0)
+
+
+func _match_is_emphasized(match_key: String) -> bool:
+	return match_key == _selected_match_key or match_key == _hovered_match_key
 
 
 func _line_intersection(a0: Vector2, a1: Vector2, b0: Vector2, b1: Vector2) -> Vector2:
