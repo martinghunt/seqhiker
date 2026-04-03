@@ -737,6 +737,72 @@ func TestGenerateTestData(t *testing.T) {
 	}
 }
 
+func TestGenerateTestDataIncludesSoftClipBoundaryReads(t *testing.T) {
+	e := NewEngine()
+	root := t.TempDir()
+	files, err := e.GenerateTestData(root)
+	if err != nil {
+		t.Fatalf("GenerateTestData returned error: %v", err)
+	}
+	if err := e.LoadGenome(files[0]); err != nil {
+		t.Fatalf("loading generated FASTA failed: %v", err)
+	}
+	sourceID, err := e.LoadBAM(files[2], 0)
+	if err != nil {
+		t.Fatalf("loading generated single-end BAM failed: %v", err)
+	}
+
+	ctgAID := e.chrToID["ctgA"]
+	ctgBID := e.chrToID["ctgB"]
+	src := e.bamSources[sourceID]
+
+	ctgARef := src.RefByChrID[ctgAID]
+	payload, err := loadIndexedTilePayload(src.Path, src.Index, ctgARef, 0, testContigLen, readTileCacheKind, 20000, true, e.sequences["ctgA"], 0)
+	if err != nil {
+		t.Fatalf("loadIndexedTilePayload ctgA returned error: %v", err)
+	}
+	alnsA := decodeAlignmentTileForTest(t, payload)
+	foundAStart := false
+	foundAEnd := false
+	for _, aln := range alnsA {
+		switch aln.Name {
+		case "ctgA_softclip_start_overhang":
+			foundAStart = true
+			if aln.Start != 0 || aln.SoftClipLeft != "TGCATGCATGCATGCATGCATGCA" || aln.SoftClipRight != "" {
+				t.Fatalf("unexpected ctgA start overhang alignment: %+v", aln)
+			}
+		case "ctgA_softclip_end_overhang":
+			foundAEnd = true
+			if aln.Start != testContigLen-testReadLen || aln.SoftClipLeft != "" || aln.SoftClipRight != "CAGTCAGTCAGTCAGTCAGTCAGTCAGT" {
+				t.Fatalf("unexpected ctgA end overhang alignment: %+v", aln)
+			}
+		}
+	}
+	if !foundAStart || !foundAEnd {
+		t.Fatalf("missing expected ctgA soft-clip boundary reads: start=%v end=%v", foundAStart, foundAEnd)
+	}
+
+	ctgBRef := src.RefByChrID[ctgBID]
+	payload, err = loadIndexedTilePayload(src.Path, src.Index, ctgBRef, 0, testContigLen, readTileCacheKind, 20000, true, e.sequences["ctgB"], 0)
+	if err != nil {
+		t.Fatalf("loadIndexedTilePayload ctgB returned error: %v", err)
+	}
+	alnsB := decodeAlignmentTileForTest(t, payload)
+	foundBStart := false
+	for _, aln := range alnsB {
+		if aln.Name != "ctgB_softclip_start_overhang" {
+			continue
+		}
+		foundBStart = true
+		if aln.Start != 0 || aln.SoftClipLeft != "TGCATGCATGCATGCATGCATG" || aln.SoftClipRight != "" {
+			t.Fatalf("unexpected ctgB start overhang alignment: %+v", aln)
+		}
+	}
+	if !foundBStart {
+		t.Fatal("missing expected ctgB soft-clip start overhang read")
+	}
+}
+
 func decodeDNAHitsForTest(payload []byte) (bool, []DNAExactHit) {
 	if len(payload) < 3 {
 		return false, nil
@@ -879,6 +945,7 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 		if off+leftSoftLen > len(payload) {
 			t.Fatalf("alignment left soft-clip overflow")
 		}
+		leftSoft := string(payload[off : off+leftSoftLen])
 		off += leftSoftLen
 		if off+2 > len(payload) {
 			t.Fatalf("missing right soft-clip length")
@@ -888,6 +955,7 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 		if off+rightSoftLen > len(payload) {
 			t.Fatalf("alignment right soft-clip overflow")
 		}
+		rightSoft := string(payload[off : off+rightSoftLen])
 		off += rightSoftLen
 		if off+2 > len(payload) {
 			t.Fatalf("missing snp count")
@@ -914,19 +982,21 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 			mateRefID = int(mateRefIDRaw)
 		}
 		alns = append(alns, Alignment{
-			Start:        start,
-			End:          end,
-			Name:         name,
-			MapQ:         mapQ,
-			Flags:        flags,
-			Cigar:        cigar,
-			Reverse:      reverse,
-			MateStart:    mateStart,
-			MateEnd:      mateEnd,
-			MateRawStart: mateRawStart,
-			MateRawEnd:   mateRawEnd,
-			MateRefID:    mateRefID,
-			FragLen:      fragLen,
+			Start:         start,
+			End:           end,
+			Name:          name,
+			MapQ:          mapQ,
+			Flags:         flags,
+			Cigar:         cigar,
+			Reverse:       reverse,
+			MateStart:     mateStart,
+			MateEnd:       mateEnd,
+			MateRawStart:  mateRawStart,
+			MateRawEnd:    mateRawEnd,
+			MateRefID:     mateRefID,
+			FragLen:       fragLen,
+			SoftClipLeft:  leftSoft,
+			SoftClipRight: rightSoft,
 		})
 	}
 	return alns

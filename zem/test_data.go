@@ -256,6 +256,53 @@ func writeSingleEndTestBAMAndIndex(bamPath, baiPath string, contigs []struct {
 		matePos: -1,
 		tempLen: 0,
 	})
+	specs = append(specs,
+		testReadSpec{
+			name:  "ctgA_softclip_start_overhang",
+			ref:   refByName["ctgA"],
+			start: 0,
+			seq:   buildSoftClippedReadSequence(contigByName["ctgA"], 0, testReadLen, 24, 0),
+			cigar: []sam.CigarOp{
+				sam.NewCigarOp(sam.CigarSoftClipped, 24),
+				sam.NewCigarOp(sam.CigarMatch, testReadLen),
+			},
+			flags:   0,
+			mapQ:    60,
+			mateRef: nil,
+			matePos: -1,
+			tempLen: 0,
+		},
+		testReadSpec{
+			name:  "ctgA_softclip_end_overhang",
+			ref:   refByName["ctgA"],
+			start: testContigLen - testReadLen,
+			seq:   buildSoftClippedReadSequence(contigByName["ctgA"], testContigLen-testReadLen, testReadLen, 0, 28),
+			cigar: []sam.CigarOp{
+				sam.NewCigarOp(sam.CigarMatch, testReadLen),
+				sam.NewCigarOp(sam.CigarSoftClipped, 28),
+			},
+			flags:   sam.Reverse,
+			mapQ:    60,
+			mateRef: nil,
+			matePos: -1,
+			tempLen: 0,
+		},
+		testReadSpec{
+			name:  "ctgB_softclip_start_overhang",
+			ref:   refByName["ctgB"],
+			start: 0,
+			seq:   buildSoftClippedReadSequence(contigByName["ctgB"], 0, testReadLen, 22, 0),
+			cigar: []sam.CigarOp{
+				sam.NewCigarOp(sam.CigarSoftClipped, 22),
+				sam.NewCigarOp(sam.CigarMatch, testReadLen),
+			},
+			flags:   0,
+			mapQ:    60,
+			mateRef: nil,
+			matePos: -1,
+			tempLen: 0,
+		},
+	)
 	return writeTestBAMFromSpecs(bamPath, baiPath, header, specs)
 }
 

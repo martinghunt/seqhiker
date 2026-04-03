@@ -42,25 +42,38 @@ func _draw_set_transform_on(target, offset: Vector2, rotation: float, scale: Vec
 		target.draw_set_transform(offset, rotation, scale)
 
 
+func _display_start_bp_at(render_start_bp: float, render_bp_per_px: float, render_width_px: float = -1.0) -> float:
+	if render_bp_per_px <= 0.0:
+		return view._current_display_start_bp()
+	var width_px := render_width_px
+	if width_px <= 0.0:
+		width_px = maxf(1.0, view.size.x - view.TRACK_LEFT_PAD - view.TRACK_RIGHT_PAD)
+	var raw := view._display_bp_for_genome_bp(render_start_bp)
+	if render_start_bp <= 0.0001:
+		raw -= view._display_leading_pad_bp
+	var max_display_start := maxf(0.0, view._display_total_length_bp() - width_px * render_bp_per_px)
+	return clampf(raw, 0.0, max_display_start)
+
+
 func _viewport_start_bp_at(render_start_bp: float, render_bp_per_px: float) -> float:
 	if render_bp_per_px > 0.0:
-		return render_start_bp
+		return view._display_bp_to_genome_bp(_display_start_bp_at(render_start_bp, render_bp_per_px))
 	return view.view_start_bp
 
 
 func _viewport_end_bp_at(render_start_bp: float, render_bp_per_px: float, render_width_px: float = -1.0) -> float:
-	var start_bp := _viewport_start_bp_at(render_start_bp, render_bp_per_px)
 	var bp_per_px_value := render_bp_per_px if render_bp_per_px > 0.0 else view.bp_per_px
 	var width_px := render_width_px
 	if width_px <= 0.0:
 		width_px = maxf(1.0, view.size.x - view.TRACK_LEFT_PAD - view.TRACK_RIGHT_PAD)
-	return start_bp + width_px * bp_per_px_value
+	var display_end := _display_start_bp_at(render_start_bp, render_bp_per_px, width_px) + width_px * bp_per_px_value
+	return view._display_bp_to_genome_bp(display_end)
 
 
 func _bp_to_x_at(bp: float, render_start_bp: float, render_bp_per_px: float) -> float:
-	var start_bp := _viewport_start_bp_at(render_start_bp, render_bp_per_px)
 	var bp_per_px_value := render_bp_per_px if render_bp_per_px > 0.0 else view.bp_per_px
-	return (bp - start_bp) / bp_per_px_value
+	var display_start := _display_start_bp_at(render_start_bp, render_bp_per_px)
+	return (view._display_bp_for_genome_bp(bp) - display_start) / bp_per_px_value
 
 
 func _bp_to_screen_center_at(bp: float, render_start_bp: float, render_bp_per_px: float) -> float:
@@ -277,6 +290,42 @@ func _draw_soft_clip_text(target, seq: String, rect: Rect2, font: Font, font_siz
 		var tx := base_center_x - tw * 0.5
 		var ty := view._text_baseline_for_center(rect.position.y + rect.size.y * 0.5, font, font_size)
 		_draw_string_on(target, font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_col)
+
+
+func _merge_rects(a: Rect2, b: Rect2) -> Rect2:
+	if a.size.x <= 0.0 or a.size.y <= 0.0:
+		return b
+	if b.size.x <= 0.0 or b.size.y <= 0.0:
+		return a
+	return a.merge(b)
+
+
+func _soft_clip_bounds(read: Dictionary, y: float, render_start_bp: float, render_bp_per_px: float) -> Rect2:
+	if not view._show_soft_clips:
+		return Rect2()
+	var left_seq := str(read.get("soft_clip_left", ""))
+	var right_seq := str(read.get("soft_clip_right", ""))
+	if left_seq.is_empty() and right_seq.is_empty():
+		return Rect2()
+	var row_h := view.current_read_row_h()
+	var aligned_x0 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(int(read.get("start", 0))), render_start_bp, render_bp_per_px)
+	var aligned_x1 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(int(read.get("end", 0))), render_start_bp, render_bp_per_px)
+	var bp_per_px_value := render_bp_per_px if render_bp_per_px > 0.0 else view.bp_per_px
+	var marker_w := maxf(1.5, row_h * 0.14)
+	var out := Rect2()
+	if not left_seq.is_empty():
+		var left_w := maxf(2.0, float(left_seq.length()) / bp_per_px_value)
+		var left_rect := Rect2(aligned_x0 - left_w, y, left_w, row_h)
+		var left_marker := Rect2(aligned_x0 - marker_w * 0.5, y, marker_w, row_h)
+		out = _merge_rects(out, left_rect)
+		out = _merge_rects(out, left_marker)
+	if not right_seq.is_empty():
+		var right_w := maxf(2.0, float(right_seq.length()) / bp_per_px_value)
+		var right_rect := Rect2(aligned_x1, y, right_w, row_h)
+		var right_marker := Rect2(aligned_x1 - marker_w * 0.5, y, marker_w, row_h)
+		out = _merge_rects(out, right_rect)
+		out = _merge_rects(out, right_marker)
+	return out
 
 
 func _draw_soft_clip_overhangs_to(target, read: Dictionary, y: float, read_color: Color, render_start_bp: float, render_bp_per_px: float) -> void:
@@ -577,9 +626,8 @@ func _draw_read_tracks_to(target, area: Rect2, collect_hitboxes: bool) -> void:
 		var x0 := view.TRACK_LEFT_PAD + view._bp_to_x(read_start)
 		var x1 := view.TRACK_LEFT_PAD + view._bp_to_x(read_end)
 		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), row_h))
-		var full_x0 := view.TRACK_LEFT_PAD + view._bp_to_x(visible_read_start)
-		var full_x1 := view.TRACK_LEFT_PAD + view._bp_to_x(visible_read_end)
-		var full_rect := Rect2(Vector2(full_x0, y), Vector2(maxf(2.0, full_x1 - full_x0), row_h))
+		var full_rect := rect
+		full_rect = _merge_rects(full_rect, _soft_clip_bounds(read, y, 0.0, 0.0))
 		var read_color := _read_color(read, mate_contig_colors, inferred_ids)
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 			_draw_pair_connector_to(target, read, y, read_color, 0.0, 0.0)
@@ -702,9 +750,8 @@ func draw_detailed_reads_to(target, area: Rect2, render_start_bp: float, render_
 		var x0 := view.TRACK_LEFT_PAD + _bp_to_x_at(read_start, render_start_bp, render_bp_per_px)
 		var x1 := view.TRACK_LEFT_PAD + _bp_to_x_at(read_end, render_start_bp, render_bp_per_px)
 		var rect := Rect2(Vector2(x0, y), Vector2(maxf(2.0, x1 - x0), row_h))
-		var full_x0 := view.TRACK_LEFT_PAD + _bp_to_x_at(visible_read_start, render_start_bp, render_bp_per_px)
-		var full_x1 := view.TRACK_LEFT_PAD + _bp_to_x_at(visible_read_end, render_start_bp, render_bp_per_px)
-		var full_rect := Rect2(Vector2(full_x0, y), Vector2(maxf(2.0, full_x1 - full_x0), row_h))
+		var full_rect := rect
+		full_rect = _merge_rects(full_rect, _soft_clip_bounds(read, y, render_start_bp, render_bp_per_px))
 		var read_color := _read_color(read, mate_contig_colors, inferred_ids)
 		if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
 			_draw_pair_connector_to(target, read, y, read_color, render_start_bp, render_bp_per_px)
