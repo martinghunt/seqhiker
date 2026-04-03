@@ -6,6 +6,7 @@ const LocalZemManagerScript = preload("res://scripts/local_zem_manager.gd")
 const TileControllerScript = preload("res://scripts/tile_controller.gd")
 const SearchControllerScript = preload("res://scripts/search_controller.gd")
 const GoControllerScript = preload("res://scripts/go_controller.gd")
+const TopBarControllerScript = preload("res://scripts/top_bar_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
@@ -164,15 +165,7 @@ const READ_FILTER_FLAG_LABELS := [
 
 var _settings_open := false
 var _settings_tween: Tween
-var _settings_toggle_icon: Control
 var _settings_toggle_icon_label: Label
-var _comparison_toggle_tween: Tween
-var _comparison_toggle_icon: Control
-var _comparison_toggle_icon_label: Label
-var _comparison_clear_tween: Tween
-var _comparison_clear_icon: Control
-var _comparison_clear_icon_label: Label
-var _view_mode_tween: Tween
 var _feature_panel_open := false
 var _context_panel_mode := CONTEXT_PANEL_NONE
 var _feature_tween: Tween
@@ -186,6 +179,7 @@ var _zem: RefCounted
 var _tile_controller: RefCounted
 var _search_controller: RefCounted
 var _go_controller: RefCounted
+var _top_bar_controller: RefCounted
 var _annotation_cache_controller: RefCounted
 var _feature_panel_controller: RefCounted
 var _session_loader: RefCounted
@@ -334,10 +328,10 @@ func _ready() -> void:
 	_themes_lib = ThemesLibScript.new()
 	_comparison_controller = ComparisonControllerScript.new()
 	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
+	_top_bar_controller = TopBarControllerScript.new()
+	_top_bar_controller.configure(self)
 	_disable_button_focus()
-	_setup_settings_toggle_icon()
-	_setup_comparison_toggle_icon()
-	_setup_comparison_clear_icon()
+	_top_bar_controller.setup()
 	_setup_theme_selector()
 	_setup_ui_font_selector()
 	_setup_sequence_letter_font_selector()
@@ -475,138 +469,43 @@ func _refresh_settings_sections() -> void:
 		_comparison_controller.refresh_settings(_app_mode)
 
 func _toggle_comparison_mode() -> void:
-	if _app_mode == APP_MODE_COMPARISON:
-		_set_app_mode(APP_MODE_BROWSER)
-		return
-	_set_app_mode(APP_MODE_COMPARISON)
-	if _comparison_controller != null:
-		_comparison_controller.ensure_seed_genome_loaded(_loaded_file_paths)
-		_comparison_controller.refresh_view(theme_option.get_item_text(theme_option.selected))
-	_refresh_comparison_topbar_state()
+	if _top_bar_controller != null:
+		_top_bar_controller.toggle_comparison_mode()
 
 func _set_app_mode(next_mode: int) -> void:
-	var previous_mode := _app_mode
-	_app_mode = next_mode
-	var comparison_active := _app_mode == APP_MODE_COMPARISON
-	_apply_view_mode_visibility(previous_mode, next_mode)
-	if _search_controller != null:
-		_search_controller.refresh_context()
-	_apply_comparison_toggle_icon_state(true)
-	_refresh_comparison_topbar_state()
-	if viewport_label != null:
-		if comparison_active:
-			if _comparison_controller != null and _comparison_controller.has_genomes():
-				viewport_label.text = _format_comparison_viewport_label(comparison_view.get_visible_span_bp())
-			else:
-				viewport_label.text = "Comparison view"
-		else:
-			viewport_label.text = _last_viewport_message
-	_refresh_settings_sections()
+	if _top_bar_controller != null:
+		_top_bar_controller.set_app_mode(next_mode)
 
 func _apply_view_mode_visibility(previous_mode: int, next_mode: int) -> void:
-	var browser_view: Control = genome_view
-	var compare_view: Control = comparison_view
-	if browser_view == null or compare_view == null:
-		return
-	var comparison_active := next_mode == APP_MODE_COMPARISON
-	var target_view: Control = compare_view if comparison_active else browser_view
-	var source_view: Control = browser_view if comparison_active else compare_view
-	target_view.mouse_filter = Control.MOUSE_FILTER_PASS
-	source_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if previous_mode == next_mode or not source_view.visible:
-		if _view_mode_tween != null and _view_mode_tween.is_running():
-			_view_mode_tween.kill()
-			_view_mode_tween = null
-		source_view.visible = false
-		source_view.modulate.a = 1.0
-		target_view.visible = true
-		target_view.modulate.a = 1.0
-		return
-	if _view_mode_tween != null and _view_mode_tween.is_running():
-		_view_mode_tween.kill()
-	target_view.visible = true
-	source_view.visible = true
-	target_view.modulate.a = 0.0
-	source_view.modulate.a = 1.0
-	_view_mode_tween = create_tween()
-	_view_mode_tween.set_trans(Tween.TRANS_CUBIC)
-	_view_mode_tween.set_ease(Tween.EASE_OUT)
-	_view_mode_tween.parallel().tween_property(target_view, "modulate:a", 1.0, 0.18)
-	_view_mode_tween.parallel().tween_property(source_view, "modulate:a", 0.0, 0.18)
-	_view_mode_tween.finished.connect(func() -> void:
-		source_view.visible = false
-		source_view.modulate.a = 1.0
-		target_view.modulate.a = 1.0
-		_view_mode_tween = null
-	, CONNECT_ONE_SHOT)
+	if _top_bar_controller != null:
+		_top_bar_controller._apply_view_mode_visibility(previous_mode, next_mode)
 
 func _refresh_comparison_topbar_state() -> void:
-	var comparison_active := _app_mode == APP_MODE_COMPARISON
-	if comparison_button != null:
-		comparison_button.tooltip_text = "Switch to single genome view" if comparison_active else "Switch to comparison view"
-	if comparison_save_button != null:
-		comparison_save_button.visible = comparison_active
-	if comparison_clear_button != null:
-		comparison_clear_button.visible = true
-		if comparison_active:
-			comparison_clear_button.tooltip_text = "Clear comparison view"
-			comparison_clear_button.disabled = false
-		else:
-			comparison_clear_button.tooltip_text = "Clear browser view"
-			comparison_clear_button.disabled = false
+	if _top_bar_controller != null:
+		_top_bar_controller.refresh_comparison_topbar_state()
 
 func _active_view_has_data_to_clear() -> bool:
-	if _app_mode == APP_MODE_COMPARISON:
-		return _comparison_controller != null and _comparison_controller.has_genomes()
-	return _has_sequence_loaded or not _bam_tracks.is_empty()
+	return _top_bar_controller != null and _top_bar_controller._active_view_has_data_to_clear()
 
 func _spin_clear_button() -> void:
-	if _comparison_clear_icon_label == null:
-		return
-	if _comparison_clear_tween != null and _comparison_clear_tween.is_running():
-		_comparison_clear_tween.kill()
-	_comparison_clear_tween = _spin_topbar_icon(_comparison_clear_icon_label, -360.0, 0.36, null)
-	_comparison_clear_tween.finished.connect(func() -> void:
-		_comparison_clear_tween = null
-	, CONNECT_ONE_SHOT)
+	if _top_bar_controller != null:
+		_top_bar_controller._spin_clear_button()
 
 func _on_screenshot_pressed() -> void:
-	if _screenshot_dialog == null:
-		return
-	_screenshot_dialog.current_dir = OS.get_system_dir(OS.SYSTEM_DIR_DESKTOP).get_base_dir()
-	_screenshot_dialog.current_file = "seqhiker-view.svg"
-	_screenshot_dialog.popup_centered_ratio(0.7)
+	if _top_bar_controller != null:
+		_top_bar_controller.on_screenshot_pressed()
 
 func _on_screenshot_file_selected(path: String) -> void:
-	var out_path := path
-	if not out_path.to_lower().ends_with(".svg"):
-		out_path += ".svg"
-	var ok := false
-	if _app_mode == APP_MODE_COMPARISON:
-		ok = comparison_view != null and comparison_view.has_method("export_current_view_svg") and comparison_view.export_current_view_svg(out_path)
-	else:
-		ok = genome_view.export_current_view_svg(out_path)
-	if ok:
-		_set_status("Saved screenshot: %s" % out_path)
-	else:
-		_set_status("Failed to save screenshot: %s" % out_path, true)
+	if _top_bar_controller != null:
+		_top_bar_controller.on_screenshot_file_selected(path)
 
 func _on_comparison_save_pressed() -> void:
-	if _comparison_controller == null or not _comparison_controller.has_genomes():
-		_set_status("No comparison loaded: cannot save session.", true)
-		return
-	if _comparison_save_dialog == null:
-		return
-	_comparison_save_dialog.current_dir = OS.get_system_dir(OS.SYSTEM_DIR_DESKTOP).get_base_dir()
-	_comparison_save_dialog.current_file = "comparison.seqhikercmp"
-	_comparison_save_dialog.popup_centered_ratio(0.7)
+	if _top_bar_controller != null:
+		_top_bar_controller.on_comparison_save_pressed()
 
 func _on_comparison_save_file_selected(path: String) -> void:
-	var out_path := path
-	if not out_path.to_lower().ends_with(".seqhikercmp"):
-		out_path += ".seqhikercmp"
-	if _comparison_controller != null:
-		_comparison_controller.save_session(out_path)
+	if _top_bar_controller != null:
+		_top_bar_controller.on_comparison_save_file_selected(path)
 
 func _initialize_settings_panel() -> void:
 	_set_status("Disconnected")
@@ -901,104 +800,46 @@ func _disable_button_focus() -> void:
 			c.focus_mode = Control.FOCUS_NONE
 
 func _setup_settings_toggle_icon() -> void:
-	if settings_toggle_button == null:
-		return
-	settings_toggle_button.clip_contents = true
-	if top_bar != null:
-		top_bar.clip_contents = true
-	var icon_parts := _setup_topbar_icon_button(settings_toggle_button, "C")
-	_settings_toggle_icon = icon_parts.get("container")
-	_settings_toggle_icon_label = icon_parts.get("label")
-	call_deferred("_update_settings_toggle_icon_pivot")
+	if _top_bar_controller != null:
+		_top_bar_controller._setup_settings_toggle_icon()
 
 func _setup_comparison_toggle_icon() -> void:
-	if comparison_button == null:
-		return
-	var icon_parts := _setup_topbar_icon_button(comparison_button, "M")
-	_comparison_toggle_icon = icon_parts.get("container")
-	_comparison_toggle_icon_label = icon_parts.get("label")
-	call_deferred("_update_comparison_toggle_icon_pivot")
-	call_deferred("_apply_comparison_toggle_icon_state", false)
+	if _top_bar_controller != null:
+		_top_bar_controller._setup_comparison_toggle_icon()
 
 func _setup_comparison_clear_icon() -> void:
-	if comparison_clear_button == null:
-		return
-	var icon_parts := _setup_topbar_icon_button(comparison_clear_button, "N")
-	_comparison_clear_icon = icon_parts.get("container")
-	_comparison_clear_icon_label = icon_parts.get("label")
-	call_deferred("_update_comparison_clear_icon_pivot")
+	if _top_bar_controller != null:
+		_top_bar_controller._setup_comparison_clear_icon()
 
 func _update_settings_toggle_icon_pivot() -> void:
-	_update_topbar_icon_pivot(_settings_toggle_icon_label)
+	if _top_bar_controller != null:
+		_top_bar_controller._update_settings_toggle_icon_pivot()
 
 func _update_comparison_toggle_icon_pivot() -> void:
-	_update_topbar_icon_pivot(_comparison_toggle_icon_label)
+	if _top_bar_controller != null:
+		_top_bar_controller._update_comparison_toggle_icon_pivot()
 
 func _update_comparison_clear_icon_pivot() -> void:
-	_update_topbar_icon_pivot(_comparison_clear_icon_label)
+	if _top_bar_controller != null:
+		_top_bar_controller._update_comparison_clear_icon_pivot()
 
 func _setup_topbar_icon_button(button: Button, glyph: String) -> Dictionary:
-	button.text = ""
-	button.clip_contents = true
-	var icon_container := button.get_node_or_null("IconContainer") as CenterContainer
-	if icon_container == null:
-		icon_container = CenterContainer.new()
-		icon_container.name = "IconContainer"
-		icon_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		icon_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		button.add_child(icon_container)
-	var icon_label := icon_container.get_node_or_null("IconLabel") as Label
-	if icon_label == null:
-		icon_label = Label.new()
-		icon_label.name = "IconLabel"
-		icon_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		icon_container.add_child(icon_label)
-	icon_label.text = glyph
-	if button.has_theme_font_override("font"):
-		icon_label.add_theme_font_override("font", button.get_theme_font("font"))
-	if button.has_theme_font_size_override("font_size"):
-		icon_label.add_theme_font_size_override("font_size", button.get_theme_font_size("font_size"))
-	return {"container": icon_container, "label": icon_label}
+	if _top_bar_controller != null:
+		return _top_bar_controller._setup_topbar_icon_button(button, glyph)
+	return {}
 
 func _update_topbar_icon_pivot(icon_label: Label) -> void:
-	if icon_label == null:
-		return
-	var icon_size := icon_label.get_combined_minimum_size()
-	icon_label.pivot_offset = icon_size * 0.5
+	if _top_bar_controller != null:
+		_top_bar_controller._update_topbar_icon_pivot(icon_label)
 
 func _spin_topbar_icon(icon_label: Label, delta_degrees: float, duration: float, tween: Tween) -> Tween:
-	if icon_label == null:
-		return tween
-	_update_topbar_icon_pivot(icon_label)
-	var next_tween := tween
-	if next_tween == null:
-		next_tween = create_tween()
-		next_tween.set_trans(Tween.TRANS_CUBIC)
-		next_tween.set_ease(Tween.EASE_OUT)
-	next_tween.parallel().tween_property(icon_label, "rotation_degrees", icon_label.rotation_degrees + delta_degrees, duration)
-	return next_tween
+	if _top_bar_controller != null:
+		return _top_bar_controller._spin_topbar_icon(icon_label, delta_degrees, duration, tween)
+	return tween
 
 func _apply_comparison_toggle_icon_state(animated: bool) -> void:
-	if _comparison_toggle_icon_label == null:
-		return
-	var in_comparison := _app_mode == APP_MODE_COMPARISON
-	var target_rotation := 0.0
-	var target_scale := Vector2(-1.0, -1.0) if in_comparison else Vector2.ONE
-	if _comparison_toggle_tween != null and _comparison_toggle_tween.is_running():
-		_comparison_toggle_tween.kill()
-	_update_comparison_toggle_icon_pivot()
-	if animated:
-		_comparison_toggle_tween = create_tween()
-		_comparison_toggle_tween.set_trans(Tween.TRANS_CUBIC)
-		_comparison_toggle_tween.set_ease(Tween.EASE_OUT)
-		_comparison_toggle_tween.parallel().tween_property(_comparison_toggle_icon_label, "rotation_degrees", target_rotation, 0.36)
-		_comparison_toggle_tween.parallel().tween_property(_comparison_toggle_icon_label, "scale", target_scale, 0.36)
-		_comparison_toggle_tween.finished.connect(func() -> void:
-			_comparison_toggle_tween = null
-		, CONNECT_ONE_SHOT)
-	else:
-		_comparison_toggle_icon_label.rotation_degrees = target_rotation
-		_comparison_toggle_icon_label.scale = target_scale
+	if _top_bar_controller != null:
+		_top_bar_controller._apply_comparison_toggle_icon_state(animated)
 
 func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_start = start_bp
@@ -2850,40 +2691,8 @@ func _apply_search_theme(palette: Dictionary) -> void:
 		_search_controller.apply_theme(palette)
 
 func _apply_topbar_button_font_size() -> void:
-	var topbar_font_size := clampi(_ui_font_size + 6, MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE + 6)
-	var topbar_button_size := Vector2(topbar_font_size + 14, topbar_font_size + 14)
-	var topbar_buttons := [
-		settings_toggle_button,
-		comparison_button,
-		comparison_save_button,
-		comparison_clear_button,
-		search_button,
-		go_button,
-		screenshot_button,
-		download_button,
-		jump_start_button,
-		jump_end_button,
-		pan_left_button,
-		pan_right_button,
-		zoom_out_button,
-		zoom_in_button,
-		play_left_button,
-		stop_button,
-		play_button
-	]
-	for b_any in topbar_buttons:
-		var b: Button = b_any
-		b.add_theme_font_size_override("font_size", topbar_font_size)
-		b.custom_minimum_size = topbar_button_size
-	if _settings_toggle_icon_label != null:
-		_settings_toggle_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
-		_update_settings_toggle_icon_pivot()
-	if _comparison_toggle_icon_label != null:
-		_comparison_toggle_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
-		_update_comparison_toggle_icon_pivot()
-	if _comparison_clear_icon_label != null:
-		_comparison_clear_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
-		_update_comparison_clear_icon_pivot()
+	if _top_bar_controller != null:
+		_top_bar_controller.apply_topbar_button_font_size()
 
 func _on_files_dropped(files: PackedStringArray) -> void:
 	if not _ensure_server_connected():
@@ -2907,23 +2716,8 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 	_session_loader.on_files_dropped(files)
 
 func _on_comparison_clear_pressed() -> void:
-	if not _active_view_has_data_to_clear():
-		return
-	_spin_clear_button()
-	if _app_mode == APP_MODE_COMPARISON:
-		if _comparison_controller == null:
-			return
-		if not _comparison_controller.clear_state():
-			return
-		_close_feature_panel()
-		_comparison_controller.refresh_view(theme_option.get_item_text(theme_option.selected))
-		_refresh_comparison_topbar_state()
-		_set_status("Cleared comparison view")
-		return
-	_reset_loaded_state()
-	_close_feature_panel()
-	_refresh_comparison_topbar_state()
-	_set_status("Cleared browser view")
+	if _top_bar_controller != null:
+		_top_bar_controller.on_clear_pressed()
 
 func _ensure_server_connected() -> bool:
 	return _session_loader.ensure_server_connected()
