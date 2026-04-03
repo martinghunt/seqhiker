@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comparison view slots, empty-state prompts, viewport label updates, and comparison-specific loading/clear interactions.
 - Support for standalone GFF3 files with embedded `##FASTA`, including annotation-only merge when a matching genome is already loaded.
 - Built-in test reads for soft-clipped overhangs at contig edges.
+- Optional Artemis-style stop-codon overview markers in the AA / annotation track.
 
 ### Changed
 - The Go panel, top bar, and context panel logic were extracted into dedicated controllers to reduce `main.gd` complexity.

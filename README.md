@@ -48,3 +48,5 @@ Typical files:
 A standalone GFF3 with an embedded `##FASTA` section is treated as a sequence-bearing genome file.
 
 You can also switch to `Comparison view` in the toolbar and add genomes one-by-one to compare them.
+
+In browser mode, the `AA / Annotation` track can also show a six-frame stop-codon overview when zoomed out beyond nucleotide level.

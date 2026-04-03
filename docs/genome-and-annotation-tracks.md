@@ -17,6 +17,13 @@ The annotation track shows genome features in a dedicated lane above the genome 
 
 This is useful when you want a cleaner feature view without the genome-axis overlay.
 
+When you are zoomed out beyond nucleotide level, the `AA / Annotation` track can also
+show six-frame stop-codon overview markers. These appear as theme-coloured vertical
+markers under the annotation rectangles, similar to the overview in Artemis. Stop-free
+stretches are left clear, so likely ORFs stand out by eye.
+
+You can turn this on in the `AA / Annotation` track settings with `Show stop codons`.
+
 ## Multi-exon features
 
 For multi-exon genes:
@@ -35,4 +42,3 @@ You can:
 - double-click empty space to recenter the view
 
 Selected features can be inspected in the right-hand panel.
-

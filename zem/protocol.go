@@ -41,6 +41,7 @@ const (
 	MsgGetComparisonBlockDetail     uint16 = 32
 	MsgAddComparisonGenomeFiles     uint16 = 33
 	MsgSearchComparisonDNAExact     uint16 = 34
+	MsgGetStopCodonTile             uint16 = 35
 )
 
 type FrameHeader struct {

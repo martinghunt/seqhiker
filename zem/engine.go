@@ -20,9 +20,11 @@ const (
 	plotTileCacheKind      uint8 = 3
 	annotTileCacheKind     uint8 = 4
 	strandCovTileCacheKind uint8 = 5
+	stopCodonTileCacheKind uint8 = 6
 	maxScannedTileReads          = 2000000
 	snpDetailMaxZoom       uint8 = 5
 	plotTileBins                 = 256
+	stopCodonTileBins            = 512
 )
 
 type Feature struct {

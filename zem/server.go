@@ -203,6 +203,16 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		resp, err := engine.GetAnnotationTile(chrID, zoom, tileIndex, maxRecs, minLen)
 		return MsgGetAnnotationTile, resp, err
 
+	case MsgGetStopCodonTile:
+		if len(payload) < 7 {
+			return 0, nil, fmt.Errorf("invalid stop codon tile payload")
+		}
+		chrID := binary.LittleEndian.Uint16(payload[0:2])
+		zoom := payload[2]
+		tileIndex := binary.LittleEndian.Uint32(payload[3:7])
+		resp, err := engine.GetStopCodonTile(chrID, zoom, tileIndex)
+		return MsgGetStopCodonTile, resp, err
+
 	case MsgGetReferenceSlice:
 		if len(payload) < 10 {
 			return 0, nil, fmt.Errorf("invalid reference payload")

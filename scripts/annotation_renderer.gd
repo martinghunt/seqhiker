@@ -77,6 +77,8 @@ func draw_aa_tracks(area: Rect2, target = null) -> void:
 			bg_col = view.palette.get("aa_alt_bg", bg_col)
 		_draw_rect_on(target, track_rect, bg_col, true)
 		view._draw_grid(track_rect, target)
+	if view.needs_stop_codon_overview(true):
+		_draw_aa_stop_codon_lines(area_start, target)
 	var split_y := area_start + 3.0 * (view.AA_ROW_H + view.AA_ROW_GAP) - view.AA_ROW_GAP * 0.5
 	_draw_line_on(target, Vector2(0.0, split_y), Vector2(view.size.x, split_y), Color(0.15, 0.15, 0.15, 0.45), 1.0)
 
@@ -441,6 +443,79 @@ func genome_feature_row_center_y(area: Rect2, line_y: float, row: int) -> float:
 
 func annotation_debug_stats() -> Dictionary:
 	return view.annotation_debug_stats_state.duplicate()
+
+
+func _draw_aa_stop_codon_lines(area_start: float, target = null) -> void:
+	if view.stop_codon_tiles.is_empty():
+		return
+	var stop_color: Color = view.palette.get("stop_codon", view.palette.get("text", Color.BLACK))
+	var frame_bins: Array = []
+	frame_bins.resize(6)
+	for i in range(6):
+		frame_bins[i] = {}
+	var vis_start := int(floor(view.view_start_bp))
+	var vis_end := int(ceil(view._viewport_end_bp()))
+	for tile_any in view.stop_codon_tiles:
+		if typeof(tile_any) != TYPE_DICTIONARY:
+			continue
+		var tile: Dictionary = tile_any
+		var tile_start := int(tile.get("start", 0))
+		var tile_end := int(tile.get("end", tile_start))
+		var bin_count := int(tile.get("bin_count", 0))
+		if tile_end <= vis_start or tile_start >= vis_end or bin_count <= 0:
+			continue
+		var frames: Array = tile.get("frames", [])
+		var span := maxf(1.0, float(tile_end - tile_start))
+		for frame in range(mini(6, frames.size())):
+			var bins: PackedByteArray = frames[frame]
+			for bin_idx in range(mini(bin_count, bins.size())):
+				if bins[bin_idx] == 0:
+					continue
+				var center_bp := float(tile_start) + (float(bin_idx) + 0.5) * span / float(bin_count)
+				if center_bp < float(vis_start) or center_bp > float(vis_end):
+					continue
+				var center_x := view.TRACK_LEFT_PAD + view._bp_to_x(center_bp)
+				if center_x < view.TRACK_LEFT_PAD - 1.0 or center_x > view.size.x - view.TRACK_RIGHT_PAD + 1.0:
+					continue
+				frame_bins[frame][int(round(center_x))] = true
+	for frame in range(6):
+		var row_top := area_start + frame * (view.AA_ROW_H + view.AA_ROW_GAP)
+		var y0 := row_top + 1.0
+		var y1 := row_top + view.AA_ROW_H - 1.0
+		var bins: Dictionary = frame_bins[frame]
+		var x_bins: Array[int] = []
+		for x_bin_any in bins.keys():
+			x_bins.append(int(x_bin_any))
+		x_bins.sort()
+		if x_bins.is_empty():
+			continue
+		var pixels_per_bp := 1.0 / maxf(view.bp_per_px, 0.000001)
+		var use_blocks := pixels_per_bp <= 2.5
+		var merge_gap_px := 2 if use_blocks else 1
+		var block_pad_px := clampf((2.5 - pixels_per_bp) * 0.8, 0.0, 2.0) if use_blocks else 0.0
+		var run_start := x_bins[0]
+		var run_end := x_bins[0]
+		for i in range(1, x_bins.size()):
+			var x_bin := x_bins[i]
+			if x_bin <= run_end + merge_gap_px:
+				run_end = x_bin
+				continue
+			_draw_stop_codon_run(target, float(run_start), float(run_end), y0, y1, stop_color, use_blocks, block_pad_px)
+			run_start = x_bin
+			run_end = x_bin
+		_draw_stop_codon_run(target, float(run_start), float(run_end), y0, y1, stop_color, use_blocks, block_pad_px)
+
+
+func _draw_stop_codon_run(target, x0: float, x1: float, y0: float, y1: float, color: Color, use_blocks: bool, block_pad_px: float) -> void:
+	if use_blocks:
+		var rect := Rect2(
+			Vector2(x0 - block_pad_px, y0),
+			Vector2((x1 - x0) + 1.0 + block_pad_px * 2.0, y1 - y0)
+		)
+		_draw_rect_on(target, rect, color, true)
+		return
+	var x: float = floor((x0 + x1) * 0.5)
+	_draw_line_on(target, Vector2(x, y0), Vector2(x, y1), color, 1.0)
 
 
 func draw_aa_translation_letters(area_start: float, target = null) -> void:

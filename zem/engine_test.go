@@ -293,6 +293,41 @@ func TestGetAnnotationTileUsesTileWindow(t *testing.T) {
 	}
 }
 
+func TestGetStopCodonTileUsesTileWindow(t *testing.T) {
+	e := NewEngine()
+	e.sequences["chr1"] = strings.Repeat("CAA", 340) + "TAA" + strings.Repeat("CAA", 340)
+	e.chrLength["chr1"] = len(e.sequences["chr1"])
+	e.chrToID["chr1"] = 1
+	e.idToChr[1] = "chr1"
+
+	payload, err := e.GetStopCodonTile(1, 0, 0)
+	if err != nil {
+		t.Fatalf("GetStopCodonTile returned error: %v", err)
+	}
+	start, end, binCount, frames := decodeStopCodonTileForTest(t, payload)
+	if start != 0 || end != 1024 {
+		t.Fatalf("unexpected stop-codon tile window: %d..%d", start, end)
+	}
+	if binCount != stopCodonTileBins {
+		t.Fatalf("unexpected stop-codon tile bin count: %d", binCount)
+	}
+	if len(frames) != 6 {
+		t.Fatalf("expected 6 frames, got %d", len(frames))
+	}
+	found := false
+	for frame := 0; frame < len(frames) && !found; frame++ {
+		for _, v := range frames[frame] {
+			if v != 0 {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected stop codon occupancy in tile")
+	}
+}
+
 func TestAnnotationOnlyLoadInvalidatesAnnotationTileCache(t *testing.T) {
 	dir := t.TempDir()
 	fastaPath := filepath.Join(dir, "ref.fa")
@@ -895,6 +930,29 @@ func decodeAnnotationsForTest(t *testing.T, payload []byte) (int, int, []Feature
 		feats = append(feats, feat)
 	}
 	return start, end, feats
+}
+
+func decodeStopCodonTileForTest(t *testing.T, payload []byte) (int, int, int, [6][]byte) {
+	t.Helper()
+	var frames [6][]byte
+	if len(payload) < 13 {
+		t.Fatalf("stop codon tile payload too short")
+	}
+	if payload[0] != 5 {
+		t.Fatalf("unexpected stop codon tile type: %d", payload[0])
+	}
+	start := int(binary.LittleEndian.Uint32(payload[1:5]))
+	end := int(binary.LittleEndian.Uint32(payload[5:9]))
+	binCount := int(binary.LittleEndian.Uint32(payload[9:13]))
+	off := 13
+	for frame := 0; frame < 6; frame++ {
+		if off+binCount > len(payload) {
+			t.Fatalf("stop codon tile payload truncated")
+		}
+		frames[frame] = append([]byte(nil), payload[off:off+binCount]...)
+		off += binCount
+	}
+	return start, end, binCount, frames
 }
 
 func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {

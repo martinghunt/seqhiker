@@ -44,6 +44,7 @@ const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 #  - feature: annotation feature box fill
 #  - feature_accent: subtle annotation sub-feature accent
 #  - feature_text: annotation feature label/border color
+#  - stop_codon: AA/annotation overview stop-codon marker color
 #  - comparison_same_strand: comparison-match fill for same-strand hits
 #  - comparison_opp_strand: comparison-match fill for opposite-strand hits
 #  - comparison_snp: comparison-detail SNP connector color
@@ -578,7 +579,10 @@ func palette(theme_name: String) -> Dictionary:
 	var resolved := _resolve_theme_name(theme_name)
 	if not THEMES.has(resolved):
 		resolved = "Slate"
-	return (THEMES[resolved] as Dictionary).duplicate(true)
+	var p := (THEMES[resolved] as Dictionary).duplicate(true)
+	if not p.has("stop_codon"):
+		p["stop_codon"] = p.get("text", Color.BLACK)
+	return p
 
 func genome_palette(theme_name: String) -> Dictionary:
 	var p := palette(theme_name)
@@ -606,7 +610,8 @@ func genome_palette(theme_name: String) -> Dictionary:
 		"aa_reverse": p["aa_reverse"],
 		"feature": p["feature"],
 		"feature_accent": p["feature_accent"],
-		"feature_text": p["feature_text"]
+		"feature_text": p["feature_text"],
+		"stop_codon": p.get("stop_codon", p["text"])
 	}
 
 func depth_plot_series(theme_name: String) -> Array:

@@ -118,6 +118,7 @@ var _strand_summary: Dictionary = {}
 var _fragment_summary: Dictionary = {}
 var _was_summary_only := false
 var gc_plot_tiles: Array[Dictionary] = []
+var stop_codon_tiles: Array[Dictionary] = []
 var depth_plot_tiles: Array[Dictionary] = []
 var depth_plot_series: Array[Dictionary] = []
 var features: Array[Dictionary] = []
@@ -193,6 +194,7 @@ var _color_by_mate_contig := false
 var _read_row_limit := 0
 var _annotation_max_on_screen := 4400
 var _show_full_length_regions := false
+var _show_stop_codons := false
 var _colorize_nucleotides := true
 var _gc_plot_y_mode := PLOT_Y_UNIT
 var _gc_plot_y_min := 0.0
@@ -573,6 +575,10 @@ func set_gc_plot_tiles(next_tiles: Array[Dictionary]) -> void:
 	gc_plot_tiles = next_tiles
 	queue_redraw()
 
+func set_stop_codon_tiles(next_tiles: Array[Dictionary]) -> void:
+	stop_codon_tiles = next_tiles
+	queue_redraw()
+
 func set_depth_plot_tiles(next_tiles: Array[Dictionary]) -> void:
 	depth_plot_tiles = next_tiles
 	queue_redraw()
@@ -605,6 +611,9 @@ func needs_reference_data(show_aa_track: bool, show_genome_track: bool) -> bool:
 		return true
 	return false
 
+func needs_stop_codon_overview(show_aa_track: bool) -> bool:
+	return show_aa_track and _show_stop_codons and not _can_draw_nucleotide_letters()
+
 func set_concat_segments(segments: Array) -> void:
 	concat_segments.clear()
 	for seg in segments:
@@ -632,6 +641,7 @@ func clear_all_data() -> void:
 	_strand_split_lock_y = -1.0
 	coverage_tiles.clear()
 	gc_plot_tiles.clear()
+	stop_codon_tiles.clear()
 	depth_plot_tiles.clear()
 	depth_plot_series.clear()
 	features.clear()
@@ -837,6 +847,10 @@ func set_show_full_length_regions(enabled: bool) -> void:
 
 func set_annotation_max_on_screen(max_count: int) -> void:
 	_annotation_max_on_screen = clampi(max_count, 200, 50000)
+	queue_redraw()
+
+func set_show_stop_codons(enabled: bool) -> void:
+	_show_stop_codons = enabled
 	queue_redraw()
 
 func set_colorize_nucleotides(enabled: bool) -> void:

@@ -35,6 +35,7 @@ const MSG_GET_COMPARISON_REFERENCE_SLICE := 31
 const MSG_GET_COMPARISON_BLOCK_DETAIL := 32
 const MSG_ADD_COMPARISON_GENOME_FILES := 33
 const MSG_SEARCH_COMPARISON_DNA_EXACT := 34
+const MSG_GET_STOP_CODON_TILE := 35
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -281,6 +282,18 @@ func get_annotation_tile(chr_id: int, zoom: int, tile_index: int, max_records: i
 	if not resp.get("ok", false):
 		return resp
 	resp["features"] = _parse_annotations(resp["payload"])
+	return resp
+
+func get_stop_codon_tile(chr_id: int, zoom: int, tile_index: int) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(7)
+	payload.encode_u16(0, chr_id)
+	payload[2] = zoom
+	payload.encode_u32(3, tile_index)
+	var resp := _send_request(MSG_GET_STOP_CODON_TILE, payload)
+	if not resp.get("ok", false):
+		return resp
+	resp["tile"] = _parse_stop_codon_tile(resp["payload"])
 	return resp
 
 func get_reference_slice(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
@@ -938,6 +951,32 @@ func _parse_gc_plot_tile(payload: PackedByteArray) -> Dictionary:
 		"end": end_bp,
 		"window": window_bp,
 		"values": values
+	}
+
+func _parse_stop_codon_tile(payload: PackedByteArray) -> Dictionary:
+	var empty_frames: Array = []
+	for _i in range(6):
+		empty_frames.append(PackedByteArray())
+	if payload.size() < 13:
+		return {"start": 0, "end": 0, "bin_count": 0, "frames": empty_frames}
+	if payload[0] != 5:
+		return {"start": 0, "end": 0, "bin_count": 0, "frames": empty_frames}
+	var start_bp := int(payload.decode_u32(1))
+	var end_bp := int(payload.decode_u32(5))
+	var bin_count := int(payload.decode_u32(9))
+	var off := 13
+	var frames: Array = []
+	for _frame in range(6):
+		var bins := PackedByteArray()
+		if off + bin_count <= payload.size():
+			bins = payload.slice(off, off + bin_count)
+		frames.append(bins)
+		off += bin_count
+	return {
+		"start": start_bp,
+		"end": end_bp,
+		"bin_count": bin_count,
+		"frames": frames
 	}
 
 func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:

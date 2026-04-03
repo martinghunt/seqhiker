@@ -264,6 +264,7 @@ var _selected_seq_name := ""
 var _concat_gap_bp := DEFAULT_CONCAT_GAP_BP
 var _read_thickness := DEFAULT_READ_THICKNESS
 var _show_full_length_regions := false
+var _show_stop_codons := false
 var _colorize_nucleotides := true
 var _axis_coords_with_commas := false
 var _gc_window_bp := DEFAULT_GC_WINDOW_BP
@@ -1606,6 +1607,13 @@ func _on_show_full_region_toggled(enabled: bool) -> void:
 	_show_full_length_regions = enabled
 	genome_view.set_show_full_length_regions(enabled)
 
+func _on_show_stop_codons_toggled(enabled: bool) -> void:
+	_show_stop_codons = enabled
+	genome_view.set_show_stop_codons(enabled)
+	_invalidate_viewport_cache()
+	if _current_chr_len > 0:
+		_schedule_fetch()
+
 func _on_colorize_nucleotides_toggled(enabled: bool) -> void:
 	_colorize_nucleotides = enabled
 	genome_view.set_colorize_nucleotides(enabled)
@@ -2111,6 +2119,10 @@ func _on_track_settings_requested(track_id: String) -> void:
 		region_cb.text = "Show full-length region annotations"
 		region_cb.button_pressed = _show_full_length_regions
 		region_cb.toggled.connect(_on_show_full_region_toggled)
+		var stop_cb := CheckButton.new()
+		stop_cb.text = "Show stop codons"
+		stop_cb.button_pressed = _show_stop_codons
+		stop_cb.toggled.connect(_on_show_stop_codons_toggled)
 		var max_ann_label := Label.new()
 		max_ann_label.text = "Max annotations on screen"
 		var max_ann_spin := SpinBox.new()
@@ -2120,6 +2132,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 		max_ann_spin.value = _annotation_max_on_screen
 		max_ann_spin.value_changed.connect(_on_annotation_max_on_screen_changed)
 		_track_settings_box.add_child(region_cb)
+		_track_settings_box.add_child(stop_cb)
 		_track_settings_box.add_child(max_ann_label)
 		_track_settings_box.add_child(max_ann_spin)
 	elif track_id == "genome":
@@ -3144,6 +3157,8 @@ func _load_or_init_config() -> void:
 	_show_full_length_regions = bool(cfg.get_value("ui", "show_full_length_regions", false))
 	_show_full_region_checkbox.button_pressed = _show_full_length_regions
 	genome_view.set_show_full_length_regions(_show_full_length_regions)
+	_show_stop_codons = bool(cfg.get_value("ui", "show_stop_codons", false))
+	genome_view.set_show_stop_codons(_show_stop_codons)
 	_colorize_nucleotides = bool(cfg.get_value("ui", "colorize_nucleotides", true))
 	genome_view.set_colorize_nucleotides(_colorize_nucleotides)
 	_axis_coords_with_commas = bool(cfg.get_value("ui", "axis_coords_with_commas", false))
@@ -3194,6 +3209,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "concat_gap_bp", _concat_gap_bp)
 	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)
 	cfg.set_value("ui", "show_full_length_regions", _show_full_length_regions)
+	cfg.set_value("ui", "show_stop_codons", _show_stop_codons)
 	cfg.set_value("ui", "colorize_nucleotides", _colorize_nucleotides)
 	cfg.set_value("ui", "axis_coords_with_commas", _axis_coords_with_commas)
 	cfg.set_value("ui", "gc_window_bp", _gc_window_bp)

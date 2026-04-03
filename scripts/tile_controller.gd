@@ -20,6 +20,7 @@ var _coverage_tile_cache: Dictionary = {}
 var _strand_coverage_tile_cache: Dictionary = {}
 var _gc_tile_cache: Dictionary = {}
 var _annotation_tile_cache: Dictionary = {}
+var _stop_codon_tile_cache: Dictionary = {}
 var _active_scope_key := ""
 var _active_generation := -1
 var _read_layout_helper := ReadLayoutHelperScript.new()
@@ -115,6 +116,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 		_strand_coverage_tile_cache.clear()
 		_gc_tile_cache.clear()
 		_annotation_tile_cache.clear()
+		_stop_codon_tile_cache.clear()
 		_active_scope_key = scope_key
 		_active_generation = generation
 	var query_start := int(request.get("query_start", 0))
@@ -136,14 +138,17 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	var gc_window_bp := int(request.get("gc_window_bp", DEFAULT_GC_WINDOW_BP))
 	var annotation_cap_total := int(request.get("annotation_cap_total", 0))
 	var annotation_min_len_bp := int(request.get("annotation_min_len_bp", 1))
+	var show_stop_codons := bool(request.get("show_stop_codons", false))
 	var keep_read_keys := {}
 	var keep_coverage_keys := {}
 	var keep_strand_coverage_keys := {}
 	var keep_gc_keys := {}
 	var keep_annotation_keys := {}
+	var keep_stop_codon_keys := {}
 
 	var read_payload_by_track := {}
 	var annotation_features: Array = []
+	var stop_codon_tiles: Array = []
 	var gc_plot_tiles: Array = []
 	var depth_plot_tiles: Array = []
 	var depth_plot_series: Array = []
@@ -246,6 +251,11 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 			if not ann_resp.get("ok", false):
 				return ann_resp
 			annotation_features = ann_resp.get("features", [])
+		if show_stop_codons:
+			var stop_resp := _fetch_stop_codon_tiles_single(zem, current_chr_id, query_start, query_end, zoom, keep_stop_codon_keys)
+			if not stop_resp.get("ok", false):
+				return stop_resp
+			stop_codon_tiles = stop_resp.get("tiles", [])
 	else:
 		if bool(request.get("need_reference", false)):
 			ref_sequence = _build_concat_reference(zem, query_start, query_end, overlaps)
@@ -361,6 +371,22 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 				for feat_any in ann_resp.get("features", []):
 					shifted_features.append(_shift_feature_coords(feat_any as Dictionary, offset))
 			annotation_features = _collapse_annotation_features(shifted_features, query_start, query_end, annotation_cap_total)
+		if show_stop_codons:
+			for ov_any in overlaps:
+				var ov_stop: Dictionary = ov_any as Dictionary
+				var chr_id_stop := int(ov_stop["id"])
+				var offset_stop := int(ov_stop["offset"])
+				var local_start_stop := int(ov_stop["local_start"])
+				var local_end_stop := int(ov_stop["local_end"])
+				var tile_width_stop := 1024 << zoom
+				var tile_start_stop := int(floor(float(local_start_stop) / float(tile_width_stop)))
+				var tile_end_stop := int(floor(float(maxi(local_end_stop - 1, local_start_stop)) / float(tile_width_stop)))
+				for t in range(tile_start_stop, tile_end_stop + 1):
+					_mark_tile_range(keep_stop_codon_keys, 0, chr_id_stop, zoom, t)
+					var stop_resp_concat := _frame_get_stop_codon_tile(zem, chr_id_stop, zoom, t)
+					if not stop_resp_concat.get("ok", false):
+						return {"ok": false, "error": "Stop codon tile query failed: %s" % stop_resp_concat.get("error", "error")}
+					stop_codon_tiles.append(_shift_stop_codon_coords(stop_resp_concat.get("tile", {}), offset_stop))
 
 	for track_any in bam_tracks:
 		var track: Dictionary = track_any as Dictionary
@@ -381,6 +407,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	_prune_cache(_strand_coverage_tile_cache, keep_strand_coverage_keys)
 	_prune_cache(_gc_tile_cache, keep_gc_keys)
 	_prune_cache(_annotation_tile_cache, keep_annotation_keys)
+	_prune_cache(_stop_codon_tile_cache, keep_stop_codon_keys)
 	annotation_stats["features_out"] = annotation_features.size()
 	annotation_stats["fetch_time_ms"] = float(Time.get_ticks_usec() - annotation_t0) / 1000.0
 
@@ -390,6 +417,7 @@ func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 		"request_kind": str(request.get("request_kind", "visible")),
 		"read_payload_by_track": read_payload_by_track,
 		"annotation_features": annotation_features,
+		"stop_codon_tiles": stop_codon_tiles,
 		"annotation_stats": annotation_stats,
 		"gc_plot_tiles": gc_plot_tiles,
 		"depth_plot_tiles": depth_plot_tiles,
@@ -769,6 +797,14 @@ func _frame_get_annotation_tile(zem, chr_id: int, zoom: int, tile_index: int, ca
 		annotation_stats["tile_queries"] = int(annotation_stats.get("tile_queries", 0)) + 1
 	return resp
 
+func _frame_get_stop_codon_tile(zem, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
+	var key := _frame_tile_key(0, chr_id, zoom, tile_index, -2)
+	if _stop_codon_tile_cache.has(key):
+		return _stop_codon_tile_cache[key]
+	var resp: Dictionary = zem.get_stop_codon_tile(chr_id, zoom, tile_index)
+	_stop_codon_tile_cache[key] = resp
+	return resp
+
 func _fetch_annotation_features_single(zem, chr_id: int, start_bp: int, end_bp: int, zoom: int, cap_total: int, min_len_bp: int, keep_annotation_keys: Dictionary, annotation_stats: Dictionary) -> Dictionary:
 	if end_bp <= start_bp:
 		return {"ok": true, "features": []}
@@ -792,6 +828,25 @@ func _fetch_annotation_features_single(zem, chr_id: int, start_bp: int, end_bp: 
 			if typeof(feat_any) == TYPE_DICTIONARY:
 				out.append(feat_any)
 	return {"ok": true, "features": _collapse_annotation_features(out, start_bp, end_bp, cap_total)}
+
+func _fetch_stop_codon_tiles_single(zem, chr_id: int, start_bp: int, end_bp: int, zoom: int, keep_stop_codon_keys: Dictionary) -> Dictionary:
+	if end_bp <= start_bp:
+		return {"ok": true, "tiles": []}
+	var tile_w := ANNOT_TILE_BASE_BP << zoom
+	var tile_start := int(floor(float(start_bp) / float(tile_w)))
+	var tile_end := int(floor(float(maxi(end_bp - 1, start_bp)) / float(tile_w)))
+	if tile_end < tile_start:
+		tile_end = tile_start
+	var out: Array = []
+	for t in range(tile_start, tile_end + 1):
+		_mark_tile_range(keep_stop_codon_keys, 0, chr_id, zoom, t)
+		var resp := _frame_get_stop_codon_tile(zem, chr_id, zoom, t)
+		if not resp.get("ok", false):
+			return {"ok": false, "error": "Stop codon tile query failed: %s" % resp.get("error", "error")}
+		var tile: Dictionary = resp.get("tile", {})
+		if not tile.is_empty():
+			out.append(tile)
+	return {"ok": true, "tiles": out}
 
 func _annotation_cache_param(cap_per_tile: int, min_len_bp: int) -> int:
 	return ((cap_per_tile & 0xFFFF) << 16) | (min_len_bp & 0xFFFF)
@@ -903,6 +958,16 @@ func _shift_plot_coords(plot: Dictionary, offset: int, gc_window_bp: int) -> Dic
 		"end": int(plot.get("end", 0)) + offset,
 		"window": int(plot.get("window", gc_window_bp)),
 		"values": plot.get("values", PackedFloat32Array())
+	}
+
+func _shift_stop_codon_coords(tile: Dictionary, offset: int) -> Dictionary:
+	if tile.is_empty():
+		return tile
+	return {
+		"start": int(tile.get("start", 0)) + offset,
+		"end": int(tile.get("end", 0)) + offset,
+		"bin_count": int(tile.get("bin_count", 0)),
+		"frames": tile.get("frames", [])
 	}
 
 func _shift_feature_coords(feature: Dictionary, offset: int) -> Dictionary:
