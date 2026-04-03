@@ -144,7 +144,12 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 			var bam_resp: Dictionary = host._zem.load_bam(bam_path, cutoff_bp)
 			if not bam_resp.get("ok", false):
 				host.genome_view.set_read_loading_message("")
-				host._set_status("Load BAM failed: %s" % bam_resp.get("error", "error"), true)
+				var err_msg := str(bam_resp.get("error", "error"))
+				if err_msg.contains("BAM not sorted by coordinate"):
+					host._show_bam_unsorted_dialog(bam_path)
+				elif err_msg.contains("BAM index not found"):
+					host._show_bam_missing_index_dialog(bam_path)
+				host._set_status("Load BAM failed: %s" % err_msg, true)
 				return false
 			source_id = int(bam_resp.get("source_id", 0))
 		host._bam_track_serial += 1

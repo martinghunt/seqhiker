@@ -12,6 +12,9 @@ import (
 	"github.com/biogo/hts/sam"
 )
 
+const bamNotCoordinateSortedError = "BAM not sorted by coordinate"
+const bamIndexMissingError = "BAM index not found"
+
 type bamSource struct {
 	ID           uint16
 	Path         string
@@ -38,6 +41,10 @@ func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 		return 0, err
 	}
 	defer reader.Close()
+
+	if err := validateBAMCoordinateSorted(reader, path); err != nil {
+		return 0, err
+	}
 
 	idxPath, err := resolveBAMIndexPath(path)
 	if err != nil {
@@ -168,7 +175,38 @@ func resolveBAMIndexPath(bamPath string) (string, error) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("BAM index not found; expected %s or %s", candidates[0], candidates[1])
+	return "", fmt.Errorf("%s; expected %s or %s", bamIndexMissingError, candidates[0], candidates[1])
+}
+
+func validateBAMCoordinateSorted(reader *bam.Reader, path string) error {
+	if reader == nil {
+		return nil
+	}
+	header := reader.Header()
+	if header != nil && header.SortOrder != sam.UnknownOrder && header.SortOrder != sam.Coordinate {
+		return fmt.Errorf("%s: %s", bamNotCoordinateSortedError, path)
+	}
+
+	lastRefID := -1
+	lastPos := -1
+	for {
+		rec, err := reader.Read()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if rec == nil || rec.Flags&sam.Unmapped != 0 || rec.Ref == nil || rec.Pos < 0 {
+			continue
+		}
+		refID := rec.Ref.ID()
+		if refID < lastRefID || (refID == lastRefID && rec.Pos < lastPos) {
+			return fmt.Errorf("%s: %s", bamNotCoordinateSortedError, path)
+		}
+		lastRefID = refID
+		lastPos = rec.Pos
+	}
 }
 
 func (e *Engine) precomputeCoverageForSource(sourceID uint16, bamPath string, refs []*sam.Reference) {

@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comparison rows now respect font/theme settings more consistently, including sequence-letter font choice.
 - Screenshot button now does nothing when the active view is empty, and no longer stays visually highlighted after being pressed.
 - Soft-clipped reads can now display past the start/end of a contig in single-sequence view, and concat mode now adds extra inter-contig spacing when needed.
+- BAM loading now checks for coordinate sorting first and shows native guidance when a BAM is unsorted or missing its index.
 - Always hide autoplay speed setting, while the underlying code remains in place, in case reinstated in future.
 
 ## [0.42.0] - 2026-03-28

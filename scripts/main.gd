@@ -1444,6 +1444,30 @@ func _generate_comparison_test_data_thread_main(host_ip: String, port: int, out_
 		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
 	return client.generate_comparison_test_data(out_dir)
 
+func _show_native_info_dialog(title: String, message: String) -> void:
+	if DisplayServer.has_method("dialog_show"):
+		DisplayServer.dialog_show(
+			title,
+			message,
+			PackedStringArray(["OK"]),
+			Callable(self, "_on_native_info_dialog_closed")
+		)
+
+func _on_native_info_dialog_closed(_button_index: int) -> void:
+	pass
+
+func _show_bam_unsorted_dialog(bam_path: String) -> void:
+	_show_native_info_dialog(
+		"Cannot Use BAM",
+		"BAM not sorted by coordinate. Cannot use.\n\n%s" % bam_path.get_file()
+	)
+
+func _show_bam_missing_index_dialog(bam_path: String) -> void:
+	_show_native_info_dialog(
+		"BAM Index Missing",
+		"BAM index not found.\n\nRun:\n\nsamtools index %s" % bam_path
+	)
+
 func _finish_generate_test_data(result_any: Variant) -> void:
 	_generate_test_data_in_progress = false
 	_set_generate_test_data_controls_enabled(true)
