@@ -100,6 +100,11 @@ func refresh_comparison_topbar_state() -> void:
 func on_screenshot_pressed() -> void:
 	if host == null or host._screenshot_dialog == null:
 		return
+	if host.screenshot_button != null:
+		host.screenshot_button.set_pressed_no_signal(false)
+		host.screenshot_button.release_focus()
+	if not _active_view_has_data_to_clear():
+		return
 	host._screenshot_dialog.current_dir = OS.get_system_dir(OS.SYSTEM_DIR_DESKTOP).get_base_dir()
 	host._screenshot_dialog.current_file = "seqhiker-view.svg"
 	host._screenshot_dialog.popup_centered_ratio(0.7)

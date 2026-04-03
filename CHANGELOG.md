@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Browser clear now fully resets viewport state instead of leaving stale zoom/axis artifacts visible.
 - Comparison loading now handles first-genome add, grouped FASTA+annotation inputs, downloads, and runtime row reuse more reliably.
 - Comparison rows now respect font/theme settings more consistently, including sequence-letter font choice.
+- Screenshot button now does nothing when the active view is empty, and no longer stays visually highlighted after being pressed.
 - Soft-clipped reads can now display past the start/end of a contig in single-sequence view, and concat mode now adds extra inter-contig spacing when needed.
 - Always hide autoplay speed setting, while the underlying code remains in place, in case reinstated in future.
 
