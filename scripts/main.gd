@@ -166,6 +166,9 @@ var _settings_open := false
 var _settings_tween: Tween
 var _settings_toggle_icon: Control
 var _settings_toggle_icon_label: Label
+var _comparison_clear_tween: Tween
+var _comparison_clear_icon: Control
+var _comparison_clear_icon_label: Label
 var _feature_panel_open := false
 var _context_panel_mode := CONTEXT_PANEL_NONE
 var _feature_tween: Tween
@@ -329,6 +332,7 @@ func _ready() -> void:
 	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
 	_disable_button_focus()
 	_setup_settings_toggle_icon()
+	_setup_comparison_clear_icon()
 	_setup_theme_selector()
 	_setup_ui_font_selector()
 	_setup_sequence_letter_font_selector()
@@ -499,8 +503,28 @@ func _refresh_comparison_topbar_state() -> void:
 	if comparison_save_button != null:
 		comparison_save_button.visible = comparison_active
 	if comparison_clear_button != null:
-		comparison_clear_button.visible = comparison_active
-		comparison_clear_button.disabled = not comparison_active or _comparison_controller == null or not _comparison_controller.has_genomes()
+		comparison_clear_button.visible = true
+		if comparison_active:
+			comparison_clear_button.tooltip_text = "Clear comparison view"
+			comparison_clear_button.disabled = false
+		else:
+			comparison_clear_button.tooltip_text = "Clear browser view"
+			comparison_clear_button.disabled = false
+
+func _active_view_has_data_to_clear() -> bool:
+	if _app_mode == APP_MODE_COMPARISON:
+		return _comparison_controller != null and _comparison_controller.has_genomes()
+	return _has_sequence_loaded or not _bam_tracks.is_empty()
+
+func _spin_clear_button() -> void:
+	if _comparison_clear_icon_label == null:
+		return
+	if _comparison_clear_tween != null and _comparison_clear_tween.is_running():
+		_comparison_clear_tween.kill()
+	_comparison_clear_tween = _spin_topbar_icon(_comparison_clear_icon_label, -360.0, 0.36, null)
+	_comparison_clear_tween.finished.connect(func() -> void:
+		_comparison_clear_tween = null
+	, CONNECT_ONE_SHOT)
 
 func _on_screenshot_pressed() -> void:
 	if _screenshot_dialog == null:
@@ -835,37 +859,68 @@ func _disable_button_focus() -> void:
 func _setup_settings_toggle_icon() -> void:
 	if settings_toggle_button == null:
 		return
-	settings_toggle_button.text = ""
 	settings_toggle_button.clip_contents = true
 	if top_bar != null:
 		top_bar.clip_contents = true
-	var icon_container := settings_toggle_button.get_node_or_null("IconContainer") as CenterContainer
+	var icon_parts := _setup_topbar_icon_button(settings_toggle_button, "C")
+	_settings_toggle_icon = icon_parts.get("container")
+	_settings_toggle_icon_label = icon_parts.get("label")
+	call_deferred("_update_settings_toggle_icon_pivot")
+
+func _setup_comparison_clear_icon() -> void:
+	if comparison_clear_button == null:
+		return
+	var icon_parts := _setup_topbar_icon_button(comparison_clear_button, "N")
+	_comparison_clear_icon = icon_parts.get("container")
+	_comparison_clear_icon_label = icon_parts.get("label")
+	call_deferred("_update_comparison_clear_icon_pivot")
+
+func _update_settings_toggle_icon_pivot() -> void:
+	_update_topbar_icon_pivot(_settings_toggle_icon_label)
+
+func _update_comparison_clear_icon_pivot() -> void:
+	_update_topbar_icon_pivot(_comparison_clear_icon_label)
+
+func _setup_topbar_icon_button(button: Button, glyph: String) -> Dictionary:
+	button.text = ""
+	button.clip_contents = true
+	var icon_container := button.get_node_or_null("IconContainer") as CenterContainer
 	if icon_container == null:
 		icon_container = CenterContainer.new()
 		icon_container.name = "IconContainer"
 		icon_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		icon_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		settings_toggle_button.add_child(icon_container)
+		button.add_child(icon_container)
 	var icon_label := icon_container.get_node_or_null("IconLabel") as Label
 	if icon_label == null:
 		icon_label = Label.new()
 		icon_label.name = "IconLabel"
 		icon_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		icon_container.add_child(icon_label)
-	icon_label.text = "C"
-	if settings_toggle_button.has_theme_font_override("font"):
-		icon_label.add_theme_font_override("font", settings_toggle_button.get_theme_font("font"))
-	if settings_toggle_button.has_theme_font_size_override("font_size"):
-		icon_label.add_theme_font_size_override("font_size", settings_toggle_button.get_theme_font_size("font_size"))
-	_settings_toggle_icon = icon_container
-	_settings_toggle_icon_label = icon_label
-	call_deferred("_update_settings_toggle_icon_pivot")
+	icon_label.text = glyph
+	if button.has_theme_font_override("font"):
+		icon_label.add_theme_font_override("font", button.get_theme_font("font"))
+	if button.has_theme_font_size_override("font_size"):
+		icon_label.add_theme_font_size_override("font_size", button.get_theme_font_size("font_size"))
+	return {"container": icon_container, "label": icon_label}
 
-func _update_settings_toggle_icon_pivot() -> void:
-	if _settings_toggle_icon_label == null:
+func _update_topbar_icon_pivot(icon_label: Label) -> void:
+	if icon_label == null:
 		return
-	var icon_size := _settings_toggle_icon_label.get_combined_minimum_size()
-	_settings_toggle_icon_label.pivot_offset = icon_size * 0.5
+	var icon_size := icon_label.get_combined_minimum_size()
+	icon_label.pivot_offset = icon_size * 0.5
+
+func _spin_topbar_icon(icon_label: Label, delta_degrees: float, duration: float, tween: Tween) -> Tween:
+	if icon_label == null:
+		return tween
+	_update_topbar_icon_pivot(icon_label)
+	var next_tween := tween
+	if next_tween == null:
+		next_tween = create_tween()
+		next_tween.set_trans(Tween.TRANS_CUBIC)
+		next_tween.set_ease(Tween.EASE_OUT)
+	next_tween.parallel().tween_property(icon_label, "rotation_degrees", icon_label.rotation_degrees + delta_degrees, duration)
+	return next_tween
 
 func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_start = start_bp
@@ -1008,7 +1063,7 @@ func _slide_settings(open: bool, animated: bool) -> void:
 		_settings_tween.parallel().tween_property(settings_panel, "offset_right", open_right if open else closed_right, 0.24)
 		if _settings_toggle_icon_label != null:
 			var spin_delta := -180.0 if open else 180.0
-			_settings_tween.parallel().tween_property(_settings_toggle_icon_label, "rotation_degrees", _settings_toggle_icon_label.rotation_degrees + spin_delta, 0.36)
+			_settings_tween = _spin_topbar_icon(_settings_toggle_icon_label, spin_delta, 0.36, _settings_tween)
 		if not open:
 			_settings_tween.finished.connect(func() -> void:
 				if not _settings_open:
@@ -2745,6 +2800,9 @@ func _apply_topbar_button_font_size() -> void:
 	if _settings_toggle_icon_label != null:
 		_settings_toggle_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
 		_update_settings_toggle_icon_pivot()
+	if _comparison_clear_icon_label != null:
+		_comparison_clear_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
+		_update_comparison_clear_icon_pivot()
 
 func _on_files_dropped(files: PackedStringArray) -> void:
 	if not _ensure_server_connected():
@@ -2768,14 +2826,23 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 	_session_loader.on_files_dropped(files)
 
 func _on_comparison_clear_pressed() -> void:
-	if _comparison_controller == null:
+	if not _active_view_has_data_to_clear():
 		return
-	if not _comparison_controller.clear_state():
+	_spin_clear_button()
+	if _app_mode == APP_MODE_COMPARISON:
+		if _comparison_controller == null:
+			return
+		if not _comparison_controller.clear_state():
+			return
+		_close_feature_panel()
+		_comparison_controller.refresh_view(theme_option.get_item_text(theme_option.selected))
+		_refresh_comparison_topbar_state()
+		_set_status("Cleared comparison view")
 		return
+	_reset_loaded_state()
 	_close_feature_panel()
-	_comparison_controller.refresh_view(theme_option.get_item_text(theme_option.selected))
 	_refresh_comparison_topbar_state()
-	_set_status("Cleared comparison view")
+	_set_status("Cleared browser view")
 
 func _ensure_server_connected() -> bool:
 	return _session_loader.ensure_server_connected()

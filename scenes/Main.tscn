@@ -134,7 +134,7 @@ visible = false
 layout_mode = 2
 tooltip_text = "Save comparison session"
 theme_override_fonts/font = ExtResource("2_0bbpv")
-text = "K"
+text = "O"
 
 [node name="DownloadButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
@@ -258,11 +258,10 @@ layout_mode = 2
 text = "0 - 0 bp"
 
 [node name="ComparisonClearButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
-visible = false
 layout_mode = 2
 tooltip_text = "Clear all genomes from comparison view"
 theme_override_fonts/font = ExtResource("2_0bbpv")
-text = "V"
+text = "N"
 
 [node name="TopBarRightSpacer" type="Control" parent="Root/TopBar"]
 custom_minimum_size = Vector2(2, 0)
