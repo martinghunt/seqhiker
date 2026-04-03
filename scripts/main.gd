@@ -172,6 +172,7 @@ var _comparison_toggle_icon_label: Label
 var _comparison_clear_tween: Tween
 var _comparison_clear_icon: Control
 var _comparison_clear_icon_label: Label
+var _view_mode_tween: Tween
 var _feature_panel_open := false
 var _context_panel_mode := CONTEXT_PANEL_NONE
 var _feature_tween: Tween
@@ -484,11 +485,10 @@ func _toggle_comparison_mode() -> void:
 	_refresh_comparison_topbar_state()
 
 func _set_app_mode(next_mode: int) -> void:
+	var previous_mode := _app_mode
 	_app_mode = next_mode
 	var comparison_active := _app_mode == APP_MODE_COMPARISON
-	genome_view.visible = not comparison_active
-	if comparison_view != null:
-		comparison_view.visible = comparison_active
+	_apply_view_mode_visibility(previous_mode, next_mode)
 	if _search_controller != null:
 		_search_controller.refresh_context()
 	_apply_comparison_toggle_icon_state(true)
@@ -502,6 +502,43 @@ func _set_app_mode(next_mode: int) -> void:
 		else:
 			viewport_label.text = _last_viewport_message
 	_refresh_settings_sections()
+
+func _apply_view_mode_visibility(previous_mode: int, next_mode: int) -> void:
+	var browser_view: Control = genome_view
+	var compare_view: Control = comparison_view
+	if browser_view == null or compare_view == null:
+		return
+	var comparison_active := next_mode == APP_MODE_COMPARISON
+	var target_view: Control = compare_view if comparison_active else browser_view
+	var source_view: Control = browser_view if comparison_active else compare_view
+	target_view.mouse_filter = Control.MOUSE_FILTER_PASS
+	source_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if previous_mode == next_mode or not source_view.visible:
+		if _view_mode_tween != null and _view_mode_tween.is_running():
+			_view_mode_tween.kill()
+			_view_mode_tween = null
+		source_view.visible = false
+		source_view.modulate.a = 1.0
+		target_view.visible = true
+		target_view.modulate.a = 1.0
+		return
+	if _view_mode_tween != null and _view_mode_tween.is_running():
+		_view_mode_tween.kill()
+	target_view.visible = true
+	source_view.visible = true
+	target_view.modulate.a = 0.0
+	source_view.modulate.a = 1.0
+	_view_mode_tween = create_tween()
+	_view_mode_tween.set_trans(Tween.TRANS_CUBIC)
+	_view_mode_tween.set_ease(Tween.EASE_OUT)
+	_view_mode_tween.parallel().tween_property(target_view, "modulate:a", 1.0, 0.18)
+	_view_mode_tween.parallel().tween_property(source_view, "modulate:a", 0.0, 0.18)
+	_view_mode_tween.finished.connect(func() -> void:
+		source_view.visible = false
+		source_view.modulate.a = 1.0
+		target_view.modulate.a = 1.0
+		_view_mode_tween = null
+	, CONNECT_ONE_SHOT)
 
 func _refresh_comparison_topbar_state() -> void:
 	var comparison_active := _app_mode == APP_MODE_COMPARISON
