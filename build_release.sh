@@ -15,6 +15,7 @@ SKIP_ZEM=0
 STAGE_DIR=""
 OUTFILE_ABS=""
 WINDOWS_PACKAGE_DIR=""
+LINUX_PACKAGE_DIR=""
 
 usage() {
 	cat <<'EOF'
@@ -26,6 +27,7 @@ Required:
   --preset   Godot export preset name from export_presets.cfg
   --out      Output artifact path for Godot export
              Windows targets may use .zip to package the exported app files
+             Linux targets may use .tar.gz to package the exported app files
 
 Options:
   --godot-bin <path>   Godot executable path
@@ -155,12 +157,21 @@ mkdir -p "$(dirname "${OUTFILE_ABS}")"
 
 if [[ "${TARGET}" == windows/* && "${OUTFILE_ABS}" == *.zip ]]; then
 	WINDOWS_PACKAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/seqhiker-windows-export.XXXXXX")"
-	trap '[[ -n "${WINDOWS_PACKAGE_DIR}" && -d "${WINDOWS_PACKAGE_DIR}" ]] && rm -rf "${WINDOWS_PACKAGE_DIR}"; [[ -n "${STAGE_DIR}" && -d "${STAGE_DIR}" ]] && rm -rf "${STAGE_DIR}"' EXIT
+	trap '[[ -n "${WINDOWS_PACKAGE_DIR}" && -d "${WINDOWS_PACKAGE_DIR}" ]] && rm -rf "${WINDOWS_PACKAGE_DIR}"; [[ -n "${LINUX_PACKAGE_DIR}" && -d "${LINUX_PACKAGE_DIR}" ]] && rm -rf "${LINUX_PACKAGE_DIR}"; [[ -n "${STAGE_DIR}" && -d "${STAGE_DIR}" ]] && rm -rf "${STAGE_DIR}"' EXIT
 	WINDOWS_EXPORT_EXE="${WINDOWS_PACKAGE_DIR}/seqhiker.exe"
 	"${GODOT_BIN}" --headless --path "${STAGE_DIR}" "--export-${EXPORT_MODE}" "${PRESET}" "${WINDOWS_EXPORT_EXE}"
 	(
 		cd "${WINDOWS_PACKAGE_DIR}"
 		zip -qr "${OUTFILE_ABS}" .
+	)
+elif [[ "${TARGET}" == linux/* && "${OUTFILE_ABS}" == *.tar.gz ]]; then
+	LINUX_PACKAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/seqhiker-linux-export.XXXXXX")"
+	trap '[[ -n "${WINDOWS_PACKAGE_DIR}" && -d "${WINDOWS_PACKAGE_DIR}" ]] && rm -rf "${WINDOWS_PACKAGE_DIR}"; [[ -n "${LINUX_PACKAGE_DIR}" && -d "${LINUX_PACKAGE_DIR}" ]] && rm -rf "${LINUX_PACKAGE_DIR}"; [[ -n "${STAGE_DIR}" && -d "${STAGE_DIR}" ]] && rm -rf "${STAGE_DIR}"' EXIT
+	LINUX_EXPORT_BIN="${LINUX_PACKAGE_DIR}/seqhiker"
+	"${GODOT_BIN}" --headless --path "${STAGE_DIR}" "--export-${EXPORT_MODE}" "${PRESET}" "${LINUX_EXPORT_BIN}"
+	(
+		cd "${LINUX_PACKAGE_DIR}"
+		tar -czf "${OUTFILE_ABS}" .
 	)
 else
 	"${GODOT_BIN}" --headless --path "${STAGE_DIR}" "--export-${EXPORT_MODE}" "${PRESET}" "${OUTFILE_ABS}"

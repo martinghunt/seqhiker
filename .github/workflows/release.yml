@@ -18,10 +18,10 @@ jobs:
         include:
           - target: linux/amd64
             preset: Linux x86_64
-            output: dist/seqhiker-${{ github.ref_name }}-linux-x86_64
+            output: dist/seqhiker-${{ github.ref_name }}-linux-x86_64.tar.gz
           - target: linux/arm64
             preset: Linux arm64
-            output: dist/seqhiker-${{ github.ref_name }}-linux-arm64
+            output: dist/seqhiker-${{ github.ref_name }}-linux-arm64.tar.gz
           - target: windows/arm64
             preset: Windows arm64
             output: dist/seqhiker-${{ github.ref_name }}-windows-arm64.zip
