@@ -851,7 +851,7 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_bp_per_px = bp_per_px
 	_last_viewport_message = _format_viewport_label(start_bp, end_bp, bp_per_px)
 	_last_bp_per_px_message = "%.2f bp/px" % bp_per_px
-	viewport_label.text = _last_viewport_message
+	viewport_label.text = _last_viewport_message if _has_sequence_loaded else "No genome loaded"
 	if _debug_enabled:
 		_update_debug_stats_label()
 	var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))
@@ -953,7 +953,7 @@ func _on_region_selection_changed(active: bool, start_bp: int, end_bp: int) -> v
 		_selection_start = 0
 		_selection_end = 0
 	_last_viewport_message = _format_viewport_label(_last_start, _last_end, _last_bp_per_px)
-	viewport_label.text = _last_viewport_message
+	viewport_label.text = _last_viewport_message if _has_sequence_loaded else "No genome loaded"
 	if _debug_enabled:
 		_update_debug_stats_label()
 

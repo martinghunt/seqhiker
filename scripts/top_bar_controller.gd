@@ -51,7 +51,7 @@ func set_app_mode(next_mode: int) -> void:
 			else:
 				host.viewport_label.text = "Comparison view"
 		else:
-			host.viewport_label.text = host._last_viewport_message
+			host.viewport_label.text = host._last_viewport_message if host._has_sequence_loaded else "No genome loaded"
 	host._refresh_settings_sections()
 
 

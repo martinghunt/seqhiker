@@ -604,6 +604,11 @@ func set_concat_segments(segments: Array) -> void:
 	queue_redraw()
 
 func clear_all_data() -> void:
+	if _pan_tween and _pan_tween.is_running():
+		_pan_tween.kill()
+	if _zoom_tween and _zoom_tween.is_running():
+		_zoom_tween.kill()
+	_end_motion_read_layer()
 	for id_any in _read_track_states.keys():
 		var id := str(id_any)
 		var state: Dictionary = _read_track_states[id]
@@ -622,9 +627,25 @@ func clear_all_data() -> void:
 	features.clear()
 	concat_segments.clear()
 	loaded_files = PackedStringArray()
+	chromosome_name = ""
+	chromosome_length = 50000
 	reference_start_bp = 0
 	reference_sequence = ""
 	view_start_bp = 0.0
+	bp_per_px = 8.0
+	_selected_feature_key = ""
+	_selected_read_index = -1
+	_selected_read_track_id = ""
+	_selected_read_pair_name = ""
+	_selected_read_flags = 0
+	_selected_read_pair_a_start = -1
+	_selected_read_pair_a_end = -1
+	_selected_read_pair_b_start = -1
+	_selected_read_pair_b_end = -1
+	_region_select_dragging = false
+	_region_select_has_selection = false
+	_map_drag_active = false
+	_map_drag_bp_offset = 0.0
 	_active_read_track_id = TRACK_ID_READS
 	_read_track_states[TRACK_ID_READS] = {
 		"reads": reads,
@@ -643,6 +664,7 @@ func clear_all_data() -> void:
 			"scrollbar": _reads_scrollbar
 		}
 	queue_redraw()
+	_emit_viewport_changed()
 	_emit_viewport_changed()
 
 func set_palette(next_palette: Dictionary) -> void:
@@ -1674,19 +1696,20 @@ func _draw_genome_track(area: Rect2, target = self) -> void:
 	_draw_rect_on(target, area, palette["bg"], true)
 	_draw_grid(area, target)
 	var line_y := y + 36.0
-	if concat_segments.is_empty():
-		var axis_left := TRACK_LEFT_PAD
-		var axis_right := size.x - TRACK_RIGHT_PAD
-		var vis_start := maxf(0.0, view_start_bp)
-		var vis_end := minf(_viewport_end_bp(), float(chromosome_length))
-		if vis_end > vis_start:
-			var x0 := clampf(axis_left + _bp_to_x(vis_start), axis_left, axis_right)
-			var x1 := clampf(axis_left + _bp_to_x(vis_end), axis_left, axis_right)
-			if x1 > x0:
-				_draw_line_on(target, Vector2(x0, line_y), Vector2(x1, line_y), palette["genome"], 3.0)
-		_draw_ticks(y, line_y, target)
-	else:
-		_draw_concat_genome_axis(y, line_y, target)
+	if not loaded_files.is_empty():
+		if concat_segments.is_empty():
+			var axis_left := TRACK_LEFT_PAD
+			var axis_right := size.x - TRACK_RIGHT_PAD
+			var vis_start := maxf(0.0, view_start_bp)
+			var vis_end := minf(_viewport_end_bp(), float(chromosome_length))
+			if vis_end > vis_start:
+				var x0 := clampf(axis_left + _bp_to_x(vis_start), axis_left, axis_right)
+				var x1 := clampf(axis_left + _bp_to_x(vis_end), axis_left, axis_right)
+				if x1 > x0:
+					_draw_line_on(target, Vector2(x0, line_y), Vector2(x1, line_y), palette["genome"], 3.0)
+			_draw_ticks(y, line_y, target)
+		else:
+			_draw_concat_genome_axis(y, line_y, target)
 	_draw_genome_feature_tracks(area, line_y, target)
 	_draw_nucleotide_letters(y, line_y, target)
 
