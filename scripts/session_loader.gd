@@ -191,7 +191,8 @@ func refresh_chromosomes(reset_viewport: bool = true) -> void:
 		host._set_status("Annotation preload disabled: counts unavailable (restart zem)", true)
 	rebuild_concat_segments()
 	refresh_sequence_options()
-	host._refresh_go_chromosomes()
+	if host._go_controller != null:
+		host._go_controller.refresh_context()
 	apply_sequence_view(reset_viewport)
 
 

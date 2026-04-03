@@ -18,6 +18,7 @@ const (
 	inputKindFASTA
 	inputKindGFF3
 	inputKindFlatFile
+	inputKindComparisonSession
 )
 
 func gatherInputFiles(path string) ([]string, error) {
@@ -57,6 +58,11 @@ func gatherInputFiles(path string) ([]string, error) {
 }
 
 func detectInputKind(path string) (inputKind, error) {
+	if ok, err := isComparisonSessionFile(path); err != nil {
+		return inputKindUnknown, err
+	} else if ok {
+		return inputKindComparisonSession, nil
+	}
 	if kind, err := detectInputKindByContent(path); err != nil {
 		return inputKindUnknown, err
 	} else if kind != inputKindUnknown {

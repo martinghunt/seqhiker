@@ -5,10 +5,13 @@ const ZemClientScript = preload("res://scripts/zem_client.gd")
 const LocalZemManagerScript = preload("res://scripts/local_zem_manager.gd")
 const TileControllerScript = preload("res://scripts/tile_controller.gd")
 const SearchControllerScript = preload("res://scripts/search_controller.gd")
+const GoControllerScript = preload("res://scripts/go_controller.gd")
+const TopBarControllerScript = preload("res://scripts/top_bar_controller.gd")
+const ContextPanelControllerScript = preload("res://scripts/context_panel_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
-const GoPanelScene = preload("res://scenes/GoPanel.tscn")
+const ComparisonControllerScript = preload("res://scripts/comparison_controller.gd")
 const ReadTrackSettingsPanelScene = preload("res://scenes/ReadTrackSettingsPanel.tscn")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const ZEM_BIN_SUBDIR := "bin"
@@ -42,6 +45,7 @@ const CONTEXT_PANEL_TRACK_SETTINGS := 2
 const CONTEXT_PANEL_SEARCH := 3
 const CONTEXT_PANEL_GO := 4
 const CONTEXT_PANEL_DOWNLOAD := 5
+const CONTEXT_PANEL_SELECTED_MATCHES := 6
 const DEFAULT_PLOT_HEIGHT := 100.0
 const MIN_PLOT_HEIGHT := 50.0
 const MAX_PLOT_HEIGHT := 360.0
@@ -52,6 +56,8 @@ const DEFAULT_UI_FONT_SIZE := 15
 const MIN_UI_FONT_SIZE := 8
 const MAX_UI_FONT_SIZE := 26
 const VIEW_SLOT_COUNT := 9
+const APP_MODE_BROWSER := 0
+const APP_MODE_COMPARISON := 1
 const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
 const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 const SAM_FLAG_LABELS := [
@@ -94,6 +100,9 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var search_button: Button = $Root/TopBar/ActionClipper/ActionStrip/SearchButton
 @onready var go_button: Button = $Root/TopBar/ActionClipper/ActionStrip/GoButton
 @onready var download_button: Button = $Root/TopBar/ActionClipper/ActionStrip/DownloadButton
+@onready var comparison_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ComparisonButton
+@onready var comparison_save_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ComparisonSaveButton
+@onready var comparison_clear_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ComparisonClearButton
 @onready var pan_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanLeftButton
 @onready var jump_start_button: Button = $Root/TopBar/ActionClipper/ActionStrip/JumpStartButton
 @onready var pan_right_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PanRightButton
@@ -104,6 +113,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var play_left_button: Button = $Root/TopBar/ActionClipper/ActionStrip/PlayLeftButton
 @onready var stop_button: Button = $Root/TopBar/ActionClipper/ActionStrip/StopButton
 @onready var viewport_label: Label = $Root/TopBar/ActionClipper/ActionStrip/ViewportLabel
+@onready var comparison_view: Control = $Root/ContentMargin/ViewportLayer/ComparisonView
 @onready var feature_panel: PanelContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel
 @onready var _feature_margin: MarginContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin
 @onready var _feature_layout: VBoxContainer = $Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout
@@ -156,7 +166,6 @@ const READ_FILTER_FLAG_LABELS := [
 
 var _settings_open := false
 var _settings_tween: Tween
-var _settings_toggle_icon: Control
 var _settings_toggle_icon_label: Label
 var _feature_panel_open := false
 var _context_panel_mode := CONTEXT_PANEL_NONE
@@ -170,14 +179,13 @@ var _tile_cache_generation := 0
 var _zem: RefCounted
 var _tile_controller: RefCounted
 var _search_controller: RefCounted
+var _go_controller: RefCounted
+var _top_bar_controller: RefCounted
+var _context_panel_controller: RefCounted
 var _annotation_cache_controller: RefCounted
 var _feature_panel_controller: RefCounted
 var _session_loader: RefCounted
-var _go_panel: VBoxContainer
-var _go_chr_option: OptionButton
-var _go_start_edit: LineEdit
-var _go_end_edit: LineEdit
-var _go_status_label: Label
+var _comparison_controller: RefCounted
 var _download_panel: VBoxContainer
 var _download_accession_edit: LineEdit
 var _download_action_button: Button
@@ -185,6 +193,7 @@ var _download_status_label: RichTextLabel
 var _download_thread: Thread
 var _download_in_progress := false
 var _screenshot_dialog: FileDialog
+var _comparison_save_dialog: FileDialog
 var _startup_zem_prepare_thread: Thread
 var _startup_zem_connect_thread: Thread
 var _startup_zem_host := "127.0.0.1"
@@ -227,7 +236,7 @@ var _read_thickness_label: Label
 var _read_thickness_spin: SpinBox
 var _show_full_region_checkbox: CheckBox
 var _track_order_list: ItemList
-var _read_mate_jump_button: Button
+var read_mate_jump_button: Button
 var read_mate_jump_start := -1
 var read_mate_jump_end := -1
 var read_mate_jump_ref_id := -1
@@ -277,6 +286,8 @@ var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
 var _genome_cache_max_mb := GENOME_CACHE_MAX_MB_DEFAULT
 var _generate_test_data_thread: Thread
 var _generate_test_data_in_progress := false
+var _generate_comparison_test_data_thread: Thread
+var _generate_comparison_test_data_in_progress := false
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
 var _annotation_counts_by_chr := {}
 var _dbg_ann_tile_requests := 0
@@ -289,10 +300,19 @@ var _last_status_message := "Disconnected"
 var _last_status_is_error := false
 var _last_viewport_message := "0 - 0 bp  |  0 bp visible"
 var _last_bp_per_px_message := "0.00 bp/px"
-var _view_slots: Dictionary = {}
+var _view_slots := {
+	APP_MODE_BROWSER: {},
+	APP_MODE_COMPARISON: {}
+}
 var _view_slot_shortcut_buttons: Array[Button] = []
 var _pan_step_percent := 75.0
 var _loaded_file_paths := PackedStringArray()
+var _app_mode := APP_MODE_BROWSER
+var _settings_view_label: Label
+var _settings_view_box: VBoxContainer
+var _settings_shared_label: Label
+var _settings_shared_box: VBoxContainer
+var _shared_colorize_nucleotides_cb: CheckButton
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -308,8 +328,14 @@ func _ready() -> void:
 	_session_loader.configure(self)
 	_tile_controller.configure(Callable(self, "_compute_tile_zoom"))
 	_themes_lib = ThemesLibScript.new()
+	_comparison_controller = ComparisonControllerScript.new()
+	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
+	_top_bar_controller = TopBarControllerScript.new()
+	_top_bar_controller.configure(self)
+	_context_panel_controller = ContextPanelControllerScript.new()
+	_context_panel_controller.configure(self)
 	_disable_button_focus()
-	_setup_settings_toggle_icon()
+	_top_bar_controller.setup()
 	_setup_theme_selector()
 	_setup_ui_font_selector()
 	_setup_sequence_letter_font_selector()
@@ -321,6 +347,7 @@ func _ready() -> void:
 	_setup_debug_controls()
 	_setup_track_settings_panel()
 	_connect_ui()
+	_setup_settings_sections()
 	_load_or_init_config()
 	_apply_gc_plot_y_scale()
 	_apply_depth_plot_y_scale()
@@ -354,6 +381,9 @@ func _ready() -> void:
 	if screenshot_button != null:
 		screenshot_button.pressed.connect(_on_screenshot_pressed)
 	_setup_screenshot_dialog()
+	_setup_comparison_save_dialog()
+	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
+	_comparison_controller.setup()
 
 func _setup_screenshot_dialog() -> void:
 	_screenshot_dialog = FileDialog.new()
@@ -365,21 +395,121 @@ func _setup_screenshot_dialog() -> void:
 	_screenshot_dialog.file_selected.connect(_on_screenshot_file_selected)
 	add_child(_screenshot_dialog)
 
-func _on_screenshot_pressed() -> void:
-	if _screenshot_dialog == null:
+func _setup_comparison_save_dialog() -> void:
+	_comparison_save_dialog = FileDialog.new()
+	_comparison_save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	_comparison_save_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_comparison_save_dialog.use_native_dialog = true
+	_comparison_save_dialog.title = "Save Comparison Session"
+	_comparison_save_dialog.filters = PackedStringArray(["*.seqhikercmp ; Seqhiker comparison sessions"])
+	_comparison_save_dialog.file_selected.connect(_on_comparison_save_file_selected)
+	add_child(_comparison_save_dialog)
+
+func _setup_settings_sections() -> void:
+	if settings_content == null:
 		return
-	_screenshot_dialog.current_dir = OS.get_system_dir(OS.SYSTEM_DIR_DESKTOP).get_base_dir()
-	_screenshot_dialog.current_file = "seqhiker-view.svg"
-	_screenshot_dialog.popup_centered_ratio(0.7)
+	_settings_view_label = Label.new()
+	_settings_view_box = VBoxContainer.new()
+	_settings_view_box.add_theme_constant_override("separation", 8)
+	_settings_shared_label = Label.new()
+	_settings_shared_box = VBoxContainer.new()
+	_settings_shared_box.add_theme_constant_override("separation", 8)
+
+	var original_children: Array[Node] = []
+	for child in settings_content.get_children():
+		original_children.append(child)
+	settings_content.add_child(_settings_view_label)
+	settings_content.add_child(_settings_view_box)
+	settings_content.add_child(_settings_shared_label)
+	settings_content.add_child(_settings_shared_box)
+
+	var browser_names := {
+		"TrackVisibilityLabel": true,
+		"TrackVisibilityBox": true,
+		"BAMCoverageCutoffLabel": true,
+		"BAMCoverageCutoffSpin": true,
+		"PlaySpeedLabel": true,
+		"PlaySpeedRow": true
+	}
+	for child in original_children:
+		if child == null:
+			continue
+		if bool(browser_names.get(child.name, false)):
+			settings_content.remove_child(child)
+			_settings_view_box.add_child(child)
+		else:
+			settings_content.remove_child(child)
+			_settings_shared_box.add_child(child)
+
+	if _comparison_controller != null:
+		_comparison_controller.setup_settings(_settings_view_box)
+
+	_shared_colorize_nucleotides_cb = CheckButton.new()
+	_shared_colorize_nucleotides_cb.text = "Color nucleotides by base"
+	_shared_colorize_nucleotides_cb.button_pressed = _colorize_nucleotides
+	_shared_colorize_nucleotides_cb.toggled.connect(_on_colorize_nucleotides_toggled)
+	var insert_at := -1
+	for i in range(_settings_shared_box.get_child_count()):
+		if _settings_shared_box.get_child(i) == ui_font_option:
+			insert_at = i
+			break
+	if insert_at >= 0:
+		_settings_shared_box.add_child(_shared_colorize_nucleotides_cb)
+		_settings_shared_box.move_child(_shared_colorize_nucleotides_cb, insert_at)
+	else:
+		_settings_shared_box.add_child(_shared_colorize_nucleotides_cb)
+
+	_refresh_settings_sections()
+
+func _refresh_settings_sections() -> void:
+	if _settings_view_label == null or _settings_view_box == null or _settings_shared_label == null or _settings_shared_box == null:
+		return
+	_settings_view_label.text = "Comparison Options" if _app_mode == APP_MODE_COMPARISON else "Browser Options"
+	_settings_shared_label.text = "Shared Options"
+	var browser_visible := _app_mode == APP_MODE_BROWSER
+	for child in _settings_view_box.get_children():
+		child.visible = browser_visible
+	if _comparison_controller != null:
+		_comparison_controller.refresh_settings(_app_mode)
+
+func _toggle_comparison_mode() -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller.toggle_comparison_mode()
+
+func _set_app_mode(next_mode: int) -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller.set_app_mode(next_mode)
+
+func _apply_view_mode_visibility(previous_mode: int, next_mode: int) -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller._apply_view_mode_visibility(previous_mode, next_mode)
+
+func _refresh_comparison_topbar_state() -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller.refresh_comparison_topbar_state()
+
+func _active_view_has_data_to_clear() -> bool:
+	return _top_bar_controller != null and _top_bar_controller._active_view_has_data_to_clear()
+
+func _spin_clear_button() -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller._spin_clear_button()
+
+func _on_screenshot_pressed() -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller.on_screenshot_pressed()
 
 func _on_screenshot_file_selected(path: String) -> void:
-	var out_path := path
-	if not out_path.to_lower().ends_with(".svg"):
-		out_path += ".svg"
-	if genome_view.export_current_view_svg(out_path):
-		_set_status("Saved screenshot: %s" % out_path)
-	else:
-		_set_status("Failed to save screenshot: %s" % out_path, true)
+	if _top_bar_controller != null:
+		_top_bar_controller.on_screenshot_file_selected(path)
+
+func _on_comparison_save_pressed() -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller.on_comparison_save_pressed()
+
+func _on_comparison_save_file_selected(path: String) -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller.on_comparison_save_file_selected(path)
 
 func _initialize_settings_panel() -> void:
 	_set_status("Disconnected")
@@ -509,19 +639,59 @@ func _setup_font_size_control() -> void:
 func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
 	close_settings_button.pressed.connect(_close_settings)
-	pan_left_button.pressed.connect(func() -> void: _pan_view_by_fraction(-_pan_step_percent / 100.0))
-	jump_start_button.pressed.connect(func() -> void: _navigate_to_boundary(false))
-	pan_right_button.pressed.connect(func() -> void: _pan_view_by_fraction(_pan_step_percent / 100.0))
-	jump_end_button.pressed.connect(func() -> void: _navigate_to_boundary(true))
-	zoom_in_button.pressed.connect(func() -> void: genome_view.zoom_by(0.78))
-	zoom_out_button.pressed.connect(func() -> void: genome_view.zoom_by(1.28))
+	pan_left_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
+				comparison_view.pan_all_by_fraction(-_pan_step_percent / 100.0)
+			return
+		_pan_view_by_fraction(-_pan_step_percent / 100.0)
+	)
+	jump_start_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("move_all_to_boundary"):
+				comparison_view.move_all_to_boundary(false)
+			return
+		_navigate_to_boundary(false)
+	)
+	pan_right_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
+				comparison_view.pan_all_by_fraction(_pan_step_percent / 100.0)
+			return
+		_pan_view_by_fraction(_pan_step_percent / 100.0)
+	)
+	jump_end_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("move_all_to_boundary"):
+				comparison_view.move_all_to_boundary(true)
+			return
+		_navigate_to_boundary(true)
+	)
+	zoom_in_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("zoom_by"):
+				comparison_view.zoom_by(0.78)
+			return
+		genome_view.zoom_by(0.78)
+	)
+	zoom_out_button.pressed.connect(func() -> void:
+		if _app_mode == APP_MODE_COMPARISON:
+			if comparison_view != null and comparison_view.has_method("zoom_by"):
+				comparison_view.zoom_by(1.28)
+			return
+		genome_view.zoom_by(1.28)
+	)
 	play_button.pressed.connect(_start_auto_play)
 	play_left_button.pressed.connect(_start_auto_play_left)
 	stop_button.pressed.connect(_stop_auto_play)
+	comparison_button.pressed.connect(_toggle_comparison_mode)
+	comparison_save_button.pressed.connect(_on_comparison_save_pressed)
+	comparison_clear_button.pressed.connect(_on_comparison_clear_pressed)
 	search_button.pressed.connect(_toggle_search_panel)
 	go_button.pressed.connect(_toggle_go_panel)
 	download_button.pressed.connect(_toggle_download_panel)
 	genome_view.viewport_changed.connect(_on_viewport_changed)
+	comparison_view.viewport_changed.connect(_on_comparison_viewport_changed)
 	genome_view.map_jump_requested.connect(_on_map_jump_requested)
 	genome_view.center_jump_requested.connect(_on_center_jump_requested)
 	genome_view.feature_clicked.connect(_on_feature_selected)
@@ -603,6 +773,9 @@ func _pan_view_by_fraction(fraction: float, duration: float = 0.35, linear: bool
 func _disable_button_focus() -> void:
 	var controls := [
 		settings_toggle_button,
+		comparison_button,
+		comparison_save_button,
+		comparison_clear_button,
 		search_button,
 		go_button,
 		download_button,
@@ -631,39 +804,46 @@ func _disable_button_focus() -> void:
 			c.focus_mode = Control.FOCUS_NONE
 
 func _setup_settings_toggle_icon() -> void:
-	if settings_toggle_button == null:
-		return
-	settings_toggle_button.text = ""
-	settings_toggle_button.clip_contents = true
-	if top_bar != null:
-		top_bar.clip_contents = true
-	var icon_container := settings_toggle_button.get_node_or_null("IconContainer") as CenterContainer
-	if icon_container == null:
-		icon_container = CenterContainer.new()
-		icon_container.name = "IconContainer"
-		icon_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		icon_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		settings_toggle_button.add_child(icon_container)
-	var icon_label := icon_container.get_node_or_null("IconLabel") as Label
-	if icon_label == null:
-		icon_label = Label.new()
-		icon_label.name = "IconLabel"
-		icon_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		icon_container.add_child(icon_label)
-	icon_label.text = "C"
-	if settings_toggle_button.has_theme_font_override("font"):
-		icon_label.add_theme_font_override("font", settings_toggle_button.get_theme_font("font"))
-	if settings_toggle_button.has_theme_font_size_override("font_size"):
-		icon_label.add_theme_font_size_override("font_size", settings_toggle_button.get_theme_font_size("font_size"))
-	_settings_toggle_icon = icon_container
-	_settings_toggle_icon_label = icon_label
-	call_deferred("_update_settings_toggle_icon_pivot")
+	if _top_bar_controller != null:
+		_top_bar_controller._setup_settings_toggle_icon()
+
+func _setup_comparison_toggle_icon() -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller._setup_comparison_toggle_icon()
+
+func _setup_comparison_clear_icon() -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller._setup_comparison_clear_icon()
 
 func _update_settings_toggle_icon_pivot() -> void:
-	if _settings_toggle_icon_label == null:
-		return
-	var icon_size := _settings_toggle_icon_label.get_combined_minimum_size()
-	_settings_toggle_icon_label.pivot_offset = icon_size * 0.5
+	if _top_bar_controller != null:
+		_top_bar_controller._update_settings_toggle_icon_pivot()
+
+func _update_comparison_toggle_icon_pivot() -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller._update_comparison_toggle_icon_pivot()
+
+func _update_comparison_clear_icon_pivot() -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller._update_comparison_clear_icon_pivot()
+
+func _setup_topbar_icon_button(button: Button, glyph: String) -> Dictionary:
+	if _top_bar_controller != null:
+		return _top_bar_controller._setup_topbar_icon_button(button, glyph)
+	return {}
+
+func _update_topbar_icon_pivot(icon_label: Label) -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller._update_topbar_icon_pivot(icon_label)
+
+func _spin_topbar_icon(icon_label: Label, delta_degrees: float, duration: float, tween: Tween) -> Tween:
+	if _top_bar_controller != null:
+		return _top_bar_controller._spin_topbar_icon(icon_label, delta_degrees, duration, tween)
+	return tween
+
+func _apply_comparison_toggle_icon_state(animated: bool) -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller._apply_comparison_toggle_icon_state(animated)
 
 func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_start = start_bp
@@ -692,6 +872,14 @@ func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 			_schedule_fetch()
 	_prev_view_start = start_bp
 	_prev_view_end = end_bp
+
+func _on_comparison_viewport_changed(visible_span_bp: int) -> void:
+	if _app_mode != APP_MODE_COMPARISON or viewport_label == null:
+		return
+	if _comparison_controller != null and _comparison_controller.has_genomes():
+		viewport_label.text = _format_comparison_viewport_label(visible_span_bp)
+	else:
+		viewport_label.text = "Comparison view"
 
 func _format_viewport_label(start_bp: int, end_bp: int, _bp_per_px: float) -> String:
 	var coord_start := start_bp
@@ -744,6 +932,18 @@ func _format_viewport_label(start_bp: int, end_bp: int, _bp_per_px: float) -> St
 		prefix += " (+%d)" % (overlaps.size() - 2)
 	return "%s  |  %d bp %s" % [prefix, span_bp, span_text]
 
+func _format_comparison_viewport_label(visible_span_bp: int) -> String:
+	return "%s bp visible" % _format_int_with_commas(maxi(0, visible_span_bp))
+
+func _format_int_with_commas(value: int) -> String:
+	var n := maxi(0, value)
+	var text := str(n)
+	var out := ""
+	while text.length() > 3:
+		out = "," + text.substr(text.length() - 3, 3) + out
+		text = text.substr(0, text.length() - 3)
+	return text + out
+
 func _on_region_selection_changed(active: bool, start_bp: int, end_bp: int) -> void:
 	_selection_active = active
 	if active:
@@ -786,7 +986,7 @@ func _slide_settings(open: bool, animated: bool) -> void:
 		_settings_tween.parallel().tween_property(settings_panel, "offset_right", open_right if open else closed_right, 0.24)
 		if _settings_toggle_icon_label != null:
 			var spin_delta := -180.0 if open else 180.0
-			_settings_tween.parallel().tween_property(_settings_toggle_icon_label, "rotation_degrees", _settings_toggle_icon_label.rotation_degrees + spin_delta, 0.36)
+			_settings_tween = _spin_topbar_icon(_settings_toggle_icon_label, spin_delta, 0.36, _settings_tween)
 		if not open:
 			_settings_tween.finished.connect(func() -> void:
 				if not _settings_open:
@@ -832,23 +1032,35 @@ func _on_ui_scale_changed(value: float) -> void:
 
 func _on_trackpad_pan_changed(value: float) -> void:
 	genome_view.set_trackpad_pan_sensitivity(value)
+	if comparison_view != null and comparison_view.has_method("set_trackpad_pan_sensitivity"):
+		comparison_view.set_trackpad_pan_sensitivity(value)
 
 func _on_trackpad_pinch_changed(value: float) -> void:
 	genome_view.set_trackpad_pinch_sensitivity(value)
+	if comparison_view != null and comparison_view.has_method("set_trackpad_pinch_sensitivity"):
+		comparison_view.set_trackpad_pinch_sensitivity(value)
 
 func _on_enable_vertical_swipe_zoom_toggled(enabled: bool) -> void:
 	enable_vertical_swipe_zoom_button.button_pressed = enabled
 	genome_view.set_vertical_swipe_zoom_enabled(enabled)
+	if comparison_view != null and comparison_view.has_method("set_vertical_swipe_zoom_enabled"):
+		comparison_view.set_vertical_swipe_zoom_enabled(enabled)
 
 func _on_mouse_wheel_zoom_changed(value: float) -> void:
 	genome_view.set_mouse_wheel_zoom_sensitivity(value)
+	if comparison_view != null and comparison_view.has_method("set_mouse_wheel_zoom_sensitivity"):
+		comparison_view.set_mouse_wheel_zoom_sensitivity(value)
 
 func _on_invert_mouse_wheel_zoom_toggled(enabled: bool) -> void:
 	invert_mouse_wheel_zoom_button.button_pressed = enabled
 	genome_view.set_invert_mouse_wheel_zoom(enabled)
+	if comparison_view != null and comparison_view.has_method("set_invert_mouse_wheel_zoom"):
+		comparison_view.set_invert_mouse_wheel_zoom(enabled)
 
 func _on_mouse_wheel_pan_changed(value: float) -> void:
 	genome_view.set_mouse_wheel_pan_sensitivity(value)
+	if comparison_view != null and comparison_view.has_method("set_mouse_wheel_pan_sensitivity"):
+		comparison_view.set_mouse_wheel_pan_sensitivity(value)
 
 func _on_pan_step_changed(value: float) -> void:
 	_pan_step_percent = clampf(value, 1.0, 100.0)
@@ -986,6 +1198,8 @@ func _on_sequence_letter_font_selected(index: int) -> void:
 		return
 	_sequence_letter_font_name = sequence_letter_font_option.get_item_text(index)
 	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
+	if comparison_view != null and comparison_view.has_method("set_sequence_letter_font_name"):
+		comparison_view.set_sequence_letter_font_name(_sequence_letter_font_name)
 	_save_config()
 
 
@@ -1003,6 +1217,8 @@ func _apply_classic_font_defaults_for_theme(theme_name: String) -> void:
 			sequence_letter_font_option.select(i)
 			break
 	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
+	if comparison_view != null and comparison_view.has_method("set_sequence_letter_font_name"):
+		comparison_view.set_sequence_letter_font_name(_sequence_letter_font_name)
 
 func _setup_read_view_controls() -> void:
 	_read_view_label = Label.new()
@@ -1121,9 +1337,16 @@ func _clear_genome_cache() -> void:
 func _generated_test_data_dir() -> String:
 	return OS.get_user_data_dir().path_join("generated_test_data")
 
+func _generated_comparison_test_data_dir() -> String:
+	return OS.get_user_data_dir().path_join("generated_comparison_test_data")
+
 func _set_generate_test_data_controls_enabled(enabled: bool) -> void:
 	if _generate_test_data_button != null:
 		_generate_test_data_button.disabled = not enabled
+
+func _set_generate_comparison_test_data_controls_enabled(enabled: bool) -> void:
+	if _comparison_controller != null:
+		_comparison_controller.set_generate_test_genomes_enabled(enabled)
 
 func _open_user_data_dir() -> void:
 	var user_dir := ProjectSettings.globalize_path("user://")
@@ -1161,11 +1384,44 @@ func _start_generate_test_data() -> void:
 	_set_generate_test_data_controls_enabled(false)
 	_set_status("Generating built-in test data...")
 
+func _start_generate_comparison_test_data() -> void:
+	if _generate_comparison_test_data_in_progress:
+		return
+	if not _session_loader.ensure_server_connected():
+		return
+	var out_dir := _generated_comparison_test_data_dir()
+	var mk_err := DirAccess.make_dir_recursive_absolute(out_dir)
+	if mk_err != OK and not DirAccess.dir_exists_absolute(out_dir):
+		_set_status("Could not create generated comparison test data directory.", true)
+		return
+	var conn: Dictionary = _zem.connection_info()
+	_generate_comparison_test_data_thread = Thread.new()
+	var err := _generate_comparison_test_data_thread.start(
+		Callable(self, "_generate_comparison_test_data_thread_main").bind(
+			str(conn.get("host", "127.0.0.1")),
+			int(conn.get("port", ZEM_DEFAULT_PORT)),
+			out_dir
+		)
+	)
+	if err != OK:
+		_generate_comparison_test_data_thread = null
+		_set_status("Could not start comparison test-data thread: %s" % error_string(err), true)
+		return
+	_generate_comparison_test_data_in_progress = true
+	_set_generate_comparison_test_data_controls_enabled(false)
+	_set_status("Generating comparison test genomes...")
+
 func _generate_test_data_thread_main(host_ip: String, port: int, out_dir: String) -> Dictionary:
 	var client = ZemClientScript.new()
 	if not client.connect_to_server(host_ip, port, 2000):
 		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
 	return client.generate_test_data(out_dir)
+
+func _generate_comparison_test_data_thread_main(host_ip: String, port: int, out_dir: String) -> Dictionary:
+	var client = ZemClientScript.new()
+	if not client.connect_to_server(host_ip, port, 2000):
+		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
+	return client.generate_comparison_test_data(out_dir)
 
 func _finish_generate_test_data(result_any: Variant) -> void:
 	_generate_test_data_in_progress = false
@@ -1183,6 +1439,24 @@ func _finish_generate_test_data(result_any: Variant) -> void:
 		_set_status("Generate test data load failed: %s" % load_resp.get("error", "error"), true)
 		return
 	_set_status("Generated and loaded test data.")
+
+func _finish_generate_comparison_test_data(result_any: Variant) -> void:
+	_generate_comparison_test_data_in_progress = false
+	_set_generate_comparison_test_data_controls_enabled(true)
+	var result: Dictionary = result_any if result_any is Dictionary else {}
+	if result.is_empty() or not result.get("ok", false):
+		_set_status("Generate comparison test data failed: %s" % result.get("error", "error"), true)
+		return
+	var files: PackedStringArray = result.get("files", PackedStringArray())
+	if files.is_empty():
+		_set_status("Generate comparison test data failed: no files returned.", true)
+		return
+	_set_app_mode(APP_MODE_COMPARISON)
+	if _comparison_controller == null or not _comparison_controller.load_generated_genomes(files):
+		_set_status("Generate comparison test data load failed.", true)
+		return
+	_refresh_comparison_topbar_state()
+	_set_status("Generated and loaded comparison test genomes.")
 
 func _delete_dir_contents_absolute(dir_path: String) -> bool:
 	var dir := DirAccess.open(dir_path)
@@ -1259,35 +1533,24 @@ func _setup_track_settings_panel() -> void:
 			mapq_spin.value_changed.connect(_on_active_read_track_min_mapq_changed)
 	_search_controller.setup(feature_content, {
 		"get_zem": Callable(self, "_search_get_zem"),
+		"get_app_mode": Callable(self, "_search_get_app_mode"),
 		"get_chromosomes": Callable(self, "_search_get_chromosomes"),
+		"get_comparison_genomes": Callable(self, "_search_get_comparison_genomes"),
 		"get_selected_seq_id": Callable(self, "_search_get_selected_seq_id"),
 		"on_hit_selected": Callable(self, "_jump_to_search_hit")
 	})
-	_setup_go_panel()
+	_go_controller = GoControllerScript.new()
+	_go_controller.setup(feature_content, {
+		"get_app_mode": Callable(self, "_go_get_app_mode"),
+		"get_chromosomes": Callable(self, "_go_get_chromosomes"),
+		"get_comparison_genomes": Callable(self, "_go_get_comparison_genomes"),
+		"get_browser_target_chr_id": Callable(self, "_go_get_browser_target_chr_id"),
+		"on_browser_go_request": Callable(self, "_go_on_browser_request"),
+		"on_comparison_go_request": Callable(self, "_go_on_comparison_request"),
+		"report_error_status": Callable(self, "_set_status"),
+		"request_close_panel": Callable(self, "_close_feature_panel")
+	})
 	_setup_download_panel()
-
-func _setup_go_panel() -> void:
-	var panel := GoPanelScene.instantiate()
-	_go_panel = panel as VBoxContainer
-	if _go_panel == null:
-		return
-	feature_content.add_child(_go_panel)
-	_go_panel.visible = false
-	_go_chr_option = _go_panel.get_node("ChromosomeOption") as OptionButton
-	_go_start_edit = _go_panel.get_node("StartEdit") as LineEdit
-	_go_end_edit = _go_panel.get_node("EndEdit") as LineEdit
-	_go_status_label = _go_panel.get_node("StatusLabel") as Label
-	var go_action_button := _go_panel.get_node("GoButton") as Button
-	if go_action_button != null:
-		go_action_button.pressed.connect(_apply_go_request)
-	if _go_start_edit != null:
-		_go_start_edit.text_submitted.connect(func(_text: String) -> void:
-			_apply_go_request()
-		)
-	if _go_end_edit != null:
-		_go_end_edit.text_submitted.connect(func(_text: String) -> void:
-			_apply_go_request()
-		)
 
 func _setup_download_panel() -> void:
 	_download_panel = VBoxContainer.new()
@@ -1346,6 +1609,8 @@ func _on_show_full_region_toggled(enabled: bool) -> void:
 func _on_colorize_nucleotides_toggled(enabled: bool) -> void:
 	_colorize_nucleotides = enabled
 	genome_view.set_colorize_nucleotides(enabled)
+	if comparison_view != null and comparison_view.has_method("set_colorize_nucleotides"):
+		comparison_view.set_colorize_nucleotides(enabled)
 
 func _on_axis_coords_commas_toggled(enabled: bool) -> void:
 	_axis_coords_with_commas = enabled
@@ -1889,11 +2154,6 @@ func _on_track_settings_requested(track_id: String) -> void:
 		gap_spin.value = _concat_gap_bp
 		_track_settings_box.add_child(gap_label)
 		_track_settings_box.add_child(gap_spin)
-		var colorize_cb := CheckButton.new()
-		colorize_cb.text = "Color nucleotides by base"
-		colorize_cb.button_pressed = _colorize_nucleotides
-		colorize_cb.toggled.connect(_on_colorize_nucleotides_toggled)
-		_track_settings_box.add_child(colorize_cb)
 		var coord_commas_cb := CheckButton.new()
 		coord_commas_cb.text = "Use commas in axis coordinates"
 		coord_commas_cb.button_pressed = _axis_coords_with_commas
@@ -1992,74 +2252,32 @@ func _on_track_settings_requested(track_id: String) -> void:
 	_slide_feature_panel(true, true)
 
 func _toggle_search_panel() -> void:
-	if _search_controller == null:
-		return
-	if _feature_panel_open and _context_panel_mode == CONTEXT_PANEL_SEARCH:
-		_close_feature_panel()
-		return
-	_prepare_context_panel(CONTEXT_PANEL_SEARCH, "Search", false)
-	_search_controller.show_panel()
-	_feature_panel_open = true
-	_slide_feature_panel(true, true)
-	_search_controller.focus_query()
+	if _context_panel_controller != null:
+		_context_panel_controller.toggle_search_panel()
 
 func _toggle_go_panel() -> void:
-	if _go_panel == null:
-		return
-	if _feature_panel_open and _context_panel_mode == CONTEXT_PANEL_GO:
-		_close_feature_panel()
-		return
-	_prepare_context_panel(CONTEXT_PANEL_GO, "Go to position", false)
-	_go_panel.visible = true
-	_refresh_go_chromosomes()
-	_clear_go_status()
-	_feature_panel_open = true
-	_slide_feature_panel(true, true)
+	if _context_panel_controller != null:
+		_context_panel_controller.toggle_go_panel()
 
 func _toggle_download_panel() -> void:
-	if _download_panel == null:
-		return
-	if _feature_panel_open and _context_panel_mode == CONTEXT_PANEL_DOWNLOAD:
-		_close_feature_panel()
-		return
-	_prepare_context_panel(CONTEXT_PANEL_DOWNLOAD, "Download Genome", false)
-	_download_panel.visible = true
-	if not _download_in_progress:
-		_set_download_status("")
-	_feature_panel_open = true
-	_slide_feature_panel(true, true)
-	if _download_accession_edit != null:
-		_download_accession_edit.grab_focus()
+	if _context_panel_controller != null:
+		_context_panel_controller.toggle_download_panel()
 
 func _prepare_context_panel(mode: int, title: String, show_detail_labels: bool) -> void:
-	if _context_panel_mode == CONTEXT_PANEL_TRACK_SETTINGS and mode != CONTEXT_PANEL_TRACK_SETTINGS:
-		_maybe_save_genome_track_settings()
-	_context_panel_mode = mode
-	_track_settings_open = false
-	_active_track_settings_id = ""
-	feature_title_label.text = title
-	feature_name_label.visible = show_detail_labels
-	feature_type_label.visible = show_detail_labels
-	feature_range_label.visible = show_detail_labels
-	feature_strand_label.visible = show_detail_labels
-	feature_source_label.visible = show_detail_labels
-	feature_seq_label.visible = show_detail_labels
-	_hide_context_subpanels()
+	if _context_panel_controller != null:
+		_context_panel_controller.prepare_context_panel(mode, title, show_detail_labels)
 
 func _hide_context_subpanels() -> void:
-	if _track_settings_box != null:
-		_track_settings_box.visible = false
-	if _search_controller != null:
-		_search_controller.hide_panel()
-	if _go_panel != null:
-		_go_panel.visible = false
-	if _download_panel != null:
-		_download_panel.visible = false
-	if _read_mate_jump_button != null:
-		_read_mate_jump_button.visible = false
+	if _context_panel_controller != null:
+		_context_panel_controller.hide_context_subpanels()
 
 func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	var hit: Dictionary = hit_any
+	if str(hit.get("context", "")) == "comparison":
+		if _app_mode != APP_MODE_COMPARISON:
+			return
+		_comparison_controller.focus_search_hit(hit)
+		return
 	var hit_kind := str(hit.get("kind", ""))
 	var chr_id := int(hit.get("chr_id", -1))
 	var start_bp := int(hit.get("start", 0))
@@ -2089,40 +2307,9 @@ func _on_map_jump_requested(bp_center: float) -> void:
 	_navigate_to_view(float(target_start), current_bp_per_px)
 
 func _on_center_jump_requested(bp_center: float) -> void:
-	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
 	var target_start := maxi(0, int(floor(bp_center - genome_view.get_visible_span_bp() * 0.5)))
-	_navigate_to_view(float(target_start), current_bp_per_px)
-
-func _refresh_go_chromosomes() -> void:
-	if _go_chr_option == null:
-		return
-	_go_chr_option.clear()
-	for c in _chromosomes:
-		_go_chr_option.add_item(str(c.get("name", "chr")), int(c.get("id", -1)))
-	var target_id := _current_chr_id if _current_chr_id >= 0 else _selected_seq_id
-	if _seq_view_mode == SEQ_VIEW_CONCAT and _concat_segments.size() > 0:
-		var center_bp := int(floor(0.5 * float(_last_start + _last_end)))
-		var overlaps := _segments_overlapping(center_bp, center_bp + 1)
-		if not overlaps.is_empty():
-			target_id = int(overlaps[0].get("id", -1))
-	if target_id < 0 and _chromosomes.size() > 0:
-		target_id = int(_chromosomes[0].get("id", -1))
-	for i in range(_go_chr_option.item_count):
-		if int(_go_chr_option.get_item_id(i)) == target_id:
-			_go_chr_option.select(i)
-			return
-	if _go_chr_option.item_count > 0:
-		_go_chr_option.select(0)
-
-func _clear_go_status() -> void:
-	if _go_status_label != null:
-		_go_status_label.text = ""
-
-func _set_go_status(message: String, is_error: bool = false) -> void:
-	if _go_status_label != null:
-		_go_status_label.text = message
-	if is_error:
-		_set_status(message, true)
+	_cancel_motion_navigation()
+	genome_view.pan_to_start(float(target_start))
 
 func _display_point_bp(bp: int) -> int:
 	return bp + 1
@@ -2133,79 +2320,72 @@ func _display_range_start_bp(start_bp: int) -> int:
 func _display_range_end_bp(end_bp: int, is_inclusive: bool = false) -> int:
 	return end_bp + 1 if is_inclusive else end_bp
 
-func _parse_go_bp(text: String) -> int:
-	var clean := text.strip_edges().replace(",", "").replace(" ", "")
-	if clean.is_empty():
-		return -1
-	if not clean.is_valid_int():
-		return -1
-	var value := int(clean)
-	if value < 1:
-		return -1
-	return value
+func _go_get_app_mode() -> int:
+	return _app_mode
 
-func _apply_go_request() -> void:
-	if _go_chr_option == null or _go_start_edit == null:
-		return
-	_clear_go_status()
-	if _chromosomes.is_empty():
-		_set_go_status("No chromosomes loaded.", true)
-		return
-	var selected_chr_id := int(_go_chr_option.get_selected_id())
-	var chr_len := 0
-	var chr_name := ""
-	for c in _chromosomes:
-		if int(c.get("id", -1)) == selected_chr_id:
-			chr_len = int(c.get("length", 0))
-			chr_name = str(c.get("name", "chr"))
-			break
-	if chr_len <= 0:
-		_set_go_status("Chromosome length unavailable.", true)
-		return
-	var start_display := _parse_go_bp(_go_start_edit.text)
-	if start_display < 1:
-		_set_go_status("Enter a valid start position.", true)
-		return
-	var end_display := _parse_go_bp(_go_end_edit.text) if _go_end_edit != null else -1
-	if start_display > chr_len:
-		_set_go_status("Start position beyond chromosome length.", true)
-		return
-	if end_display >= 0 and end_display < start_display:
-		var swap := start_display
-		start_display = end_display
-		end_display = swap
-	if end_display > chr_len:
-		end_display = chr_len
-	if _seq_view_mode != SEQ_VIEW_SINGLE:
-		_seq_view_option.select(SEQ_VIEW_SINGLE)
-		_on_seq_view_selected(SEQ_VIEW_SINGLE)
-	for i in range(_seq_option.item_count):
-		if int(_seq_option.get_item_id(i)) == selected_chr_id:
-			_seq_option.select(i)
-			_on_seq_selected(i)
-			break
+func _go_get_chromosomes() -> Array[Dictionary]:
+	return _chromosomes
+
+func _go_get_comparison_genomes() -> Array[Dictionary]:
+	return _comparison_controller.get_genomes() if _comparison_controller != null else []
+
+func _go_get_browser_target_chr_id() -> int:
+	var target_id := _current_chr_id if _current_chr_id >= 0 else _selected_seq_id
+	if _seq_view_mode == SEQ_VIEW_CONCAT and _concat_segments.size() > 0:
+		var center_bp := int(floor(0.5 * float(_last_start + _last_end)))
+		var overlaps := _segments_overlapping(center_bp, center_bp + 1)
+		if not overlaps.is_empty():
+			target_id = int(overlaps[0].get("id", -1))
+	return target_id
+
+func _go_on_comparison_request(genome_id: int, segment: Dictionary, start_display: int, end_display: int) -> void:
+	var seg_start := int(segment.get("start", 0))
+	var start_bp := seg_start + start_display - 1
+	var end_bp := seg_start + end_display if end_display >= 0 else start_bp + 1
+	if end_display >= 0:
+		_comparison_controller.focus_genome_range_with_zoom(genome_id, start_bp, end_bp)
+	else:
+		_comparison_controller.focus_genome_range(genome_id, start_bp, end_bp)
+
+func _go_on_browser_request(chr_id: int, start_display: int, end_display: int) -> void:
 	var width_px := maxf(1.0, genome_view.size.x)
 	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	var offset_bp := 0
+	if _seq_view_mode == SEQ_VIEW_CONCAT:
+		for seg in _concat_segments:
+			if int(seg.get("id", -1)) == chr_id:
+				offset_bp = int(seg.get("start", 0))
+				break
+	else:
+		for i in range(_seq_option.item_count):
+			if int(_seq_option.get_item_id(i)) == chr_id:
+				_seq_option.select(i)
+				_on_seq_selected(i)
+				break
 	if end_display >= 0:
-		var start_bp := start_display - 1
-		var end_bp := end_display
+		var start_bp := offset_bp + start_display - 1
+		var end_bp := offset_bp + end_display
 		var span_bp := maxi(1, end_bp - start_bp)
 		var bp_per_px := clampf(float(span_bp) / width_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
 		_navigate_to_view(float(start_bp), bp_per_px)
-		genome_view.clear_region_selection()
-		_set_go_status("%s:%d-%d" % [chr_name, start_display, end_display])
 	else:
-		var point_bp := start_display - 1
+		var point_bp := offset_bp + start_display - 1
 		_navigate_to_centered_range(point_bp, point_bp + 1, current_bp_per_px)
-		genome_view.clear_region_selection()
-		_set_go_status("%s:%d" % [chr_name, start_display])
-	_close_feature_panel()
+	genome_view.clear_region_selection()
 
 func _search_get_zem() -> RefCounted:
 	return _zem
 
+func _search_get_app_mode() -> int:
+	return _app_mode
+
 func _search_get_chromosomes() -> Array[Dictionary]:
 	return _chromosomes
+
+func _search_get_comparison_genomes() -> Array[Dictionary]:
+	if _comparison_controller == null:
+		return []
+	return _comparison_controller.get_genomes()
 
 func _search_get_selected_seq_id() -> int:
 	return _selected_seq_id
@@ -2286,6 +2466,13 @@ func _finish_download_genome(result_any: Variant) -> void:
 	if files.is_empty():
 		_set_download_status("Download failed: no genome files returned.", true)
 		return
+	if _app_mode == APP_MODE_COMPARISON and _comparison_controller != null:
+		if not _comparison_controller.add_input_files(files):
+			_set_download_status("Downloaded files, but could not add a comparison genome.", true)
+			return
+		_comparison_controller.finalize_added_genomes()
+		_set_download_status("Downloaded and added to comparison:\n%s" % "\n".join(files))
+		return
 	_session_loader.apply_already_loaded_genome(files)
 	_set_download_status("Downloaded and loaded:\n%s" % "\n".join(files))
 
@@ -2342,6 +2529,8 @@ func _apply_theme(theme_name: String) -> void:
 	_apply_topbar_button_font_size()
 	call_deferred("_update_settings_toggle_icon_pivot")
 	_apply_settings_scrollbar_style()
+	if _comparison_controller != null:
+		_comparison_controller.refresh_view(theme_name)
 	call_deferred("_update_settings_panel_width")
 	call_deferred("_update_feature_panel_width")
 
@@ -2458,34 +2647,33 @@ func _apply_search_theme(palette: Dictionary) -> void:
 		_search_controller.apply_theme(palette)
 
 func _apply_topbar_button_font_size() -> void:
-	var topbar_font_size := clampi(_ui_font_size + 6, MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE + 6)
-	var topbar_button_size := Vector2(topbar_font_size + 14, topbar_font_size + 14)
-	var topbar_buttons := [
-		settings_toggle_button,
-		search_button,
-		go_button,
-		screenshot_button,
-		download_button,
-		jump_start_button,
-		jump_end_button,
-		pan_left_button,
-		pan_right_button,
-		zoom_out_button,
-		zoom_in_button,
-		play_left_button,
-		stop_button,
-		play_button
-	]
-	for b_any in topbar_buttons:
-		var b: Button = b_any
-		b.add_theme_font_size_override("font_size", topbar_font_size)
-		b.custom_minimum_size = topbar_button_size
-	if _settings_toggle_icon_label != null:
-		_settings_toggle_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
-		_update_settings_toggle_icon_pivot()
+	if _top_bar_controller != null:
+		_top_bar_controller.apply_topbar_button_font_size()
 
 func _on_files_dropped(files: PackedStringArray) -> void:
+	if not _ensure_server_connected():
+		return
+	for file_any in files:
+		var path := str(file_any)
+		if path.is_empty():
+			continue
+		var inspect: Dictionary = _zem.inspect_input(path)
+		if bool(inspect.get("ok", false)) and bool(inspect.get("is_comparison_session", false)):
+			_set_app_mode(APP_MODE_COMPARISON)
+			if _comparison_controller != null:
+				_comparison_controller.load_session(path)
+			_refresh_comparison_topbar_state()
+			return
+	if _app_mode == APP_MODE_COMPARISON:
+		if _comparison_controller != null:
+			_comparison_controller.handle_files_dropped(files)
+		_refresh_comparison_topbar_state()
+		return
 	_session_loader.on_files_dropped(files)
+
+func _on_comparison_clear_pressed() -> void:
+	if _top_bar_controller != null:
+		_top_bar_controller.on_clear_pressed()
 
 func _ensure_server_connected() -> bool:
 	return _session_loader.ensure_server_connected()
@@ -2505,6 +2693,9 @@ func _exit_tree() -> void:
 	if _generate_test_data_thread != null and _generate_test_data_thread.is_started():
 		_generate_test_data_thread.wait_to_finish()
 		_generate_test_data_thread = null
+	if _generate_comparison_test_data_thread != null and _generate_comparison_test_data_thread.is_started():
+		_generate_comparison_test_data_thread.wait_to_finish()
+		_generate_comparison_test_data_thread = null
 	if _startup_zem_prepare_thread != null and _startup_zem_prepare_thread.is_started():
 		_startup_zem_prepare_thread.wait_to_finish()
 		_startup_zem_prepare_thread = null
@@ -2780,40 +2971,71 @@ func _make_view_slot_button(action_name: String, callback: Callable) -> Button:
 	return b
 
 func _save_view_slot(slot_idx: int) -> void:
+	var slot_bank: Dictionary = _view_slots.get(_app_mode, {})
+	if _app_mode == APP_MODE_COMPARISON:
+		if _comparison_controller == null or not _comparison_controller.has_genomes():
+			_set_status("No comparison genomes loaded: cannot save view slot.", true)
+			return
+		slot_bank[slot_idx] = {
+			"app_mode": APP_MODE_COMPARISON,
+			"scope_key": _comparison_controller.get_view_slot_scope_key(),
+			"comparison_state": _comparison_controller.get_view_slot_state()
+		}
+		_view_slots[_app_mode] = slot_bank
+		_set_status("Saved view slot %d." % slot_idx)
+		return
 	if _current_chr_len <= 0:
 		_set_status("No genome loaded: cannot save view slot.", true)
 		return
 	var state: Dictionary = genome_view.get_view_state()
-	_view_slots[slot_idx] = {
+	slot_bank[slot_idx] = {
 		"scope_key": _scope_cache_key(),
 		"seq_view_mode": _seq_view_mode,
 		"seq_id": _selected_seq_id,
 		"start_bp": float(state.get("start_bp", _last_start)),
 		"bp_per_px": float(state.get("bp_per_px", _last_bp_per_px))
 	}
+	_view_slots[_app_mode] = slot_bank
 	_set_status("Saved view slot %d." % slot_idx)
 
 func _load_view_slot(slot_idx: int) -> void:
-	if _current_chr_len <= 0:
-		_set_status("No genome loaded: cannot load view slot.", true)
-		return
-	if not _view_slots.has(slot_idx):
+	var slot_bank: Dictionary = _view_slots.get(_app_mode, {})
+	if not slot_bank.has(slot_idx):
 		_set_status("View slot %d is empty." % slot_idx, true)
 		return
-	var slot_any = _view_slots[slot_idx]
+	var slot_any = slot_bank[slot_idx]
 	if typeof(slot_any) != TYPE_DICTIONARY:
 		_set_status("View slot %d is invalid." % slot_idx, true)
 		return
 	var slot: Dictionary = slot_any
+	var slot_mode := int(slot.get("app_mode", APP_MODE_BROWSER))
+	if slot_mode == APP_MODE_COMPARISON:
+		if _comparison_controller == null or not _comparison_controller.has_genomes():
+			_set_status("No comparison genomes loaded: cannot load view slot.", true)
+			return
+		var slot_scope_cmp := str(slot.get("scope_key", ""))
+		if slot_scope_cmp != _comparison_controller.get_view_slot_scope_key():
+			_set_status("View slot %d is from a different comparison scope." % slot_idx, true)
+			return
+		var cmp_state_any: Variant = slot.get("comparison_state", {})
+		if typeof(cmp_state_any) != TYPE_DICTIONARY:
+			_set_status("View slot %d is invalid." % slot_idx, true)
+			return
+		_comparison_controller.apply_view_slot_state(cmp_state_any)
+		_set_status("Loaded view slot %d." % slot_idx)
+		return
+	if _current_chr_len <= 0:
+		_set_status("No genome loaded: cannot load view slot.", true)
+		return
 	var slot_scope := str(slot.get("scope_key", ""))
 	if slot_scope != _scope_cache_key():
 		_set_status("View slot %d is from a different genome/session scope." % slot_idx, true)
 		return
-	var slot_mode := int(slot.get("seq_view_mode", _seq_view_mode))
-	if slot_mode != _seq_view_mode:
-		_seq_view_option.select(slot_mode)
-		_on_seq_view_selected(slot_mode)
-	if slot_mode == SEQ_VIEW_SINGLE:
+	var seq_slot_mode := int(slot.get("seq_view_mode", _seq_view_mode))
+	if seq_slot_mode != _seq_view_mode:
+		_seq_view_option.select(seq_slot_mode)
+		_on_seq_view_selected(seq_slot_mode)
+	if seq_slot_mode == SEQ_VIEW_SINGLE:
 		var target_id := int(slot.get("seq_id", _selected_seq_id))
 		for i in range(_seq_option.item_count):
 			if int(_seq_option.get_item_id(i)) == target_id:
@@ -2889,6 +3111,8 @@ func _load_or_init_config() -> void:
 			sequence_letter_font_option.select(i)
 			break
 	genome_view.set_sequence_letter_font_name(_sequence_letter_font_name)
+	if comparison_view != null and comparison_view.has_method("set_sequence_letter_font_name"):
+		comparison_view.set_sequence_letter_font_name(_sequence_letter_font_name)
 	var default_anim_speed := 1.5
 	if cfg.has_section_key("ui", "animate_pan_zoom_speed"):
 		default_anim_speed = float(cfg.get_value("ui", "animate_pan_zoom_speed", 1.0))
@@ -3004,6 +3228,39 @@ func _on_read_clicked(read: Dictionary) -> void:
 func _on_read_selected(read: Dictionary) -> void:
 	_feature_panel_controller.on_read_selected(read)
 
+func _on_comparison_match_selected(match: Dictionary, was_double_click: bool = false) -> void:
+	if was_double_click and not _feature_panel_open:
+		return
+	_feature_panel_controller.on_comparison_match_clicked(match)
+
+func _on_comparison_feature_selected(feature: Dictionary, was_double_click: bool = false) -> void:
+	if was_double_click:
+		_feature_panel_controller.on_feature_clicked(feature)
+	else:
+		_feature_panel_controller.on_feature_selected(feature)
+
+func _on_comparison_match_cleared() -> void:
+	if not _feature_panel_open:
+		return
+	if feature_title_label.text != "Comparison Match":
+		return
+	_close_feature_panel()
+
+func _on_comparison_region_selected(selection: Dictionary) -> void:
+	_feature_panel_controller.show_selected_matches(selection)
+
+func _on_comparison_region_cleared() -> void:
+	if not _feature_panel_open:
+		return
+	if feature_title_label.text != "selected matches":
+		return
+	_close_feature_panel()
+
+func _on_selected_comparison_region_match(match: Dictionary) -> void:
+	if _comparison_controller == null:
+		return
+	_comparison_controller.focus_match_payload(match)
+
 func _jump_to_mate(start_bp: int, end_bp: int) -> void:
 	_feature_panel_controller.jump_to_mate(start_bp, end_bp)
 
@@ -3011,6 +3268,8 @@ func _format_read_flags(flags: int) -> String:
 	return _feature_panel_controller.format_read_flags(flags)
 
 func _close_feature_panel() -> void:
+	if _context_panel_mode == CONTEXT_PANEL_SELECTED_MATCHES and _comparison_controller != null:
+		_comparison_controller.clear_region_selection()
 	_feature_panel_controller.close_feature_panel()
 
 func _process(_delta: float) -> void:
@@ -3045,6 +3304,10 @@ func _process(_delta: float) -> void:
 		var generate_result: Variant = _generate_test_data_thread.wait_to_finish()
 		_generate_test_data_thread = null
 		_finish_generate_test_data(generate_result)
+	if _generate_comparison_test_data_thread != null and _generate_comparison_test_data_thread.is_started() and not _generate_comparison_test_data_thread.is_alive():
+		var comparison_generate_result: Variant = _generate_comparison_test_data_thread.wait_to_finish()
+		_generate_comparison_test_data_thread = null
+		_finish_generate_comparison_test_data(comparison_generate_result)
 	if _startup_zem_prepare_thread != null and _startup_zem_prepare_thread.is_started() and not _startup_zem_prepare_thread.is_alive():
 		var prepare_result: Variant = _startup_zem_prepare_thread.wait_to_finish()
 		_startup_zem_prepare_thread = null

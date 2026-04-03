@@ -67,6 +67,42 @@ func draw_line(p0: Vector2, p1: Vector2, color: Color, width_px: float = 1.0) ->
 		]
 	)
 
+func draw_colored_polygon(points: PackedVector2Array, color: Color) -> void:
+	if points.size() < 3:
+		return
+	var transformed := PackedVector2Array()
+	for p in points:
+		transformed.append(_transform_point(p))
+	var pts := []
+	for p in transformed:
+		pts.append("%s,%s" % [_fmt(p.x), _fmt(p.y)])
+	_elements.append(
+		"<polygon points=\"%s\" fill=\"%s\"%s stroke=\"none\" />" % [
+			" ".join(pts),
+			_svg_color(color),
+			_svg_opacity(color)
+		]
+	)
+
+func draw_polyline(points: PackedVector2Array, color: Color, width_px: float = 1.0) -> void:
+	if points.size() < 2:
+		return
+	var transformed := PackedVector2Array()
+	for p in points:
+		transformed.append(_transform_point(p))
+	var pts := []
+	for p in transformed:
+		pts.append("%s,%s" % [_fmt(p.x), _fmt(p.y)])
+	var stroke_w := maxf(0.1, width_px * maxf(absf(_transform_scale.x), absf(_transform_scale.y)))
+	_elements.append(
+		"<polyline points=\"%s\" fill=\"none\" stroke=\"%s\"%s stroke-width=\"%s\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />" % [
+			" ".join(pts),
+			_svg_color(color),
+			_svg_opacity(color),
+			_fmt(stroke_w)
+		]
+	)
+
 
 func draw_string(_font: Font, pos: Vector2, text: String, _align: int, _max_width: float, font_size: int, color: Color) -> void:
 	var sx := _transform_scale.x
@@ -119,7 +155,7 @@ func save(path: String) -> bool:
 
 func to_svg() -> String:
 	return """<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="%s" height="%s" viewBox="0 0 %s %s">
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="%spx" height="%spx" viewBox="0 0 %s %s">
 %s
 </svg>
 """ % [_fmt(width), _fmt(height), _fmt(width), _fmt(height), "\n".join(_elements)]

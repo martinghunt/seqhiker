@@ -21,6 +21,20 @@ const MSG_GET_STRAND_COVERAGE_TILE := 17
 const MSG_DOWNLOAD_GENOME := 18
 const MSG_GET_VERSION := 19
 const MSG_GENERATE_TEST_DATA := 20
+const MSG_ADD_COMPARISON_GENOME := 21
+const MSG_LIST_COMPARISON_GENOMES := 22
+const MSG_LIST_COMPARISON_PAIRS := 23
+const MSG_GET_COMPARISON_BLOCKS := 24
+const MSG_GET_COMPARISON_BLOCKS_BY_GENOMES := 25
+const MSG_GET_COMPARISON_ANNOTATIONS := 26
+const MSG_SAVE_COMPARISON_SESSION := 27
+const MSG_LOAD_COMPARISON_SESSION := 28
+const MSG_RESET_COMPARISON_STATE := 29
+const MSG_GENERATE_COMPARISON_TEST_DATA := 30
+const MSG_GET_COMPARISON_REFERENCE_SLICE := 31
+const MSG_GET_COMPARISON_BLOCK_DETAIL := 32
+const MSG_ADD_COMPARISON_GENOME_FILES := 33
+const MSG_SEARCH_COMPARISON_DNA_EXACT := 34
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -71,6 +85,15 @@ func load_genome(path: String) -> Dictionary:
 	for i in range(path_bytes.size()):
 		payload[2 + i] = path_bytes[i]
 	return _send_request(MSG_LOAD_GENOME, payload, LOAD_TIMEOUT_MS)
+
+func add_comparison_genome_files(paths: PackedStringArray) -> Dictionary:
+	var payload := _encode_string_list(paths)
+	var resp := _send_request(MSG_ADD_COMPARISON_GENOME_FILES, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	var genomes := _parse_comparison_genomes(resp.get("payload", PackedByteArray()))
+	resp["genome"] = genomes[0] if not genomes.is_empty() else {}
+	return resp
 
 func load_bam(path: String, precompute_cutoff_bp: int = 0) -> Dictionary:
 	var path_bytes := path.to_utf8_buffer()
@@ -137,7 +160,29 @@ func inspect_input(path: String) -> Dictionary:
 	var flags := raw[0] if raw.size() > 0 else 0
 	resp["has_sequence"] = (flags & 1) != 0
 	resp["has_annotation"] = (flags & 2) != 0
+	resp["is_comparison_session"] = (flags & 4) != 0
 	return resp
+
+func _encode_string_list(values: PackedStringArray) -> PackedByteArray:
+	var total := 2
+	var encoded := []
+	for value_any in values:
+		var value := str(value_any)
+		var bytes := value.to_utf8_buffer()
+		encoded.append(bytes)
+		total += 2 + bytes.size()
+	var payload := PackedByteArray()
+	payload.resize(total)
+	payload.encode_u16(0, values.size())
+	var off := 2
+	for bytes_any in encoded:
+		var bytes: PackedByteArray = bytes_any
+		payload.encode_u16(off, bytes.size())
+		off += 2
+		for i in range(bytes.size()):
+			payload[off + i] = bytes[i]
+		off += bytes.size()
+	return payload
 
 func get_tile(chr_id: int, zoom: int, tile_index: int, source_id: int = 0) -> Dictionary:
 	var payload := PackedByteArray()
@@ -265,6 +310,22 @@ func search_dna_exact(chr_id: int, pattern: String, include_revcomp: bool, max_h
 	resp.merge(_parse_dna_exact_hits(resp["payload"]), true)
 	return resp
 
+func search_comparison_dna_exact(genome_id: int, pattern: String, include_revcomp: bool, max_hits: int = 5000) -> Dictionary:
+	var pattern_bytes := pattern.to_upper().to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(7 + pattern_bytes.size())
+	payload.encode_u16(0, genome_id)
+	payload.encode_u16(2, max(1, min(max_hits, 65535)))
+	payload[4] = 1 if include_revcomp else 0
+	payload.encode_u16(5, pattern_bytes.size())
+	for i in range(pattern_bytes.size()):
+		payload[7 + i] = pattern_bytes[i]
+	var resp := _send_request(MSG_SEARCH_COMPARISON_DNA_EXACT, payload)
+	if not resp.get("ok", false):
+		return resp
+	resp.merge(_parse_dna_exact_hits(resp["payload"]), true)
+	return resp
+
 func download_genome(accession: String, cache_dir: String = "", max_cache_bytes: int = 0) -> Dictionary:
 	var accession_bytes := accession.strip_edges().to_utf8_buffer()
 	var cache_dir_bytes := cache_dir.to_utf8_buffer()
@@ -301,6 +362,131 @@ func generate_test_data(root_dir: String) -> Dictionary:
 	for i in range(root_bytes.size()):
 		payload[2 + i] = root_bytes[i]
 	var resp := _send_request(MSG_GENERATE_TEST_DATA, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["files"] = _parse_string_list(resp.get("payload", PackedByteArray()))
+	return resp
+
+func add_comparison_genome(path: String) -> Dictionary:
+	var path_bytes := path.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(2 + path_bytes.size())
+	payload.encode_u16(0, path_bytes.size())
+	for i in range(path_bytes.size()):
+		payload[2 + i] = path_bytes[i]
+	var resp := _send_request(MSG_ADD_COMPARISON_GENOME, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	var genomes := _parse_comparison_genomes(resp.get("payload", PackedByteArray()))
+	resp["genome"] = genomes[0] if not genomes.is_empty() else {}
+	return resp
+
+func list_comparison_genomes() -> Dictionary:
+	var resp := _send_request(MSG_LIST_COMPARISON_GENOMES, PackedByteArray())
+	if not resp.get("ok", false):
+		return resp
+	resp["genomes"] = _parse_comparison_genomes(resp.get("payload", PackedByteArray()))
+	return resp
+
+func list_comparison_pairs() -> Dictionary:
+	var resp := _send_request(MSG_LIST_COMPARISON_PAIRS, PackedByteArray())
+	if not resp.get("ok", false):
+		return resp
+	resp["pairs"] = _parse_comparison_pairs(resp.get("payload", PackedByteArray()))
+	return resp
+
+func get_comparison_blocks(pair_id: int) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(2)
+	payload.encode_u16(0, pair_id)
+	var resp := _send_request(MSG_GET_COMPARISON_BLOCKS, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["blocks"] = _parse_comparison_blocks(resp.get("payload", PackedByteArray()))
+	return resp
+
+func get_comparison_blocks_by_genomes(query_genome_id: int, target_genome_id: int) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(4)
+	payload.encode_u16(0, query_genome_id)
+	payload.encode_u16(2, target_genome_id)
+	var resp := _send_request(MSG_GET_COMPARISON_BLOCKS_BY_GENOMES, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["blocks"] = _parse_comparison_blocks(resp.get("payload", PackedByteArray()))
+	return resp
+
+func get_comparison_annotations(genome_id: int, start_bp: int, end_bp: int, max_records: int = 2000, min_feature_len_bp: int = 1) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(16)
+	payload.encode_u16(0, genome_id)
+	payload.encode_u32(2, start_bp)
+	payload.encode_u32(6, end_bp)
+	payload.encode_u16(10, max_records)
+	payload.encode_u32(12, max(min_feature_len_bp, 1))
+	var resp := _send_request(MSG_GET_COMPARISON_ANNOTATIONS, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["features"] = _parse_annotations(resp.get("payload", PackedByteArray()))
+	return resp
+
+func get_comparison_reference_slice(genome_id: int, start_bp: int, end_bp: int) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(10)
+	payload.encode_u16(0, genome_id)
+	payload.encode_u32(2, start_bp)
+	payload.encode_u32(6, end_bp)
+	var resp := _send_request(MSG_GET_COMPARISON_REFERENCE_SLICE, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["slice"] = _parse_reference_slice(resp.get("payload", PackedByteArray()))
+	return resp
+
+func get_comparison_block_detail(query_genome_id: int, target_genome_id: int, block: Dictionary) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(21)
+	payload.encode_u16(0, query_genome_id)
+	payload.encode_u16(2, target_genome_id)
+	payload.encode_u32(4, int(block.get("query_start", 0)))
+	payload.encode_u32(8, int(block.get("query_end", 0)))
+	payload.encode_u32(12, int(block.get("target_start", 0)))
+	payload.encode_u32(16, int(block.get("target_end", 0)))
+	payload[20] = 1 if bool(block.get("same_strand", true)) else 0
+	var resp := _send_request(MSG_GET_COMPARISON_BLOCK_DETAIL, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["detail"] = _parse_comparison_block_detail(resp.get("payload", PackedByteArray()))
+	return resp
+
+func save_comparison_session(path: String) -> Dictionary:
+	var path_bytes := path.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(2 + path_bytes.size())
+	payload.encode_u16(0, path_bytes.size())
+	for i in range(path_bytes.size()):
+		payload[2 + i] = path_bytes[i]
+	return _send_request(MSG_SAVE_COMPARISON_SESSION, payload, LOAD_TIMEOUT_MS)
+
+func load_comparison_session(path: String) -> Dictionary:
+	var path_bytes := path.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(2 + path_bytes.size())
+	payload.encode_u16(0, path_bytes.size())
+	for i in range(path_bytes.size()):
+		payload[2 + i] = path_bytes[i]
+	return _send_request(MSG_LOAD_COMPARISON_SESSION, payload, LOAD_TIMEOUT_MS)
+
+func reset_comparison_state() -> Dictionary:
+	return _send_request(MSG_RESET_COMPARISON_STATE, PackedByteArray(), LOAD_TIMEOUT_MS)
+
+func generate_comparison_test_data(root_dir: String) -> Dictionary:
+	var root_bytes := root_dir.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(2 + root_bytes.size())
+	payload.encode_u16(0, root_bytes.size())
+	for i in range(root_bytes.size()):
+		payload[2 + i] = root_bytes[i]
+	var resp := _send_request(MSG_GENERATE_COMPARISON_TEST_DATA, payload, LOAD_TIMEOUT_MS)
 	if not resp.get("ok", false):
 		return resp
 	resp["files"] = _parse_string_list(resp.get("payload", PackedByteArray()))
@@ -445,6 +631,148 @@ func _parse_annotation_counts(payload: PackedByteArray) -> Dictionary:
 		out[chr_id] = int(n)
 		off += 6
 	return out
+
+func _parse_comparison_genomes(payload: PackedByteArray) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if payload.size() < 2:
+		return out
+	var count := payload.decode_u16(0)
+	var off := 2
+	for _i in range(count):
+		if off + 14 > payload.size():
+			break
+		var genome_id := payload.decode_u16(off)
+		var length_bp := payload.decode_u32(off + 2)
+		var segment_count := payload.decode_u16(off + 6)
+		var feature_count := payload.decode_u32(off + 8)
+		var name_len := payload.decode_u16(off + 12)
+		off += 14
+		if off + name_len + 2 > payload.size():
+			break
+		var name := _decode_wire_text(payload.slice(off, off + name_len))
+		off += name_len
+		var path_len := payload.decode_u16(off)
+		off += 2
+		if off + path_len > payload.size():
+			break
+		var path := _decode_wire_text(payload.slice(off, off + path_len))
+		off += path_len
+		var segments: Array[Dictionary] = []
+		for _seg_i in range(segment_count):
+			if off + 14 > payload.size():
+				break
+			var seg_start := payload.decode_u32(off)
+			var seg_end := payload.decode_u32(off + 4)
+			var seg_feature_count := payload.decode_u32(off + 8)
+			var seg_name_len := payload.decode_u16(off + 12)
+			off += 14
+			if off + seg_name_len > payload.size():
+				break
+			var seg_name := _decode_wire_text(payload.slice(off, off + seg_name_len))
+			off += seg_name_len
+			segments.append({
+				"name": seg_name,
+				"start": int(seg_start),
+				"end": int(seg_end),
+				"feature_count": int(seg_feature_count)
+			})
+		out.append({
+			"id": int(genome_id),
+			"name": name,
+			"path": path,
+			"length": int(length_bp),
+			"segment_count": int(segment_count),
+			"feature_count": int(feature_count),
+			"segments": segments,
+			"features": []
+		})
+	return out
+
+func _parse_comparison_pairs(payload: PackedByteArray) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if payload.size() < 2:
+		return out
+	var count := payload.decode_u16(0)
+	var off := 2
+	for _i in range(count):
+		if off + 13 > payload.size():
+			break
+		out.append({
+			"id": int(payload.decode_u16(off)),
+			"top_genome_id": int(payload.decode_u16(off + 2)),
+			"bottom_genome_id": int(payload.decode_u16(off + 4)),
+			"block_count": int(payload.decode_u32(off + 6)),
+			"status": int(payload[off + 10])
+		})
+		off += 13
+	return out
+
+func _parse_comparison_blocks(payload: PackedByteArray) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if payload.size() < 2:
+		return out
+	var count := payload.decode_u16(0)
+	var off := 2
+	for _i in range(count):
+		if off + 19 > payload.size():
+			break
+		var pct_x100 := int(payload.decode_u16(off + 16))
+		out.append({
+			"query_start": int(payload.decode_u32(off)),
+			"query_end": int(payload.decode_u32(off + 4)),
+			"target_start": int(payload.decode_u32(off + 8)),
+			"target_end": int(payload.decode_u32(off + 12)),
+			"percent_identity_x100": pct_x100,
+			"percent_identity": float(pct_x100) / 100.0,
+			"same_strand": payload[off + 18] != 0
+		})
+		off += 19
+	return out
+
+func _parse_comparison_block_detail(payload: PackedByteArray) -> Dictionary:
+	if payload.size() < 25:
+		return {}
+	var op_len := int(payload.decode_u32(19))
+	if payload.size() < 23 + op_len + 2:
+		return {}
+	var ops := _decode_wire_text(payload.slice(23, 23 + op_len))
+	var off := 23 + op_len
+	var variant_count := int(payload.decode_u16(off))
+	off += 2
+	var variants: Array[Dictionary] = []
+	for _i in range(variant_count):
+		if off + 13 > payload.size():
+			break
+		var kind := char(payload[off])
+		var query_pos := int(payload.decode_u32(off + 1))
+		var target_pos := int(payload.decode_u32(off + 5))
+		var ref_len := int(payload.decode_u16(off + 9))
+		var alt_len := int(payload.decode_u16(off + 11))
+		off += 13
+		if off + ref_len + alt_len > payload.size():
+			break
+		var ref_bases := _decode_wire_text(payload.slice(off, off + ref_len))
+		off += ref_len
+		var alt_bases := _decode_wire_text(payload.slice(off, off + alt_len))
+		off += alt_len
+		variants.append({
+			"kind": kind,
+			"query_pos": query_pos,
+			"target_pos": target_pos,
+			"ref_bases": ref_bases,
+			"alt_bases": alt_bases
+		})
+	return {
+		"query_start": int(payload.decode_u32(0)),
+		"query_end": int(payload.decode_u32(4)),
+		"target_start": int(payload.decode_u32(8)),
+		"target_end": int(payload.decode_u32(12)),
+		"percent_identity_x100": int(payload.decode_u16(16)),
+		"percent_identity": float(payload.decode_u16(16)) / 100.0,
+		"same_strand": payload[18] != 0,
+		"ops": ops,
+		"variants": variants
+	}
 
 func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []

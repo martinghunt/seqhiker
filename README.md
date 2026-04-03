@@ -1,6 +1,6 @@
 # seqhiker
 
-Genome browser for FASTA, annotation, and BAM files.
+Genome browser for FASTA, annotation, and BAM files, with a stacked genome comparison view.
 
 Currently in beta. It is fairly stable. Feel free to give it a try.
 
@@ -44,3 +44,5 @@ Typical files:
 - BAM (sorted and indexed)
 
 `seqhiker` will load the files and open the matching genome view.
+
+You can also switch to `Comparison view` in the toolbar and add genomes one-by-one to compare them.

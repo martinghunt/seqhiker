@@ -7,26 +7,40 @@ import (
 )
 
 const (
-	MsgLoadGenome            uint16 = 1
-	MsgLoadBAM               uint16 = 2
-	MsgGetTile               uint16 = 3
-	MsgGetCoverageTile       uint16 = 4
-	MsgGetAnnotations        uint16 = 5
-	MsgGetReferenceSlice     uint16 = 6
-	MsgAck                   uint16 = 7
-	MsgError                 uint16 = 8
-	MsgShutdown              uint16 = 9
-	MsgGetChromosomes        uint16 = 10
-	MsgGetGCPlotTile         uint16 = 11
-	MsgGetAnnotationCounts   uint16 = 12
-	MsgGetLoadState          uint16 = 13
-	MsgInspectInput          uint16 = 14
-	MsgGetAnnotationTile     uint16 = 15
-	MsgSearchDNAExact        uint16 = 16
-	MsgGetStrandCoverageTile uint16 = 17
-	MsgDownloadGenome        uint16 = 18
-	MsgGetVersion            uint16 = 19
-	MsgGenerateTestData      uint16 = 20
+	MsgLoadGenome                   uint16 = 1
+	MsgLoadBAM                      uint16 = 2
+	MsgGetTile                      uint16 = 3
+	MsgGetCoverageTile              uint16 = 4
+	MsgGetAnnotations               uint16 = 5
+	MsgGetReferenceSlice            uint16 = 6
+	MsgAck                          uint16 = 7
+	MsgError                        uint16 = 8
+	MsgShutdown                     uint16 = 9
+	MsgGetChromosomes               uint16 = 10
+	MsgGetGCPlotTile                uint16 = 11
+	MsgGetAnnotationCounts          uint16 = 12
+	MsgGetLoadState                 uint16 = 13
+	MsgInspectInput                 uint16 = 14
+	MsgGetAnnotationTile            uint16 = 15
+	MsgSearchDNAExact               uint16 = 16
+	MsgGetStrandCoverageTile        uint16 = 17
+	MsgDownloadGenome               uint16 = 18
+	MsgGetVersion                   uint16 = 19
+	MsgGenerateTestData             uint16 = 20
+	MsgAddComparisonGenome          uint16 = 21
+	MsgListComparisonGenomes        uint16 = 22
+	MsgListComparisonPairs          uint16 = 23
+	MsgGetComparisonBlocks          uint16 = 24
+	MsgGetComparisonBlocksByGenomes uint16 = 25
+	MsgGetComparisonAnnotations     uint16 = 26
+	MsgSaveComparisonSession        uint16 = 27
+	MsgLoadComparisonSession        uint16 = 28
+	MsgResetComparisonState         uint16 = 29
+	MsgGenerateComparisonTestData   uint16 = 30
+	MsgGetComparisonReferenceSlice  uint16 = 31
+	MsgGetComparisonBlockDetail     uint16 = 32
+	MsgAddComparisonGenomeFiles     uint16 = 33
+	MsgSearchComparisonDNAExact     uint16 = 34
 )
 
 type FrameHeader struct {
@@ -155,13 +169,16 @@ func encodeLoadState(hasSequence bool) []byte {
 	return []byte{0}
 }
 
-func encodeInputInfo(hasSequence bool, hasAnnotation bool) []byte {
+func encodeInputInfo(hasSequence bool, hasAnnotation bool, isComparisonSession bool) []byte {
 	var flags byte
 	if hasSequence {
 		flags |= 1
 	}
 	if hasAnnotation {
 		flags |= 2
+	}
+	if isComparisonSession {
+		flags |= 4
 	}
 	return []byte{flags}
 }
@@ -196,4 +213,26 @@ func encodeStringList(values []string) []byte {
 		off += 2 + len(value)
 	}
 	return buf
+}
+
+func decodeStringListPayload(payload []byte) ([]string, error) {
+	if len(payload) < 2 {
+		return nil, fmt.Errorf("payload too short for string list")
+	}
+	count := int(binary.LittleEndian.Uint16(payload[0:2]))
+	off := 2
+	values := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		if len(payload) < off+2 {
+			return nil, fmt.Errorf("invalid string list payload length")
+		}
+		n := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+		off += 2
+		if len(payload) < off+n {
+			return nil, fmt.Errorf("invalid string list entry length")
+		}
+		values = append(values, string(payload[off:off+n]))
+		off += n
+	}
+	return values, nil
 }

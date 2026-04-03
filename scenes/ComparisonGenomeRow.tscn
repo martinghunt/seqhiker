@@ -1,0 +1,99 @@
+[gd_scene load_steps=3 format=3 uid="uid://w7xnphdfsnl1"]
+
+[ext_resource type="FontFile" uid="uid://c7lxavioxfnbo" path="res://fonts/magrathea.ttf" id="1_font"]
+[ext_resource type="Script" uid="uid://kts8ai2ra34p" path="res://scripts/comparison_genome_row.gd" id="2_row"]
+
+[node name="ComparisonGenomeRow" type="Control"]
+custom_minimum_size = Vector2(0, 96)
+layout_mode = 3
+anchors_preset = 0
+offset_right = 300.0
+offset_bottom = 96.0
+script = ExtResource("2_row")
+
+[node name="RootHBox" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 2.0
+offset_right = -8.0
+offset_bottom = -6.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
+
+[node name="LeftBox" type="VBoxContainer" parent="RootHBox"]
+custom_minimum_size = Vector2(98, 0)
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="NameLabel" type="Label" parent="RootHBox/LeftBox"]
+custom_minimum_size = Vector2(98, 18)
+layout_mode = 2
+clip_text = true
+
+[node name="ButtonsRow" type="HBoxContainer" parent="RootHBox/LeftBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="DragButton" type="Button" parent="RootHBox/LeftBox/ButtonsRow"]
+custom_minimum_size = Vector2(30, 30)
+layout_mode = 2
+size_flags_vertical = 4
+focus_mode = 0
+mouse_default_cursor_shape = 7
+theme_override_fonts/font = ExtResource("1_font")
+text = "S"
+
+[node name="PanLeftButton" type="Button" parent="RootHBox/LeftBox/ButtonsRow"]
+custom_minimum_size = Vector2(30, 30)
+layout_mode = 2
+size_flags_vertical = 4
+focus_mode = 0
+theme_override_fonts/font = ExtResource("1_font")
+text = "U"
+
+[node name="PanRightButton" type="Button" parent="RootHBox/LeftBox/ButtonsRow"]
+custom_minimum_size = Vector2(30, 30)
+layout_mode = 2
+size_flags_vertical = 4
+focus_mode = 0
+theme_override_fonts/font = ExtResource("1_font")
+text = "T"
+
+[node name="RightBox" type="VBoxContainer" parent="RootHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
+
+[node name="TopSpacer" type="Control" parent="RootHBox/RightBox"]
+custom_minimum_size = Vector2(0, 20)
+layout_mode = 2
+
+[node name="AxisWrap" type="Control" parent="RootHBox/RightBox"]
+custom_minimum_size = Vector2(0, 14)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="AxisBar" type="HScrollBar" parent="RootHBox/RightBox/AxisWrap"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AxisInput" type="Control" parent="RootHBox/RightBox/AxisWrap"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+
+[node name="BottomSpacer" type="Control" parent="RootHBox/RightBox"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2

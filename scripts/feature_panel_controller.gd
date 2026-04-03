@@ -2,10 +2,59 @@ extends RefCounted
 class_name FeaturePanelController
 
 var host: Node = null
+var _selected_matches_panel: VBoxContainer = null
+var _selected_matches_summary: Label = null
+var _selected_matches_above_label: Label = null
+var _selected_matches_above_list: ItemList = null
+var _selected_matches_below_label: Label = null
+var _selected_matches_below_list: ItemList = null
+var _selected_matches_above_payloads: Array[Dictionary] = []
+var _selected_matches_below_payloads: Array[Dictionary] = []
 
 
 func configure(next_host: Node) -> void:
 	host = next_host
+	_ensure_selected_matches_panel()
+
+func _ensure_selected_matches_panel() -> void:
+	if host == null or host.feature_content == null or _selected_matches_panel != null:
+		return
+	_selected_matches_panel = VBoxContainer.new()
+	_selected_matches_panel.visible = false
+	_selected_matches_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_selected_matches_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_selected_matches_panel.add_theme_constant_override("separation", 8)
+	host.feature_content.add_child(_selected_matches_panel)
+
+	_selected_matches_summary = Label.new()
+	_selected_matches_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_selected_matches_panel.add_child(_selected_matches_summary)
+
+	_selected_matches_above_label = Label.new()
+	_selected_matches_panel.add_child(_selected_matches_above_label)
+
+	_selected_matches_above_list = ItemList.new()
+	_selected_matches_above_list.custom_minimum_size = Vector2(0, 140)
+	_selected_matches_above_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_selected_matches_above_list.select_mode = ItemList.SELECT_SINGLE
+	_selected_matches_above_list.allow_reselect = true
+	_selected_matches_above_list.focus_mode = Control.FOCUS_ALL
+	_selected_matches_above_list.item_selected.connect(_on_selected_matches_above_item_selected)
+	_selected_matches_above_list.item_clicked.connect(_on_selected_matches_above_item_clicked)
+	_selected_matches_panel.add_child(_selected_matches_above_list)
+
+	_selected_matches_below_label = Label.new()
+	_selected_matches_panel.add_child(_selected_matches_below_label)
+
+	_selected_matches_below_list = ItemList.new()
+	_selected_matches_below_list.custom_minimum_size = Vector2(0, 140)
+	_selected_matches_below_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_selected_matches_below_list.select_mode = ItemList.SELECT_SINGLE
+	_selected_matches_below_list.allow_reselect = true
+	_selected_matches_below_list.focus_mode = Control.FOCUS_ALL
+	_selected_matches_below_list.item_selected.connect(_on_selected_matches_below_item_selected)
+	_selected_matches_below_list.item_clicked.connect(_on_selected_matches_below_item_clicked)
+	_selected_matches_panel.add_child(_selected_matches_below_list)
 
 
 func on_feature_clicked(feature: Dictionary) -> void:
@@ -192,28 +241,28 @@ func _display_range_end_bp(end_bp: int) -> int:
 
 
 func _ensure_mate_jump_button() -> void:
-	if host._read_mate_jump_button != null:
+	if host.read_mate_jump_button != null:
 		return
-	host._read_mate_jump_button = Button.new()
-	host._read_mate_jump_button.text = "Jump to mate"
-	host._read_mate_jump_button.size_flags_horizontal = Control.SIZE_FILL
-	host.feature_content.add_child(host._read_mate_jump_button)
-	host._read_mate_jump_button.pressed.connect(func() -> void:
+	host.read_mate_jump_button = Button.new()
+	host.read_mate_jump_button.text = "Jump to mate"
+	host.read_mate_jump_button.size_flags_horizontal = Control.SIZE_FILL
+	host.feature_content.add_child(host.read_mate_jump_button)
+	host.read_mate_jump_button.pressed.connect(func() -> void:
 		jump_to_mate(host.read_mate_jump_start, host.read_mate_jump_end, host.read_mate_jump_ref_id)
 	)
 
 
 func _show_mate_jump_button(start_bp: int, end_bp: int, ref_id: int) -> void:
 	_ensure_mate_jump_button()
-	host._read_mate_jump_button.visible = true
+	host.read_mate_jump_button.visible = true
 	host.read_mate_jump_start = start_bp
 	host.read_mate_jump_end = end_bp
 	host.read_mate_jump_ref_id = ref_id
 
 
 func _hide_mate_jump_button() -> void:
-	if host._read_mate_jump_button != null:
-		host._read_mate_jump_button.visible = false
+	if host.read_mate_jump_button != null:
+		host.read_mate_jump_button.visible = false
 	host.read_mate_jump_ref_id = -1
 
 
@@ -221,6 +270,122 @@ func on_read_selected(read: Dictionary) -> void:
 	if not host._feature_panel_open:
 		return
 	on_read_clicked(read)
+
+
+func on_comparison_match_clicked(match: Dictionary) -> void:
+	host._prepare_context_panel(host.CONTEXT_PANEL_FEATURE, "Comparison Match", true)
+	host.feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_strand_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_source_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_seq_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_name_label.visible = true
+	var top_name := str(match.get("top_name", "Top genome"))
+	var bottom_name := str(match.get("bottom_name", "Bottom genome"))
+	var top_contig := str(match.get("top_contig", "")).strip_edges()
+	var bottom_contig := str(match.get("bottom_contig", "")).strip_edges()
+	host.feature_name_label.text = "Pair: %s vs %s" % [top_name, bottom_name]
+	host.feature_type_label.text = "Orientation: %s" % ("same strand" if bool(match.get("same_strand", true)) else "opposite strand")
+	var top_label := top_name if top_contig.is_empty() else "%s / %s" % [top_name, top_contig]
+	var bottom_label := bottom_name if bottom_contig.is_empty() else "%s / %s" % [bottom_name, bottom_contig]
+	host.feature_range_label.text = "%s: %d - %d\n%s: %d - %d" % [
+		top_label,
+		_display_range_start_bp(int(match.get("top_local_start", match.get("query_start", 0)))),
+		_display_range_end_bp(int(match.get("top_local_end", match.get("query_end", 0)))),
+		bottom_label,
+		_display_range_start_bp(int(match.get("bottom_local_start", match.get("target_start", 0)))),
+		_display_range_end_bp(int(match.get("bottom_local_end", match.get("target_end", 0))))
+	]
+	host.feature_source_label.text = "Genome coords: %s: %d - %d\n%s: %d - %d" % [
+		top_name,
+		_display_range_start_bp(int(match.get("query_start", 0))),
+		_display_range_end_bp(int(match.get("query_end", 0))),
+		bottom_name,
+		_display_range_start_bp(int(match.get("target_start", 0))),
+		_display_range_end_bp(int(match.get("target_end", 0)))
+	]
+	host.feature_strand_label.text = "Identity: %.2f%%" % float(match.get("percent_identity", 0.0))
+	var top_len := maxi(0, int(match.get("query_end", 0)) - int(match.get("query_start", 0)))
+	var bottom_len := maxi(0, int(match.get("target_end", 0)) - int(match.get("target_start", 0)))
+	host.feature_seq_label.text = "Span: %d bp / %d bp\nDouble-click a match to align both genomes near the left edge." % [top_len, bottom_len]
+	_hide_mate_jump_button()
+	host._feature_panel_open = true
+	host._slide_feature_panel(true, true)
+
+func show_selected_matches(selection: Dictionary) -> void:
+	_ensure_selected_matches_panel()
+	if _selected_matches_panel == null:
+		return
+	host._prepare_context_panel(host.CONTEXT_PANEL_SELECTED_MATCHES, "selected matches", false)
+	var genome_name := str(selection.get("genome_name", "Genome"))
+	var contig := str(selection.get("contig", "")).strip_edges()
+	var range_label := "%d - %d" % [
+		_display_range_start_bp(int(selection.get("local_start", selection.get("start_bp", 0)))),
+		_display_range_end_bp(int(selection.get("local_end", selection.get("end_bp", 0))))
+	]
+	if contig.is_empty():
+		_selected_matches_summary.text = "%s: %s" % [genome_name, range_label]
+	else:
+		_selected_matches_summary.text = "%s / %s: %s" % [genome_name, contig, range_label]
+	_selected_matches_above_payloads = []
+	_selected_matches_below_payloads = []
+	_populate_selected_matches_list(_selected_matches_above_label, _selected_matches_above_list, "Matches To Genome Above", selection.get("matches_above", []), _selected_matches_above_payloads, false)
+	_populate_selected_matches_list(_selected_matches_below_label, _selected_matches_below_list, "Matches To Genome Below", selection.get("matches_below", []), _selected_matches_below_payloads, true)
+	_selected_matches_panel.visible = true
+	host._feature_panel_open = true
+	host._slide_feature_panel(true, true)
+
+func hide_subpanels() -> void:
+	if _selected_matches_panel != null:
+		_selected_matches_panel.visible = false
+
+func _populate_selected_matches_list(label: Label, item_list: ItemList, title: String, matches_any: Variant, dest: Array[Dictionary], selected_is_top: bool) -> void:
+	item_list.clear()
+	dest.clear()
+	var matches: Array = matches_any if matches_any is Array else []
+	if matches.is_empty():
+		label.visible = false
+		item_list.visible = false
+		return
+	label.text = "%s (%d)" % [title, matches.size()]
+	label.visible = true
+	item_list.visible = true
+	for match_any in matches:
+		if typeof(match_any) != TYPE_DICTIONARY:
+			continue
+		var match: Dictionary = match_any
+		dest.append(match)
+		var other_label := str(match.get("bottom_name", "")) if selected_is_top else str(match.get("top_name", ""))
+		var other_contig := str(match.get("bottom_contig", "")) if selected_is_top else str(match.get("top_contig", ""))
+		var range_start := int(match.get("bottom_local_start", 0)) if selected_is_top else int(match.get("top_local_start", 0))
+		var range_end := int(match.get("bottom_local_end", 0)) if selected_is_top else int(match.get("top_local_end", 0))
+		var line := "%s%s  %d - %d  %.2f%%" % [
+			other_label,
+			(" / %s" % other_contig) if not other_contig.is_empty() else "",
+			_display_range_start_bp(range_start),
+			_display_range_end_bp(range_end),
+			float(match.get("percent_identity", 0.0))
+		]
+		item_list.add_item(line)
+
+func _on_selected_matches_above_item_selected(index: int) -> void:
+	if index < 0 or index >= _selected_matches_above_payloads.size():
+		return
+	if host != null and host.has_method("_on_selected_comparison_region_match"):
+		host._on_selected_comparison_region_match(_selected_matches_above_payloads[index])
+
+func _on_selected_matches_below_item_selected(index: int) -> void:
+	if index < 0 or index >= _selected_matches_below_payloads.size():
+		return
+	if host != null and host.has_method("_on_selected_comparison_region_match"):
+		host._on_selected_comparison_region_match(_selected_matches_below_payloads[index])
+
+func _on_selected_matches_above_item_clicked(index: int, _at_position: Vector2, _mouse_button_index: int) -> void:
+	_on_selected_matches_above_item_selected(index)
+
+func _on_selected_matches_below_item_clicked(index: int, _at_position: Vector2, _mouse_button_index: int) -> void:
+	_on_selected_matches_below_item_selected(index)
 
 
 func jump_to_mate(start_bp: int, end_bp: int, mate_ref_id: int = -1) -> void:
