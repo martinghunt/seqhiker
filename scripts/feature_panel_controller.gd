@@ -241,28 +241,28 @@ func _display_range_end_bp(end_bp: int) -> int:
 
 
 func _ensure_mate_jump_button() -> void:
-	if host._read_mate_jump_button != null:
+	if host.read_mate_jump_button != null:
 		return
-	host._read_mate_jump_button = Button.new()
-	host._read_mate_jump_button.text = "Jump to mate"
-	host._read_mate_jump_button.size_flags_horizontal = Control.SIZE_FILL
-	host.feature_content.add_child(host._read_mate_jump_button)
-	host._read_mate_jump_button.pressed.connect(func() -> void:
+	host.read_mate_jump_button = Button.new()
+	host.read_mate_jump_button.text = "Jump to mate"
+	host.read_mate_jump_button.size_flags_horizontal = Control.SIZE_FILL
+	host.feature_content.add_child(host.read_mate_jump_button)
+	host.read_mate_jump_button.pressed.connect(func() -> void:
 		jump_to_mate(host.read_mate_jump_start, host.read_mate_jump_end, host.read_mate_jump_ref_id)
 	)
 
 
 func _show_mate_jump_button(start_bp: int, end_bp: int, ref_id: int) -> void:
 	_ensure_mate_jump_button()
-	host._read_mate_jump_button.visible = true
+	host.read_mate_jump_button.visible = true
 	host.read_mate_jump_start = start_bp
 	host.read_mate_jump_end = end_bp
 	host.read_mate_jump_ref_id = ref_id
 
 
 func _hide_mate_jump_button() -> void:
-	if host._read_mate_jump_button != null:
-		host._read_mate_jump_button.visible = false
+	if host.read_mate_jump_button != null:
+		host.read_mate_jump_button.visible = false
 	host.read_mate_jump_ref_id = -1
 
 

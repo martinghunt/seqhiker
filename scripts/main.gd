@@ -7,6 +7,7 @@ const TileControllerScript = preload("res://scripts/tile_controller.gd")
 const SearchControllerScript = preload("res://scripts/search_controller.gd")
 const GoControllerScript = preload("res://scripts/go_controller.gd")
 const TopBarControllerScript = preload("res://scripts/top_bar_controller.gd")
+const ContextPanelControllerScript = preload("res://scripts/context_panel_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
@@ -180,6 +181,7 @@ var _tile_controller: RefCounted
 var _search_controller: RefCounted
 var _go_controller: RefCounted
 var _top_bar_controller: RefCounted
+var _context_panel_controller: RefCounted
 var _annotation_cache_controller: RefCounted
 var _feature_panel_controller: RefCounted
 var _session_loader: RefCounted
@@ -234,7 +236,7 @@ var _read_thickness_label: Label
 var _read_thickness_spin: SpinBox
 var _show_full_region_checkbox: CheckBox
 var _track_order_list: ItemList
-var _read_mate_jump_button: Button
+var read_mate_jump_button: Button
 var read_mate_jump_start := -1
 var read_mate_jump_end := -1
 var read_mate_jump_ref_id := -1
@@ -330,6 +332,8 @@ func _ready() -> void:
 	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
 	_top_bar_controller = TopBarControllerScript.new()
 	_top_bar_controller.configure(self)
+	_context_panel_controller = ContextPanelControllerScript.new()
+	_context_panel_controller.configure(self)
 	_disable_button_focus()
 	_top_bar_controller.setup()
 	_setup_theme_selector()
@@ -2248,72 +2252,24 @@ func _on_track_settings_requested(track_id: String) -> void:
 	_slide_feature_panel(true, true)
 
 func _toggle_search_panel() -> void:
-	if _search_controller == null:
-		return
-	if _feature_panel_open and _context_panel_mode == CONTEXT_PANEL_SEARCH:
-		_close_feature_panel()
-		return
-	_prepare_context_panel(CONTEXT_PANEL_SEARCH, "Search", false)
-	_search_controller.show_panel()
-	_feature_panel_open = true
-	_slide_feature_panel(true, true)
-	_search_controller.focus_query()
+	if _context_panel_controller != null:
+		_context_panel_controller.toggle_search_panel()
 
 func _toggle_go_panel() -> void:
-	if _go_controller == null:
-		return
-	if _feature_panel_open and _context_panel_mode == CONTEXT_PANEL_GO:
-		_close_feature_panel()
-		return
-	_prepare_context_panel(CONTEXT_PANEL_GO, "Go to position", false)
-	_go_controller.show_panel()
-	_feature_panel_open = true
-	_slide_feature_panel(true, true)
-	_go_controller.focus_start()
+	if _context_panel_controller != null:
+		_context_panel_controller.toggle_go_panel()
 
 func _toggle_download_panel() -> void:
-	if _download_panel == null:
-		return
-	if _feature_panel_open and _context_panel_mode == CONTEXT_PANEL_DOWNLOAD:
-		_close_feature_panel()
-		return
-	_prepare_context_panel(CONTEXT_PANEL_DOWNLOAD, "Download Genome", false)
-	_download_panel.visible = true
-	if not _download_in_progress:
-		_set_download_status("")
-	_feature_panel_open = true
-	_slide_feature_panel(true, true)
-	if _download_accession_edit != null:
-		_download_accession_edit.grab_focus()
+	if _context_panel_controller != null:
+		_context_panel_controller.toggle_download_panel()
 
 func _prepare_context_panel(mode: int, title: String, show_detail_labels: bool) -> void:
-	if _context_panel_mode == CONTEXT_PANEL_TRACK_SETTINGS and mode != CONTEXT_PANEL_TRACK_SETTINGS:
-		_maybe_save_genome_track_settings()
-	_context_panel_mode = mode
-	_track_settings_open = false
-	_active_track_settings_id = ""
-	feature_title_label.text = title
-	feature_name_label.visible = show_detail_labels
-	feature_type_label.visible = show_detail_labels
-	feature_range_label.visible = show_detail_labels
-	feature_strand_label.visible = show_detail_labels
-	feature_source_label.visible = show_detail_labels
-	feature_seq_label.visible = show_detail_labels
-	_hide_context_subpanels()
+	if _context_panel_controller != null:
+		_context_panel_controller.prepare_context_panel(mode, title, show_detail_labels)
 
 func _hide_context_subpanels() -> void:
-	if _track_settings_box != null:
-		_track_settings_box.visible = false
-	if _feature_panel_controller != null:
-		_feature_panel_controller.hide_subpanels()
-	if _search_controller != null:
-		_search_controller.hide_panel()
-	if _go_controller != null:
-		_go_controller.hide_panel()
-	if _download_panel != null:
-		_download_panel.visible = false
-	if _read_mate_jump_button != null:
-		_read_mate_jump_button.visible = false
+	if _context_panel_controller != null:
+		_context_panel_controller.hide_context_subpanels()
 
 func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	var hit: Dictionary = hit_any
