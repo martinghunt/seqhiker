@@ -14,6 +14,7 @@ EXPORT_MODE="release"
 SKIP_ZEM=0
 STAGE_DIR=""
 OUTFILE_ABS=""
+WINDOWS_PACKAGE_DIR=""
 
 usage() {
 	cat <<'EOF'
@@ -24,6 +25,7 @@ Required:
   --target   Target used to build bundled zem, e.g. darwin/arm64, linux/amd64, windows/arm64
   --preset   Godot export preset name from export_presets.cfg
   --out      Output artifact path for Godot export
+             Windows targets may use .zip to package the exported app files
 
 Options:
   --godot-bin <path>   Godot executable path
@@ -150,5 +152,18 @@ fi
 
 echo "${step_label} Exporting seqhiker (${EXPORT_MODE}) preset='${PRESET}' -> ${OUTFILE_ABS}"
 mkdir -p "$(dirname "${OUTFILE_ABS}")"
-"${GODOT_BIN}" --headless --path "${STAGE_DIR}" "--export-${EXPORT_MODE}" "${PRESET}" "${OUTFILE_ABS}"
+
+if [[ "${TARGET}" == windows/* && "${OUTFILE_ABS}" == *.zip ]]; then
+	WINDOWS_PACKAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/seqhiker-windows-export.XXXXXX")"
+	trap '[[ -n "${WINDOWS_PACKAGE_DIR}" && -d "${WINDOWS_PACKAGE_DIR}" ]] && rm -rf "${WINDOWS_PACKAGE_DIR}"; [[ -n "${STAGE_DIR}" && -d "${STAGE_DIR}" ]] && rm -rf "${STAGE_DIR}"' EXIT
+	WINDOWS_EXPORT_EXE="${WINDOWS_PACKAGE_DIR}/seqhiker.exe"
+	"${GODOT_BIN}" --headless --path "${STAGE_DIR}" "--export-${EXPORT_MODE}" "${PRESET}" "${WINDOWS_EXPORT_EXE}"
+	(
+		cd "${WINDOWS_PACKAGE_DIR}"
+		zip -qr "${OUTFILE_ABS}" .
+	)
+else
+	"${GODOT_BIN}" --headless --path "${STAGE_DIR}" "--export-${EXPORT_MODE}" "${PRESET}" "${OUTFILE_ABS}"
+fi
+
 echo "Done: ${OUTFILE_ABS}"

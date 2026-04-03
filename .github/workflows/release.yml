@@ -24,10 +24,10 @@ jobs:
             output: dist/seqhiker-${{ github.ref_name }}-linux-arm64
           - target: windows/arm64
             preset: Windows arm64
-            output: dist/seqhiker-${{ github.ref_name }}-windows-arm64.exe
+            output: dist/seqhiker-${{ github.ref_name }}-windows-arm64.zip
           - target: windows/amd64
             preset: Windows x86_64
-            output: dist/seqhiker-${{ github.ref_name }}-windows-x86_64.exe
+            output: dist/seqhiker-${{ github.ref_name }}-windows-x86_64.zip
 
     steps:
       - name: Check out repository
