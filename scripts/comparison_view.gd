@@ -12,6 +12,7 @@ signal comparison_feature_selected(feature: Dictionary, was_double_click: bool)
 signal comparison_region_selected(selection: Dictionary)
 signal comparison_region_cleared()
 signal detail_requested(request: Dictionary)
+signal ui_sound_requested(sound_id: String)
 
 const ROW_SCENE = preload("res://scenes/ComparisonGenomeRow.tscn")
 const ROW_H := 96.0
@@ -73,6 +74,7 @@ var _mouse_wheel_zoom_sensitivity := 1.0
 var _invert_mouse_wheel_zoom := false
 var _mouse_wheel_pan_sensitivity := 1.0
 var _loading_message := ""
+var _last_ui_sound_ms := {}
 var _theme_colors := {
 	"text": Color.BLACK,
 	"text_muted": Color("666666"),
@@ -508,6 +510,7 @@ func _input(event: InputEvent) -> void:
 			else:
 				pan_sign = -1.0 if wheel_event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0
 			pan_all_by_fraction(pan_sign * 0.12 * _mouse_wheel_pan_sensitivity)
+			_emit_ui_sound_throttled("pan_left" if pan_sign < 0.0 else "pan_right", 130)
 			accept_event()
 			return
 		var zoom_in := wheel_event.button_index == MOUSE_BUTTON_WHEEL_UP
@@ -516,6 +519,7 @@ func _input(event: InputEvent) -> void:
 		var wheel_factor := 0.88 if zoom_in else 1.14
 		var scaled_factor := pow(wheel_factor, _mouse_wheel_zoom_sensitivity)
 		zoom_by_at_x(scaled_factor, local_wheel_point.x, 0.12)
+		_emit_ui_sound_throttled("zoom_in" if zoom_in else "zoom_out", 130)
 		accept_event()
 		return
 	elif event is InputEventPanGesture:
@@ -528,10 +532,12 @@ func _input(event: InputEvent) -> void:
 			var gesture_factor := 0.88 if zoom_in else 1.14
 			var scaled_factor := pow(gesture_factor, absf(pan_event.delta.y) * _mouse_wheel_zoom_sensitivity)
 			zoom_by_at_x(scaled_factor, local_pan_point.x, 0.12)
+			_emit_ui_sound_throttled("zoom_in" if zoom_in else "zoom_out", 130)
 			accept_event()
 			return
 		elif absf(pan_event.delta.x) > 0.0:
 			_pan_all_by_pixels(pan_event.delta.x * _trackpad_pan_sensitivity * 3.0, false)
+			_emit_ui_sound_throttled("pan_left" if pan_event.delta.x < 0.0 else "pan_right", 130)
 			accept_event()
 			return
 	elif event is InputEventMagnifyGesture:
@@ -541,6 +547,7 @@ func _input(event: InputEvent) -> void:
 			scaled_factor = maxf(0.05, scaled_factor)
 			var local_magnify_point := _local_input_point(get_viewport().get_mouse_position())
 			zoom_by_at_x(1.0 / scaled_factor, local_magnify_point.x, 0.12)
+			_emit_ui_sound_throttled("zoom_in" if magnify_event.factor > 1.0 else "zoom_out", 130)
 			accept_event()
 			return
 	if event is InputEventMouseMotion:
@@ -570,9 +577,18 @@ func _input(event: InputEvent) -> void:
 			_finish_region_selection_drag(local_release)
 			accept_event()
 			return
-		if not _drag_active:
-			return
-		_finish_row_drag(_drag_target_index)
+	if not _drag_active:
+		return
+	_finish_row_drag(_drag_target_index)
+
+
+func _emit_ui_sound_throttled(sound_id: String, min_interval_ms: int) -> void:
+	var now_ms := Time.get_ticks_msec()
+	var last_ms := int(_last_ui_sound_ms.get(sound_id, -1000000))
+	if now_ms - last_ms < min_interval_ms:
+		return
+	_last_ui_sound_ms[sound_id] = now_ms
+	emit_signal("ui_sound_requested", sound_id)
 
 
 func _gui_input(event: InputEvent) -> void:
@@ -1683,6 +1699,7 @@ func _on_row_axis_center_requested(genome_id: int, click_x_in_parent: float) -> 
 
 func _on_lock_button_pressed(key: String) -> void:
 	_pair_locks[key] = not bool(_pair_locks.get(key, false))
+	emit_signal("ui_sound_requested", "toggle_on" if bool(_pair_locks.get(key, false)) else "toggle_off")
 	var btn: Button = _lock_buttons.get(key)
 	if btn != null:
 		btn.text = "P" if bool(_pair_locks.get(key, false)) else "Q"

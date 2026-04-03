@@ -8,6 +8,7 @@ const SearchControllerScript = preload("res://scripts/search_controller.gd")
 const GoControllerScript = preload("res://scripts/go_controller.gd")
 const TopBarControllerScript = preload("res://scripts/top_bar_controller.gd")
 const ContextPanelControllerScript = preload("res://scripts/context_panel_controller.gd")
+const SoundControllerScript = preload("res://scripts/sound_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
@@ -143,6 +144,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedSlider
 @onready var play_speed_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedValue
 @onready var animate_pan_zoom_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/AnimatePanZoomSlider
+@onready var _sounds_cb: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/SoundsToggle
 @onready var theme_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ThemeOption
 @onready var ui_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UIFontOption
 @onready var sequence_letter_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/SequenceLetterFontOption
@@ -318,6 +320,8 @@ var _settings_view_box: VBoxContainer
 var _settings_shared_label: Label
 var _settings_shared_box: VBoxContainer
 var _shared_colorize_nucleotides_cb: CheckButton
+var _sounds_enabled := false
+var _sound_controller: RefCounted
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -339,8 +343,11 @@ func _ready() -> void:
 	_top_bar_controller.configure(self)
 	_context_panel_controller = ContextPanelControllerScript.new()
 	_context_panel_controller.configure(self)
+	_sound_controller = SoundControllerScript.new()
+	_sound_controller.configure(self)
 	_disable_button_focus()
 	_top_bar_controller.setup()
+	_sound_controller.setup()
 	_setup_theme_selector()
 	_setup_ui_font_selector()
 	_setup_sequence_letter_font_selector()
@@ -467,6 +474,8 @@ func _setup_settings_sections() -> void:
 	_shared_colorize_nucleotides_cb.text = "Color nucleotides by base"
 	_shared_colorize_nucleotides_cb.button_pressed = _colorize_nucleotides
 	_shared_colorize_nucleotides_cb.toggled.connect(_on_colorize_nucleotides_toggled)
+	if _sounds_cb != null and not _sounds_cb.toggled.is_connected(_on_sounds_toggled):
+		_sounds_cb.toggled.connect(_on_sounds_toggled)
 	var insert_at := -1
 	for i in range(_settings_shared_box.get_child_count()):
 		if _settings_shared_box.get_child(i) == ui_font_option:
@@ -492,6 +501,7 @@ func _refresh_settings_sections() -> void:
 		_comparison_controller.refresh_settings(_app_mode)
 
 func _toggle_comparison_mode() -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_CHANGE_VIEW)
 	if _top_bar_controller != null:
 		_top_bar_controller.toggle_comparison_mode()
 
@@ -515,6 +525,8 @@ func _spin_clear_button() -> void:
 		_top_bar_controller._spin_clear_button()
 
 func _on_screenshot_pressed() -> void:
+	if _active_view_has_data_to_clear():
+		_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	if _top_bar_controller != null:
 		_top_bar_controller.on_screenshot_pressed()
 
@@ -523,6 +535,7 @@ func _on_screenshot_file_selected(path: String) -> void:
 		_top_bar_controller.on_screenshot_file_selected(path)
 
 func _on_comparison_save_pressed() -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	if _top_bar_controller != null:
 		_top_bar_controller.on_comparison_save_pressed()
 
@@ -659,6 +672,7 @@ func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
 	close_settings_button.pressed.connect(_close_settings)
 	pan_left_button.pressed.connect(func() -> void:
+		_play_ui_sound(SoundControllerScript.SOUND_PAN_LEFT)
 		if _app_mode == APP_MODE_COMPARISON:
 			if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
 				comparison_view.pan_all_by_fraction(-_pan_step_percent / 100.0)
@@ -666,6 +680,7 @@ func _connect_ui() -> void:
 		_pan_view_by_fraction(-_pan_step_percent / 100.0)
 	)
 	jump_start_button.pressed.connect(func() -> void:
+		_play_ui_sound(SoundControllerScript.SOUND_JUMP)
 		if _app_mode == APP_MODE_COMPARISON:
 			if comparison_view != null and comparison_view.has_method("move_all_to_boundary"):
 				comparison_view.move_all_to_boundary(false)
@@ -673,6 +688,7 @@ func _connect_ui() -> void:
 		_navigate_to_boundary(false)
 	)
 	pan_right_button.pressed.connect(func() -> void:
+		_play_ui_sound(SoundControllerScript.SOUND_PAN_RIGHT)
 		if _app_mode == APP_MODE_COMPARISON:
 			if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
 				comparison_view.pan_all_by_fraction(_pan_step_percent / 100.0)
@@ -680,6 +696,7 @@ func _connect_ui() -> void:
 		_pan_view_by_fraction(_pan_step_percent / 100.0)
 	)
 	jump_end_button.pressed.connect(func() -> void:
+		_play_ui_sound(SoundControllerScript.SOUND_JUMP)
 		if _app_mode == APP_MODE_COMPARISON:
 			if comparison_view != null and comparison_view.has_method("move_all_to_boundary"):
 				comparison_view.move_all_to_boundary(true)
@@ -687,6 +704,7 @@ func _connect_ui() -> void:
 		_navigate_to_boundary(true)
 	)
 	zoom_in_button.pressed.connect(func() -> void:
+		_play_ui_sound(SoundControllerScript.SOUND_ZOOM_IN)
 		if _app_mode == APP_MODE_COMPARISON:
 			if comparison_view != null and comparison_view.has_method("zoom_by"):
 				comparison_view.zoom_by(0.78)
@@ -694,6 +712,7 @@ func _connect_ui() -> void:
 		genome_view.zoom_by(0.78)
 	)
 	zoom_out_button.pressed.connect(func() -> void:
+		_play_ui_sound(SoundControllerScript.SOUND_ZOOM_OUT)
 		if _app_mode == APP_MODE_COMPARISON:
 			if comparison_view != null and comparison_view.has_method("zoom_by"):
 				comparison_view.zoom_by(1.28)
@@ -721,6 +740,10 @@ func _connect_ui() -> void:
 	genome_view.track_settings_requested.connect(_on_track_settings_requested)
 	genome_view.track_order_changed.connect(_on_track_order_changed)
 	genome_view.track_visibility_changed.connect(_on_track_visibility_changed)
+	if genome_view.has_signal("ui_sound_requested"):
+		genome_view.ui_sound_requested.connect(_play_ui_sound)
+	if comparison_view.has_signal("ui_sound_requested"):
+		comparison_view.ui_sound_requested.connect(_play_ui_sound)
 	ui_scale_slider.value_changed.connect(_on_ui_scale_value_changed)
 	ui_scale_slider.drag_ended.connect(_on_ui_scale_drag_ended)
 	trackpad_pan_slider.value_changed.connect(_on_trackpad_pan_changed)
@@ -977,12 +1000,14 @@ func _on_region_selection_changed(active: bool, start_bp: int, end_bp: int) -> v
 		_update_debug_stats_label()
 
 func _toggle_settings() -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_SETTINGS_TOGGLE)
 	_settings_open = not _settings_open
 	_slide_settings(_settings_open, true)
 	if not _settings_open:
 		_save_config()
 
 func _close_settings() -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_SETTINGS_TOGGLE)
 	_settings_open = false
 	_slide_settings(false, true)
 	_save_config()
@@ -1024,6 +1049,8 @@ func _slide_feature_panel(open: bool, animated: bool) -> void:
 	var target_left: float = -panel_w if open else 0.0
 	var target_right: float = 0.0 if open else closed_w
 	if open:
+		if not feature_panel.visible:
+			_play_ui_sound(SoundControllerScript.SOUND_OPEN_RIGHT_PANEL)
 		feature_panel.visible = true
 	if animated:
 		_feature_tween = create_tween()
@@ -1060,6 +1087,7 @@ func _on_trackpad_pinch_changed(value: float) -> void:
 		comparison_view.set_trackpad_pinch_sensitivity(value)
 
 func _on_enable_vertical_swipe_zoom_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	enable_vertical_swipe_zoom_button.button_pressed = enabled
 	genome_view.set_vertical_swipe_zoom_enabled(enabled)
 	if comparison_view != null and comparison_view.has_method("set_vertical_swipe_zoom_enabled"):
@@ -1071,6 +1099,7 @@ func _on_mouse_wheel_zoom_changed(value: float) -> void:
 		comparison_view.set_mouse_wheel_zoom_sensitivity(value)
 
 func _on_invert_mouse_wheel_zoom_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	invert_mouse_wheel_zoom_button.button_pressed = enabled
 	genome_view.set_invert_mouse_wheel_zoom(enabled)
 	if comparison_view != null and comparison_view.has_method("set_invert_mouse_wheel_zoom"):
@@ -1109,6 +1138,7 @@ func _start_auto_play() -> void:
 	if _current_chr_len <= 0:
 		_set_status("Cannot play: no chromosome loaded.", true)
 		return
+	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_auto_play_enabled = true
 	_auto_play_direction = 1.0
 	_auto_play_tween_active = false
@@ -1117,11 +1147,13 @@ func _start_auto_play_left() -> void:
 	if _current_chr_len <= 0:
 		_set_status("Cannot play: no chromosome loaded.", true)
 		return
+	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_auto_play_enabled = true
 	_auto_play_direction = -1.0
 	_auto_play_tween_active = false
 
 func _stop_auto_play() -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_auto_play_enabled = false
 	_auto_play_tween_active = false
 	genome_view.end_motion_read_layer()
@@ -1641,6 +1673,7 @@ func _on_read_view_selected(index: int) -> void:
 	genome_view.set_read_view_mode(index)
 
 func _on_fragment_log_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_fragment_log_checkbox.button_pressed = enabled
 	genome_view.set_fragment_log_scale(enabled)
 
@@ -1649,10 +1682,12 @@ func _on_read_thickness_changed(value: float) -> void:
 	genome_view.set_read_thickness(_read_thickness)
 
 func _on_show_full_region_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_show_full_length_regions = enabled
 	genome_view.set_show_full_length_regions(enabled)
 
 func _on_show_stop_codons_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_show_stop_codons = enabled
 	genome_view.set_show_stop_codons(enabled)
 	_invalidate_viewport_cache()
@@ -1660,12 +1695,27 @@ func _on_show_stop_codons_toggled(enabled: bool) -> void:
 		_schedule_fetch()
 
 func _on_colorize_nucleotides_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_colorize_nucleotides = enabled
 	genome_view.set_colorize_nucleotides(enabled)
 	if comparison_view != null and comparison_view.has_method("set_colorize_nucleotides"):
 		comparison_view.set_colorize_nucleotides(enabled)
 
+func _on_sounds_toggled(enabled: bool) -> void:
+	_sounds_enabled = enabled
+	if _sound_controller != null:
+		_sound_controller.set_enabled(enabled)
+	_play_ui_sound(SoundControllerScript.SOUND_TOGGLE_ON if enabled else SoundControllerScript.SOUND_TOGGLE_OFF)
+
+func _play_ui_sound(sound_id: String) -> void:
+	if _sound_controller != null:
+		_sound_controller.play(sound_id)
+
+func _play_toggle_sound(enabled: bool) -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_TOGGLE_ON if enabled else SoundControllerScript.SOUND_TOGGLE_OFF)
+
 func _on_axis_coords_commas_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_axis_coords_with_commas = enabled
 	genome_view.set_axis_coords_with_commas(enabled)
 
@@ -1727,6 +1777,7 @@ func _on_active_read_track_view_selected(index: int) -> void:
 	)
 
 func _on_active_read_track_fragment_log_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_update_active_bam_track(func(t: Dictionary) -> void:
 		t["fragment_log"] = enabled
 	)
@@ -1737,21 +1788,25 @@ func _on_active_read_track_thickness_changed(value: float) -> void:
 	)
 
 func _on_active_read_track_auto_expand_snp_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_update_active_bam_track(func(t: Dictionary) -> void:
 		t["auto_expand_snp_text"] = enabled
 	)
 
 func _on_active_read_track_show_soft_clips_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_update_active_bam_track(func(t: Dictionary) -> void:
 		t["show_soft_clips"] = enabled
 	)
 
 func _on_active_read_track_show_pileup_logo_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_update_active_bam_track(func(t: Dictionary) -> void:
 		t["show_pileup_logo"] = enabled
 	)
 
 func _on_active_read_track_mate_contig_color_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_update_active_bam_track(func(t: Dictionary) -> void:
 		t["color_by_mate_contig"] = enabled
 	)
@@ -1767,6 +1822,7 @@ func _on_active_read_track_min_mapq_changed(value: float) -> void:
 	)
 
 func _on_debug_toggled(enabled: bool) -> void:
+	_play_toggle_sound(enabled)
 	_debug_enabled = enabled
 	if _debug_stats_label != null:
 		_debug_stats_label.visible = enabled
@@ -1957,6 +2013,7 @@ func _on_track_visibility_toggled(checked: bool, track_id: String) -> void:
 		_set_status("Read depth plot requires BAM.", true)
 		_refresh_track_visibility_controls(genome_view.get_track_order())
 		return
+	_play_toggle_sound(checked)
 	genome_view.set_track_visible(track_id, checked)
 
 func _track_label_for_id(track_id: String) -> String:
@@ -2032,10 +2089,12 @@ func _on_track_settings_requested(track_id: String) -> void:
 	if _track_settings_box == null:
 		return
 	if _track_settings_open and _active_track_settings_id == track_id and _feature_panel_open:
+		_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 		_close_feature_panel()
 		return
 	if _track_settings_open and _active_track_settings_id == TRACK_GENOME and track_id != TRACK_GENOME:
 		_save_config()
+	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_prepare_context_panel(CONTEXT_PANEL_TRACK_SETTINGS, "%s track settings" % _track_label_for_id(track_id), false)
 	feature_name_label.visible = true
 	feature_name_label.text = ""
@@ -2099,6 +2158,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 			flag_cb.text = "Hide %s" % str(entry.get("label", ""))
 			flag_cb.button_pressed = (hidden_flags & flag_bit) != 0
 			flag_cb.toggled.connect(func(enabled: bool) -> void:
+				_play_toggle_sound(enabled)
 				for i in range(_bam_tracks.size()):
 					var t: Dictionary = _bam_tracks[i]
 					if str(t.get("track_id", "")) != track_id:
@@ -2119,6 +2179,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 				improper_pair_cb.text = "Hide improper pair"
 				improper_pair_cb.button_pressed = bool(track_meta.get("hide_improper_pair", false))
 				improper_pair_cb.toggled.connect(func(enabled: bool) -> void:
+					_play_toggle_sound(enabled)
 					for i in range(_bam_tracks.size()):
 						var t: Dictionary = _bam_tracks[i]
 						if str(t.get("track_id", "")) != track_id:
@@ -2134,6 +2195,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 				mate_forward_cb.text = "Hide mate forward strand"
 				mate_forward_cb.button_pressed = bool(track_meta.get("hide_mate_forward_strand", false))
 				mate_forward_cb.toggled.connect(func(enabled: bool) -> void:
+					_play_toggle_sound(enabled)
 					for i in range(_bam_tracks.size()):
 						var t: Dictionary = _bam_tracks[i]
 						if str(t.get("track_id", "")) != track_id:
@@ -2149,6 +2211,7 @@ func _on_track_settings_requested(track_id: String) -> void:
 				forward_cb.text = "Hide forward strand"
 				forward_cb.button_pressed = bool(track_meta.get("hide_forward_strand", false))
 				forward_cb.toggled.connect(func(enabled: bool) -> void:
+					_play_toggle_sound(enabled)
 					for i in range(_bam_tracks.size()):
 						var t: Dictionary = _bam_tracks[i]
 						if str(t.get("track_id", "")) != track_id:
@@ -2310,14 +2373,17 @@ func _on_track_settings_requested(track_id: String) -> void:
 	_slide_feature_panel(true, true)
 
 func _toggle_search_panel() -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	if _context_panel_controller != null:
 		_context_panel_controller.toggle_search_panel()
 
 func _toggle_go_panel() -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	if _context_panel_controller != null:
 		_context_panel_controller.toggle_go_panel()
 
 func _toggle_download_panel() -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_DOWNLOAD)
 	if _context_panel_controller != null:
 		_context_panel_controller.toggle_download_panel()
 
@@ -2334,6 +2400,7 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	if str(hit.get("context", "")) == "comparison":
 		if _app_mode != APP_MODE_COMPARISON:
 			return
+		_play_ui_sound(SoundControllerScript.SOUND_JUMP)
 		_comparison_controller.focus_search_hit(hit)
 		return
 	var hit_kind := str(hit.get("kind", ""))
@@ -2349,6 +2416,7 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 			_on_seq_selected(i)
 			break
 	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
 	_navigate_to_centered_range(start_bp, end_bp, current_bp_per_px)
 	if hit_kind == "dna":
 		_pending_annotation_highlight = {}
@@ -2362,11 +2430,13 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 func _on_map_jump_requested(bp_center: float) -> void:
 	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
 	var target_start := maxi(0, int(floor(bp_center - genome_view.get_visible_span_bp() * 0.5)))
+	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
 	_navigate_to_view(float(target_start), current_bp_per_px)
 
 func _on_center_jump_requested(bp_center: float) -> void:
 	var target_start := maxi(0, int(floor(bp_center - genome_view.get_visible_span_bp() * 0.5)))
 	_cancel_motion_navigation()
+	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
 	genome_view.pan_to_start(float(target_start))
 
 func _display_point_bp(bp: int) -> int:
@@ -2400,6 +2470,7 @@ func _go_on_comparison_request(genome_id: int, segment: Dictionary, start_displa
 	var seg_start := int(segment.get("start", 0))
 	var start_bp := seg_start + start_display - 1
 	var end_bp := seg_start + end_display if end_display >= 0 else start_bp + 1
+	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
 	if end_display >= 0:
 		_comparison_controller.focus_genome_range_with_zoom(genome_id, start_bp, end_bp)
 	else:
@@ -2429,6 +2500,7 @@ func _go_on_browser_request(chr_id: int, start_display: int, end_display: int) -
 	else:
 		var point_bp := offset_bp + start_display - 1
 		_navigate_to_centered_range(point_bp, point_bp + 1, current_bp_per_px)
+	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
 	genome_view.clear_region_selection()
 
 func _search_get_zem() -> RefCounted:
@@ -2709,6 +2781,8 @@ func _apply_topbar_button_font_size() -> void:
 		_top_bar_controller.apply_topbar_button_font_size()
 
 func _on_files_dropped(files: PackedStringArray) -> void:
+	if not files.is_empty():
+		_play_ui_sound(SoundControllerScript.SOUND_FILE_DROP)
 	if not _ensure_server_connected():
 		return
 	for file_any in files:
@@ -3204,6 +3278,11 @@ func _load_or_init_config() -> void:
 	genome_view.set_show_full_length_regions(_show_full_length_regions)
 	_show_stop_codons = bool(cfg.get_value("ui", "show_stop_codons", false))
 	genome_view.set_show_stop_codons(_show_stop_codons)
+	_sounds_enabled = bool(cfg.get_value("ui", "sounds_enabled", false))
+	if _sounds_cb != null:
+		_sounds_cb.button_pressed = _sounds_enabled
+	if _sound_controller != null:
+		_sound_controller.set_enabled(_sounds_enabled)
 	_colorize_nucleotides = bool(cfg.get_value("ui", "colorize_nucleotides", true))
 	genome_view.set_colorize_nucleotides(_colorize_nucleotides)
 	_axis_coords_with_commas = bool(cfg.get_value("ui", "axis_coords_with_commas", false))
@@ -3255,6 +3334,7 @@ func _save_config() -> void:
 	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)
 	cfg.set_value("ui", "show_full_length_regions", _show_full_length_regions)
 	cfg.set_value("ui", "show_stop_codons", _show_stop_codons)
+	cfg.set_value("ui", "sounds_enabled", _sounds_enabled)
 	cfg.set_value("ui", "colorize_nucleotides", _colorize_nucleotides)
 	cfg.set_value("ui", "axis_coords_with_commas", _axis_coords_with_commas)
 	cfg.set_value("ui", "gc_window_bp", _gc_window_bp)
@@ -3281,23 +3361,28 @@ func _on_feature_clicked(feature: Dictionary) -> void:
 	_feature_panel_controller.on_feature_clicked(feature)
 
 func _on_feature_selected(feature: Dictionary) -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_feature_panel_controller.on_feature_selected(feature)
 
 func _on_read_clicked(read: Dictionary) -> void:
 	_feature_panel_controller.on_read_clicked(read)
 
 func _on_read_selected(read: Dictionary) -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_feature_panel_controller.on_read_selected(read)
 
 func _on_comparison_match_selected(match: Dictionary, was_double_click: bool = false) -> void:
 	if was_double_click and not _feature_panel_open:
 		return
+	if not was_double_click:
+		_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_feature_panel_controller.on_comparison_match_clicked(match)
 
 func _on_comparison_feature_selected(feature: Dictionary, was_double_click: bool = false) -> void:
 	if was_double_click:
 		_feature_panel_controller.on_feature_clicked(feature)
 	else:
+		_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 		_feature_panel_controller.on_feature_selected(feature)
 
 func _on_comparison_match_cleared() -> void:
@@ -3331,6 +3416,8 @@ func _format_read_flags(flags: int) -> String:
 func _close_feature_panel() -> void:
 	if _context_panel_mode == CONTEXT_PANEL_SELECTED_MATCHES and _comparison_controller != null:
 		_comparison_controller.clear_region_selection()
+	if _feature_panel_open:
+		_play_ui_sound(SoundControllerScript.SOUND_CLOSE_RIGHT_PANEL)
 	_feature_panel_controller.close_feature_panel()
 
 func _process(_delta: float) -> void:

@@ -27,6 +27,7 @@ signal region_selected(start_bp: int, end_bp: int)
 signal region_selection_changed(active: bool, start_bp: int, end_bp: int)
 signal map_jump_requested(bp_center: float)
 signal center_jump_requested(bp_center: float)
+signal ui_sound_requested(sound_id: String)
 
 const AA_ROW_H := 26.0
 const AA_ROW_GAP := 3.0
@@ -111,6 +112,7 @@ var view_start_bp := 0.0
 var bp_per_px := 8.0
 var min_bp_per_px := 0.02
 var max_bp_per_px := 10000.0
+var _last_ui_sound_ms := {}
 
 var reads: Array[Dictionary] = []
 var coverage_tiles: Array[Dictionary] = []
@@ -2041,6 +2043,7 @@ func _gui_input(event: InputEvent) -> void:
 			var pan_fraction := 0.12 * _mouse_wheel_pan_sensitivity
 			var pan_bp := get_visible_span_bp() * pan_fraction
 			_pan_by_pixels(pan_sign * pan_bp / maxf(bp_per_px, 0.000001))
+			_emit_ui_sound_throttled("pan_left" if pan_sign < 0.0 else "pan_right", 130)
 			accept_event()
 			return
 		var zoom_in := wheel_event.button_index == MOUSE_BUTTON_WHEEL_UP
@@ -2050,6 +2053,7 @@ func _gui_input(event: InputEvent) -> void:
 		var scaled_factor := pow(wheel_factor, _mouse_wheel_zoom_sensitivity)
 		var local_mouse := wheel_event.position
 		zoom_by_at_x(scaled_factor, local_mouse.x, 0.12)
+		_emit_ui_sound_throttled("zoom_in" if zoom_in else "zoom_out", 130)
 		accept_event()
 		return
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
@@ -2194,9 +2198,11 @@ func _gui_input(event: InputEvent) -> void:
 			var gesture_factor := 0.88 if zoom_in else 1.14
 			var scaled_factor := pow(gesture_factor, absf(pan_event.delta.y) * _mouse_wheel_zoom_sensitivity)
 			zoom_by_at_x(scaled_factor, pan_event.position.x, 0.12)
+			_emit_ui_sound_throttled("zoom_in" if zoom_in else "zoom_out", 130)
 			accept_event()
 		elif absf(pan_event.delta.x) > 0.0:
 			_pan_by_pixels(pan_event.delta.x * _trackpad_pan_sensitivity * 3.0)
+			_emit_ui_sound_throttled("pan_left" if pan_event.delta.x < 0.0 else "pan_right", 130)
 			accept_event()
 	elif event is InputEventMagnifyGesture:
 		var magnify_event := event as InputEventMagnifyGesture
@@ -2206,7 +2212,16 @@ func _gui_input(event: InputEvent) -> void:
 			scaled_factor = maxf(0.05, scaled_factor)
 			var local_mouse := get_local_mouse_position()
 			zoom_by_at_x(1.0 / scaled_factor, local_mouse.x, 0.12)
+			_emit_ui_sound_throttled("zoom_in" if magnify_event.factor > 1.0 else "zoom_out", 130)
 			accept_event()
+
+func _emit_ui_sound_throttled(sound_id: String, min_interval_ms: int) -> void:
+	var now_ms := Time.get_ticks_msec()
+	var last_ms := int(_last_ui_sound_ms.get(sound_id, -1000000))
+	if now_ms - last_ms < min_interval_ms:
+		return
+	_last_ui_sound_ms[sound_id] = now_ms
+	emit_signal("ui_sound_requested", sound_id)
 
 func _pan_by_pixels(delta_x: float) -> void:
 	if _plot_width() <= 0:

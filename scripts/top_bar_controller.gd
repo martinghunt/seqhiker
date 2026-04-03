@@ -155,6 +155,7 @@ func on_clear_pressed() -> void:
 		return
 	if not _active_view_has_data_to_clear():
 		return
+	host._play_ui_sound("clear_data")
 	_spin_clear_button()
 	var clear_action := Callable(self, "_clear_comparison_view") if host._app_mode == host.APP_MODE_COMPARISON else Callable(self, "_clear_browser_view")
 	if _play_clear_effect(clear_action):
