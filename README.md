@@ -34,7 +34,7 @@ Documentation: https://seqhiker.readthedocs.io/en/
 1. Launch `seqhiker`.
 2. Drag and drop your files into the window.
 
-A sequence file must be included, for example FASTA, GenBank, or EMBL.
+A sequence file must be included, for example FASTA, GenBank, EMBL, or a GFF3 file with embedded sequence.
 
 Typical files:
 - FASTA
@@ -44,5 +44,7 @@ Typical files:
 - BAM (sorted and indexed)
 
 `seqhiker` will load the files and open the matching genome view.
+
+A standalone GFF3 with an embedded `##FASTA` section is treated as a sequence-bearing genome file.
 
 You can also switch to `Comparison view` in the toolbar and add genomes one-by-one to compare them.

@@ -23,6 +23,8 @@ Comparison mode accepts the same sequence and annotation sources as browser mode
 
 If you drop a sequence file together with its matching GFF3, the comparison genome is loaded with annotations.
 
+A standalone GFF3 with embedded `##FASTA` can also be loaded directly as one comparison genome.
+
 ## Layout
 
 Each genome row shows:

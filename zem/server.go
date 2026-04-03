@@ -114,11 +114,11 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		if err != nil {
 			return 0, nil, err
 		}
-		hasSequence, hasAnnotation, isComparisonSession, err := engine.InspectInput(path)
+		hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, isComparisonSession, err := engine.InspectInput(path)
 		if err != nil {
 			return 0, nil, err
 		}
-		return MsgInspectInput, encodeInputInfo(hasSequence, hasAnnotation, isComparisonSession), nil
+		return MsgInspectInput, encodeInputInfo(hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, isComparisonSession), nil
 
 	case MsgGetTile:
 		if len(payload) < 7 {

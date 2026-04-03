@@ -39,6 +39,97 @@ func TestParseGFF3EmbeddedFASTA(t *testing.T) {
 	}
 }
 
+func TestInspectInputEmbeddedGFF3ReportsSequenceAndAnnotation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "embedded.gff3")
+	content := "##gff-version 3\n" +
+		"chr1\tsrc\tgene\t2\t5\t.\t+\t.\tID=gene1;Name=test\n" +
+		"##FASTA\n" +
+		">chr1\n" +
+		"ACGTACGT\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, isSession, err := e.InspectInput(path)
+	if err != nil {
+		t.Fatalf("InspectInput returned error: %v", err)
+	}
+	if !hasSequence {
+		t.Fatal("expected embedded GFF3 to report sequence")
+	}
+	if !hasAnnotation {
+		t.Fatal("expected embedded GFF3 to report annotation")
+	}
+	if !hasEmbeddedGFF3Sequence {
+		t.Fatal("expected embedded GFF3 to report embedded sequence")
+	}
+	if isSession {
+		t.Fatal("embedded GFF3 must not report comparison session")
+	}
+}
+
+func TestLoadEmbeddedGFF3MergesAnnotationsIntoMatchingGenome(t *testing.T) {
+	dir := t.TempDir()
+	fastaPath := filepath.Join(dir, "ref.fa")
+	gffPath := filepath.Join(dir, "embedded.gff3")
+	if err := os.WriteFile(fastaPath, []byte(">chr1\nACGTACGT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gff := "##gff-version 3\n" +
+		"chr1\tsrc\tgene\t2\t5\t.\t+\t.\tID=gene1;Name=test\n" +
+		"##FASTA\n" +
+		">chr1\n" +
+		"ACGTACGT\n"
+	if err := os.WriteFile(gffPath, []byte(gff), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(fastaPath); err != nil {
+		t.Fatalf("LoadGenome FASTA returned error: %v", err)
+	}
+	if err := e.LoadGenome(gffPath); err != nil {
+		t.Fatalf("LoadGenome embedded GFF3 returned error: %v", err)
+	}
+	if got := e.sequences["chr1"]; got != "ACGTACGT" {
+		t.Fatalf("sequence changed after embedded GFF3 merge: got %q", got)
+	}
+	if got := len(e.features["chr1"]); got != 1 {
+		t.Fatalf("expected 1 merged feature, got %d", got)
+	}
+}
+
+func TestLoadEmbeddedGFF3RejectsMismatchedLoadedGenome(t *testing.T) {
+	dir := t.TempDir()
+	fastaPath := filepath.Join(dir, "ref.fa")
+	gffPath := filepath.Join(dir, "embedded.gff3")
+	if err := os.WriteFile(fastaPath, []byte(">chr1\nACGTACGT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gff := "##gff-version 3\n" +
+		"chr1\tsrc\tgene\t2\t5\t.\t+\t.\tID=gene1;Name=test\n" +
+		"##FASTA\n" +
+		">chr1\n" +
+		"ACGTTCGT\n"
+	if err := os.WriteFile(gffPath, []byte(gff), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(fastaPath); err != nil {
+		t.Fatalf("LoadGenome FASTA returned error: %v", err)
+	}
+	err := e.LoadGenome(gffPath)
+	if err == nil {
+		t.Fatal("expected mismatched embedded GFF3 to be rejected")
+	}
+	if !strings.Contains(err.Error(), "does not match loaded reference") {
+		t.Fatalf("unexpected mismatch error: %v", err)
+	}
+}
+
 func TestSearchDNAExact(t *testing.T) {
 	e := NewEngine()
 	e.sequences["chr1"] = "ACGTACGT"

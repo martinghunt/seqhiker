@@ -38,7 +38,9 @@ func _load_paths(files: PackedStringArray) -> Dictionary:
 		host._set_status(err_msg, true)
 		return {"ok": false, "error": err_msg}
 	if dropped_sequence:
-		host._reset_loaded_state()
+		var embedded_only := int(drop_info.get("embedded_gff_sequence_root_count", 0)) == int(drop_info.get("sequence_root_count", 0))
+		if not (host._has_sequence_loaded and embedded_only):
+			host._reset_loaded_state()
 	else:
 		host._view_slots.clear()
 	if not load_dropped_files(files):
@@ -80,6 +82,7 @@ func refresh_sequence_loaded_state() -> void:
 
 func inspect_dropped_files(files: PackedStringArray) -> Dictionary:
 	var sequence_root_count := 0
+	var embedded_gff_sequence_root_count := 0
 	for path in files:
 		if path.get_extension().to_lower() == "bam":
 			continue
@@ -88,10 +91,13 @@ func inspect_dropped_files(files: PackedStringArray) -> Dictionary:
 			return {"ok": false, "error": "Inspect input failed: %s" % resp.get("error", "error")}
 		if bool(resp.get("has_sequence", false)):
 			sequence_root_count += 1
+			if bool(resp.get("has_embedded_gff3_sequence", false)):
+				embedded_gff_sequence_root_count += 1
 	return {
 		"ok": true,
 		"has_sequence": sequence_root_count > 0,
-		"sequence_root_count": sequence_root_count
+		"sequence_root_count": sequence_root_count,
+		"embedded_gff_sequence_root_count": embedded_gff_sequence_root_count
 	}
 
 

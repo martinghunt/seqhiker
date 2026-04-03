@@ -179,6 +179,29 @@ func loadGenomeSnapshot(path string) (GenomeSnapshot, bool, error) {
 	return loadGenomeSnapshotEntries(entries)
 }
 
+func entriesAreEmbeddedGFF3(entries []string) (bool, error) {
+	if len(entries) == 0 {
+		return false, nil
+	}
+	for _, p := range entries {
+		kind, err := detectInputKind(p)
+		if err != nil {
+			return false, err
+		}
+		if kind != inputKindGFF3 {
+			return false, nil
+		}
+		hasEmbeddedSeq, err := gff3HasEmbeddedSequence(p)
+		if err != nil {
+			return false, err
+		}
+		if !hasEmbeddedSeq {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func (e *Engine) AddComparisonGenome(path string) (ComparisonGenomeInfo, error) {
 	snapshot, hasSequenceInput, err := loadGenomeSnapshot(path)
 	if err != nil {

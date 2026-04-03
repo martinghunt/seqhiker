@@ -161,6 +161,7 @@ func inspect_input(path: String) -> Dictionary:
 	resp["has_sequence"] = (flags & 1) != 0
 	resp["has_annotation"] = (flags & 2) != 0
 	resp["is_comparison_session"] = (flags & 4) != 0
+	resp["has_embedded_gff3_sequence"] = (flags & 8) != 0
 	return resp
 
 func _encode_string_list(values: PackedStringArray) -> PackedByteArray:

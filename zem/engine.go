@@ -217,13 +217,28 @@ func (e *Engine) SetTileCacheMaxBytes(maxBytes int64) {
 }
 
 func (e *Engine) LoadGenome(path string) error {
-	snapshot, hasSequenceInput, err := loadGenomeSnapshot(path)
+	entries, err := gatherInputFiles(path)
+	if err != nil {
+		return err
+	}
+	snapshot, hasSequenceInput, err := loadGenomeSnapshotEntries(entries)
+	if err != nil {
+		return err
+	}
+	embeddedGFFOnly, err := entriesAreEmbeddedGFF3(entries)
 	if err != nil {
 		return err
 	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	if len(e.sequences) > 0 && hasSequenceInput && len(snapshot.Sequences) > 0 && embeddedGFFOnly {
+		if !sameSequenceSet(e.sequences, snapshot.Sequences) {
+			return errors.New("embedded GFF3 sequence does not match loaded reference")
+		}
+		hasSequenceInput = false
+	}
 
 	if hasSequenceInput || len(snapshot.Sequences) > 0 {
 		// Sequence-bearing loads define a new primary genome context.
@@ -290,6 +305,18 @@ func (e *Engine) LoadGenome(path string) error {
 	return nil
 }
 
+func sameSequenceSet(current map[string]string, incoming map[string]string) bool {
+	if len(current) != len(incoming) {
+		return false
+	}
+	for chr, seq := range current {
+		if incoming[chr] != seq {
+			return false
+		}
+	}
+	return true
+}
+
 func (e *Engine) ListChromosomes() []ChromInfo {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -326,34 +353,43 @@ func (e *Engine) HasSequenceLoaded() bool {
 	return len(e.sequences) > 0
 }
 
-func (e *Engine) InspectInput(path string) (bool, bool, bool, error) {
+func (e *Engine) InspectInput(path string) (bool, bool, bool, bool, error) {
 	entries, err := gatherInputFiles(path)
 	if err != nil {
 		kind, kindErr := detectInputKind(path)
 		if kindErr == nil && kind == inputKindComparisonSession {
-			return false, false, true, nil
+			return false, false, false, true, nil
 		}
-		return false, false, false, err
+		return false, false, false, false, err
 	}
 	hasSequence := false
 	hasAnnotation := false
+	hasEmbeddedGFF3Sequence := false
 	for _, p := range entries {
 		kind, err := detectInputKind(p)
 		if err != nil {
-			return false, false, false, err
+			return false, false, false, false, err
 		}
 		switch kind {
 		case inputKindFASTA, inputKindFlatFile:
 			hasSequence = true
 		case inputKindGFF3:
 			hasAnnotation = true
+			hasEmbeddedSeq, err := gff3HasEmbeddedSequence(p)
+			if err != nil {
+				return false, false, false, false, err
+			}
+			if hasEmbeddedSeq {
+				hasSequence = true
+				hasEmbeddedGFF3Sequence = true
+			}
 		case inputKindComparisonSession:
-			return false, false, true, nil
+			return false, false, false, true, nil
 		default:
-			return false, false, false, fmt.Errorf("unsupported genome/annotation file: %s", p)
+			return false, false, false, false, fmt.Errorf("unsupported genome/annotation file: %s", p)
 		}
 	}
-	return hasSequence, hasAnnotation, false, nil
+	return hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, false, nil
 }
 
 func recordSNPPositions(rec *sam.Record, windowStart, windowEnd int, includeSNPs bool, refSeq string) []uint32 {

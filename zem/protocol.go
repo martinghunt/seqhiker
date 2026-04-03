@@ -169,13 +169,16 @@ func encodeLoadState(hasSequence bool) []byte {
 	return []byte{0}
 }
 
-func encodeInputInfo(hasSequence bool, hasAnnotation bool, isComparisonSession bool) []byte {
+func encodeInputInfo(hasSequence bool, hasAnnotation bool, hasEmbeddedGFF3Sequence bool, isComparisonSession bool) []byte {
 	var flags byte
 	if hasSequence {
 		flags |= 1
 	}
 	if hasAnnotation {
 		flags |= 2
+	}
+	if hasEmbeddedGFF3Sequence {
+		flags |= 8
 	}
 	if isComparisonSession {
 		flags |= 4

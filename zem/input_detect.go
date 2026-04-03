@@ -128,3 +128,24 @@ func looksLikeGFF3Data(line string) bool {
 	}
 	return strings.Count(line, "\t") >= 8
 }
+
+func gff3HasEmbeddedSequence(path string) (bool, error) {
+	f, err := xopen.Ropen(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimPrefix(line, "\uFEFF")
+		if line == "##FASTA" {
+			return true, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
