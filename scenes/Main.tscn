@@ -123,12 +123,6 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/separation = 8
 
-[node name="DownloadButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
-layout_mode = 2
-tooltip_text = "Download genome from internet"
-theme_override_fonts/font = ExtResource("2_0bbpv")
-text = "Z"
-
 [node name="ComparisonButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
 tooltip_text = "Switch to comparison view"
@@ -141,6 +135,12 @@ layout_mode = 2
 tooltip_text = "Save comparison session"
 theme_override_fonts/font = ExtResource("2_0bbpv")
 text = "K"
+
+[node name="DownloadButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
+layout_mode = 2
+tooltip_text = "Download genome from internet"
+theme_override_fonts/font = ExtResource("2_0bbpv")
+text = "Z"
 
 [node name="SearchButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2

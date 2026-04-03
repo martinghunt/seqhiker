@@ -2,6 +2,7 @@ extends Control
 class_name ComparisonView
 
 const SVGCanvasScript = preload("res://scripts/svg_canvas.gd")
+const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
 
 signal genome_order_changed(order: PackedInt32Array)
 signal viewport_changed(visible_span_bp: int)
@@ -1371,12 +1372,14 @@ func _update_lock_buttons(match_band_h: float) -> void:
 			btn = Button.new()
 			btn.focus_mode = Control.FOCUS_NONE
 			btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+			btn.add_theme_font_override("font", MAGRATHEA_FONT)
+			btn.tooltip_text = "Lock/unlock sequences"
 			btn.pressed.connect(func() -> void:
 				_on_lock_button_pressed(key)
 			)
 			add_child(btn)
 			_lock_buttons[key] = btn
-		btn.text = "L" if bool(_pair_locks.get(key, false)) else "U"
+		btn.text = "P" if bool(_pair_locks.get(key, false)) else "Q"
 		btn.size = LOCK_BTN_SIZE
 		btn.position = Vector2(LOCK_BTN_X, TOP_PAD + i * (ROW_H + match_band_h) + ROW_H + 0.5 * (match_band_h - LOCK_BTN_SIZE.y))
 		btn.visible = true
@@ -1682,7 +1685,7 @@ func _on_lock_button_pressed(key: String) -> void:
 	_pair_locks[key] = not bool(_pair_locks.get(key, false))
 	var btn: Button = _lock_buttons.get(key)
 	if btn != null:
-		btn.text = "L" if bool(_pair_locks.get(key, false)) else "U"
+		btn.text = "P" if bool(_pair_locks.get(key, false)) else "Q"
 
 
 func _propagate_locked_offsets(source_genome_id: int, delta: float) -> void:
