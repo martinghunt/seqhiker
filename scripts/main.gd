@@ -166,6 +166,9 @@ var _settings_open := false
 var _settings_tween: Tween
 var _settings_toggle_icon: Control
 var _settings_toggle_icon_label: Label
+var _comparison_toggle_tween: Tween
+var _comparison_toggle_icon: Control
+var _comparison_toggle_icon_label: Label
 var _comparison_clear_tween: Tween
 var _comparison_clear_icon: Control
 var _comparison_clear_icon_label: Label
@@ -332,6 +335,7 @@ func _ready() -> void:
 	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
 	_disable_button_focus()
 	_setup_settings_toggle_icon()
+	_setup_comparison_toggle_icon()
 	_setup_comparison_clear_icon()
 	_setup_theme_selector()
 	_setup_ui_font_selector()
@@ -487,6 +491,7 @@ func _set_app_mode(next_mode: int) -> void:
 		comparison_view.visible = comparison_active
 	if _search_controller != null:
 		_search_controller.refresh_context()
+	_apply_comparison_toggle_icon_state(true)
 	_refresh_comparison_topbar_state()
 	if viewport_label != null:
 		if comparison_active:
@@ -500,6 +505,8 @@ func _set_app_mode(next_mode: int) -> void:
 
 func _refresh_comparison_topbar_state() -> void:
 	var comparison_active := _app_mode == APP_MODE_COMPARISON
+	if comparison_button != null:
+		comparison_button.tooltip_text = "Switch to single genome view" if comparison_active else "Switch to comparison view"
 	if comparison_save_button != null:
 		comparison_save_button.visible = comparison_active
 	if comparison_clear_button != null:
@@ -867,6 +874,15 @@ func _setup_settings_toggle_icon() -> void:
 	_settings_toggle_icon_label = icon_parts.get("label")
 	call_deferred("_update_settings_toggle_icon_pivot")
 
+func _setup_comparison_toggle_icon() -> void:
+	if comparison_button == null:
+		return
+	var icon_parts := _setup_topbar_icon_button(comparison_button, "M")
+	_comparison_toggle_icon = icon_parts.get("container")
+	_comparison_toggle_icon_label = icon_parts.get("label")
+	call_deferred("_update_comparison_toggle_icon_pivot")
+	call_deferred("_apply_comparison_toggle_icon_state", false)
+
 func _setup_comparison_clear_icon() -> void:
 	if comparison_clear_button == null:
 		return
@@ -877,6 +893,9 @@ func _setup_comparison_clear_icon() -> void:
 
 func _update_settings_toggle_icon_pivot() -> void:
 	_update_topbar_icon_pivot(_settings_toggle_icon_label)
+
+func _update_comparison_toggle_icon_pivot() -> void:
+	_update_topbar_icon_pivot(_comparison_toggle_icon_label)
 
 func _update_comparison_clear_icon_pivot() -> void:
 	_update_topbar_icon_pivot(_comparison_clear_icon_label)
@@ -921,6 +940,28 @@ func _spin_topbar_icon(icon_label: Label, delta_degrees: float, duration: float,
 		next_tween.set_ease(Tween.EASE_OUT)
 	next_tween.parallel().tween_property(icon_label, "rotation_degrees", icon_label.rotation_degrees + delta_degrees, duration)
 	return next_tween
+
+func _apply_comparison_toggle_icon_state(animated: bool) -> void:
+	if _comparison_toggle_icon_label == null:
+		return
+	var in_comparison := _app_mode == APP_MODE_COMPARISON
+	var target_rotation := 0.0
+	var target_scale := Vector2(-1.0, -1.0) if in_comparison else Vector2.ONE
+	if _comparison_toggle_tween != null and _comparison_toggle_tween.is_running():
+		_comparison_toggle_tween.kill()
+	_update_comparison_toggle_icon_pivot()
+	if animated:
+		_comparison_toggle_tween = create_tween()
+		_comparison_toggle_tween.set_trans(Tween.TRANS_CUBIC)
+		_comparison_toggle_tween.set_ease(Tween.EASE_OUT)
+		_comparison_toggle_tween.parallel().tween_property(_comparison_toggle_icon_label, "rotation_degrees", target_rotation, 0.36)
+		_comparison_toggle_tween.parallel().tween_property(_comparison_toggle_icon_label, "scale", target_scale, 0.36)
+		_comparison_toggle_tween.finished.connect(func() -> void:
+			_comparison_toggle_tween = null
+		, CONNECT_ONE_SHOT)
+	else:
+		_comparison_toggle_icon_label.rotation_degrees = target_rotation
+		_comparison_toggle_icon_label.scale = target_scale
 
 func _on_viewport_changed(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	_last_start = start_bp
@@ -2800,6 +2841,9 @@ func _apply_topbar_button_font_size() -> void:
 	if _settings_toggle_icon_label != null:
 		_settings_toggle_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
 		_update_settings_toggle_icon_pivot()
+	if _comparison_toggle_icon_label != null:
+		_comparison_toggle_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
+		_update_comparison_toggle_icon_pivot()
 	if _comparison_clear_icon_label != null:
 		_comparison_clear_icon_label.add_theme_font_size_override("font_size", topbar_font_size)
 		_update_comparison_clear_icon_pivot()

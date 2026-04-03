@@ -127,7 +127,7 @@ theme_override_constants/separation = 8
 layout_mode = 2
 tooltip_text = "Switch to comparison view"
 theme_override_fonts/font = ExtResource("2_0bbpv")
-text = "J"
+text = "M"
 
 [node name="ComparisonSaveButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 visible = false
