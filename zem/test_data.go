@@ -203,6 +203,14 @@ func buildDemoVCFRecords(contigByName map[string]string) []demoVCFRecord {
 	snpHetAltA := pickAltBase(ctgA[snpHetAltPos0])
 	snpHetAltB := string([]byte{pickAltBaseExcluding(ctgA[snpHetAltPos0], []byte{snpHetAltA[0]})})
 
+	delNearPos0 := testSNPPos + 9
+	delNearRef := ctgA[delNearPos0 : delNearPos0+3]
+	delNearAlt := delNearRef[:1]
+
+	delNearRefPos0 := testSNPPos + 14
+	delNearRefRef := ctgA[delNearRefPos0 : delNearRefPos0+4]
+	delNearRefAlt := delNearRefRef[:1]
+
 	insPos0 := testInsertionPos
 	insRef := ctgA[insPos0 : insPos0+1]
 	insAlt := insRef + "TGA"
@@ -263,6 +271,30 @@ func buildDemoVCFRecords(contigByName map[string]string) []demoVCFRecord {
 			info:       "TYPE=SNP",
 			formatKeys: []string{"GT", "DP", "AD"},
 			samples:    []string{"1/2:16:0,8,8", "0/1:16:8,8,0"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       delNearPos0 + 1,
+			id:         "demo_del_near_1",
+			ref:        delNearRef,
+			alt:        delNearAlt,
+			qual:       "57",
+			filter:     "PASS",
+			info:       "TYPE=DEL",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/1:18:9,9", "1/1:18:0,18"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       delNearRefPos0 + 1,
+			id:         "demo_del_near_2",
+			ref:        delNearRefRef,
+			alt:        delNearRefAlt,
+			qual:       "56",
+			filter:     "PASS",
+			info:       "TYPE=DEL",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/0:16:16,0", "0/1:16:8,8"},
 		},
 		{
 			chrom:      "ctgA",

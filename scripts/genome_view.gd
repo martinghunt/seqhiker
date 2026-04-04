@@ -59,6 +59,7 @@ const TRACK_ID_GENOME := "genome"
 const TRACK_ID_MAP := "map"
 const VCF_ROW_H := 20.0
 const VCF_ROW_GAP := 2.0
+const TRACK_MIN_H := 44.0
 const PLOT_Y_UNIT := 0
 const PLOT_Y_AUTOSCALE := 1
 const PLOT_Y_FIXED := 2
@@ -392,12 +393,12 @@ func _sync_track_rows() -> void:
 		wanted[track_id] = true
 		if _track_rows.has(track_id):
 			continue
-		var row: HBoxContainer = TRACK_ROW_SCENE.instantiate()
+		var row: Control = TRACK_ROW_SCENE.instantiate()
 		row.name = "TrackRow_%s" % track_id.replace(":", "_")
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var buttons := row.get_node("Buttons") as VBoxContainer
 		buttons.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var close_button := row.get_node("Buttons/CloseButton") as Button
+		var close_button := row.get_node("CloseButton") as Button
 		var grab_button := row.get_node("Buttons/GrabButton") as Button
 		var settings_button := row.get_node("Buttons/SettingsButton") as Button
 		var track_view := row.get_node("TrackView") as Control
@@ -1370,6 +1371,21 @@ func _vcf_genotype_colors(gt_class: int) -> Dictionary:
 				"text": palette.get("vcf_gt_ref_text", palette.get("panel", Color.WHITE))
 			}
 
+func _vcf_deletion_span(variant: Dictionary) -> Vector2:
+	var ref := str(variant.get("ref", ""))
+	var alt_summary := str(variant.get("alt_summary", ""))
+	if ref.length() <= 1 or alt_summary.length() != 1:
+		return Vector2(-1.0, -1.0)
+	if ref[0] != alt_summary[0]:
+		return Vector2(-1.0, -1.0)
+	var base_start := int(variant.get("start", 0))
+	var base_end := int(variant.get("end", base_start + ref.length()))
+	var del_start := base_start + 1
+	var del_end := maxi(del_start + 1, base_end)
+	if del_end <= del_start:
+		return Vector2(-1.0, -1.0)
+	return Vector2(del_start, del_end)
+
 func _draw_variant_track(area: Rect2, target = null) -> void:
 	var rows := _variant_rows()
 	if rows.is_empty():
@@ -1412,22 +1428,38 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 			if typeof(variant_any) != TYPE_DICTIONARY:
 				continue
 			var variant: Dictionary = variant_any
-			if int(variant.get("kind", 0)) != 1:
+			var kind := int(variant.get("kind", 0))
+			if kind != 1 and kind != 4:
 				continue
 			var sample_classes: PackedByteArray = variant.get("sample_classes", PackedByteArray())
 			var sample_texts: PackedStringArray = variant.get("sample_texts", PackedStringArray())
-			var base_start := int(variant.get("start", 0))
-			var base_end := int(variant.get("end", base_start + 1))
-			var x0 := TRACK_LEFT_PAD + _bp_to_x(base_start)
-			var x1 := TRACK_LEFT_PAD + _bp_to_x(base_end)
-			var center_x := 0.5 * (x0 + x1)
-			var raw_w := maxf(1.0, x1 - x0)
+			var x0 := 0.0
+			var x1 := 0.0
+			var raw_w := 0.0
+			var center_x := 0.0
+			var is_deletion := false
+			if kind == 1:
+				var base_start := int(variant.get("start", 0))
+				var base_end := int(variant.get("end", base_start + 1))
+				x0 = TRACK_LEFT_PAD + _bp_to_x(base_start)
+				x1 = TRACK_LEFT_PAD + _bp_to_x(base_end)
+				raw_w = maxf(1.0, x1 - x0)
+				center_x = 0.5 * (x0 + x1)
+			else:
+				var del_span := _vcf_deletion_span(variant)
+				if del_span.x < 0.0:
+					continue
+				x0 = TRACK_LEFT_PAD + _bp_to_x(del_span.x)
+				x1 = TRACK_LEFT_PAD + _bp_to_x(del_span.y)
+				raw_w = maxf(1.0, x1 - x0)
+				center_x = 0.5 * (x0 + x1)
+				is_deletion = true
 			for sample_index in range(sample_classes.size()):
 				var gt_class := int(sample_classes[sample_index])
 				if gt_class == 0:
 					continue
 				var display_text := ""
-				if sample_index < sample_texts.size():
+				if not is_deletion and sample_index < sample_texts.size():
 					display_text = str(sample_texts[sample_index])
 				var text_w := text_font.get_string_size(display_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_small).x if not display_text.is_empty() else 0.0
 				var can_draw_text := not display_text.is_empty() and raw_w >= text_w + 6.0
@@ -1445,6 +1477,19 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 				var fill: Color = gt_colors.get("fill", palette.get("read", Color("0f8b8d")))
 				var text_color: Color = gt_colors.get("text", palette.get("text", Color.BLACK))
 				_draw_rect_on(target, block_rect, fill, true)
+				if is_deletion:
+					var trim_h := maxf(0.0, block_rect.size.y * 0.25)
+					var row_bg_key := "vcf_row_alt_bg" if (row_index % 2) == 1 else "vcf_row_bg"
+					var row_bg: Color = palette.get(row_bg_key, palette.get("panel", Color.WHITE))
+					if trim_h > 0.0 and block_rect.size.x > 0.0:
+						_draw_rect_on(target, Rect2(block_rect.position.x, block_rect.position.y, block_rect.size.x, trim_h), row_bg, true)
+						_draw_rect_on(target, Rect2(block_rect.position.x, block_rect.position.y + block_rect.size.y - trim_h, block_rect.size.x, trim_h), row_bg, true)
+					var mid_y := block_rect.position.y + block_rect.size.y * 0.5
+					_draw_line_on(target, Vector2(block_rect.position.x, mid_y), Vector2(block_rect.position.x + block_rect.size.x, mid_y), border_color, 0.75)
+					var y0 := block_rect.position.y
+					var y1 := block_rect.position.y + block_rect.size.y
+					_draw_line_on(target, Vector2(block_rect.position.x, y0), Vector2(block_rect.position.x, y1), border_color, 1.5)
+					_draw_line_on(target, Vector2(block_rect.position.x + block_rect.size.x, y0), Vector2(block_rect.position.x + block_rect.size.x, y1), border_color, 1.5)
 				var hit_variant := variant.duplicate(true)
 				hit_variant["source_id"] = source_id
 				hit_variant["chr_id"] = chr_id
@@ -2847,8 +2892,8 @@ func _track_layout_rects() -> Dictionary:
 			continue
 		var h := _track_fixed_height(track_id)
 		if h < 0.0:
-			h = maxf(24.0, flex_h)
-		out[track_id] = Rect2(0.0, y, size.x, maxf(24.0, h))
+			h = maxf(TRACK_MIN_H, flex_h)
+		out[track_id] = Rect2(0.0, y, size.x, maxf(TRACK_MIN_H, h))
 		y += h + PANEL_GAP
 	return out
 
