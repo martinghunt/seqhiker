@@ -183,6 +183,68 @@ func on_read_clicked(read: Dictionary) -> void:
 	host._feature_panel_open = true
 	host._slide_feature_panel(true, true)
 
+func on_variant_clicked(variant: Dictionary, detail: Dictionary) -> void:
+	host._prepare_context_panel(host.CONTEXT_PANEL_FEATURE, "Variant Details", true)
+	host.feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_strand_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_source_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_seq_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_name_label.visible = true
+	var source_name := str(detail.get("source_name", variant.get("source_name", "-")))
+	var sample_name := str(variant.get("sample_name", "-"))
+	var chrom := str(detail.get("chrom", host._current_chr_name))
+	var start_bp := int(detail.get("start", variant.get("source_start", variant.get("start", 0))))
+	var end_bp := int(detail.get("end", variant.get("source_end", variant.get("end", start_bp + 1))))
+	var ref := str(detail.get("ref", variant.get("ref", "")))
+	var alt_summary := str(detail.get("alt_summary", variant.get("alt_summary", "")))
+	var rec_id := str(detail.get("id", variant.get("id", ".")))
+	host.feature_name_label.text = "Variant: %s" % rec_id
+	host.feature_type_label.text = "Sample: %s | Source: %s" % [sample_name, source_name]
+	host.feature_range_label.text = "Range: %s:%d - %d" % [chrom, _display_range_start_bp(start_bp), _display_range_end_bp(end_bp)]
+	host.feature_strand_label.text = "REF: %s | ALT: %s | QUAL: %s | FILTER: %s" % [
+		ref,
+		alt_summary,
+		str(detail.get("qual", variant.get("qual", 0.0))),
+		str(detail.get("filter", variant.get("filter", ".")))
+	]
+	host.feature_source_label.text = "Type: %s" % _variant_kind_label(int(detail.get("kind", variant.get("kind", 0))))
+	var seq_text := "INFO: %s" % str(detail.get("info", "."))
+	var samples: Array = detail.get("samples", [])
+	if not samples.is_empty():
+		seq_text += "\n\nSamples"
+		for sample_any in samples:
+			if typeof(sample_any) != TYPE_DICTIONARY:
+				continue
+			var sample: Dictionary = sample_any
+			seq_text += "\n%s%s  %s" % [
+				str(sample.get("name", "")),
+				" *" if bool(sample.get("has_alt", false)) else "",
+				str(sample.get("value", "."))
+			]
+	host.feature_seq_label.text = seq_text
+	_hide_mate_jump_button()
+	host._feature_panel_open = true
+	host._slide_feature_panel(true, true)
+
+func _variant_kind_label(kind: int) -> String:
+	match kind:
+		1:
+			return "SNP"
+		2:
+			return "MNP"
+		3:
+			return "Insertion"
+		4:
+			return "Deletion"
+		5:
+			return "Complex"
+		6:
+			return "Symbolic"
+		_:
+			return "Variant"
+
 func _chrom_name_for_id(chr_id: int) -> String:
 	for c_any in host._chromosomes:
 		var c: Dictionary = c_any

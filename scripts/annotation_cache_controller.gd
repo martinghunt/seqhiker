@@ -67,6 +67,7 @@ func refresh_visible_data() -> void:
 	var show_gc_plot: bool = bool(host.genome_view.is_track_visible(host.TRACK_GC_PLOT))
 	var show_depth_plot: bool = bool(host.genome_view.is_track_visible(host.TRACK_DEPTH_PLOT))
 	var show_genome: bool = bool(host.genome_view.is_track_visible(host.TRACK_GENOME))
+	var show_variants: bool = bool(host.genome_view.is_track_visible(host.TRACK_VCF)) and not host._variant_sources.is_empty()
 	var need_annotations: bool = show_aa or show_genome
 	var need_reference: bool = host.genome_view.needs_reference_data(show_aa, show_genome)
 	var show_stop_codons: bool = bool(host.genome_view.needs_stop_codon_overview(show_aa))
@@ -98,7 +99,8 @@ func refresh_visible_data() -> void:
 		"mode": 0 if (host._has_bam_loaded and host._any_visible_read_track() and host._last_bp_per_px <= host.READ_RENDER_MAX_BP_PER_PX) else 1,
 		"scope_key": host._scope_cache_key(),
 		"fetch_reads": fetch_reads_in_window,
-		"show_stop_codons": show_stop_codons
+		"show_stop_codons": show_stop_codons,
+		"show_variants": show_variants
 	}
 	_visible_pending_requests[serial] = visible_req
 	_latest_visible_serial = serial
@@ -121,6 +123,8 @@ func refresh_visible_data() -> void:
 		"show_gc_plot": show_gc_plot,
 		"show_depth_plot": show_depth_plot,
 		"show_stop_codons": show_stop_codons,
+		"show_variants": show_variants,
+		"variant_sources": host._variant_sources,
 		"has_bam_loaded": host._has_bam_loaded,
 		"seq_view_mode": host._seq_view_mode,
 		"current_chr_id": host._current_chr_id,
@@ -142,6 +146,7 @@ func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> vo
 	var show_gc_plot: bool = bool(host.genome_view.is_track_visible(host.TRACK_GC_PLOT))
 	var show_depth_plot: bool = bool(host.genome_view.is_track_visible(host.TRACK_DEPTH_PLOT))
 	var show_genome: bool = bool(host.genome_view.is_track_visible(host.TRACK_GENOME))
+	var show_variants: bool = bool(host.genome_view.is_track_visible(host.TRACK_VCF)) and not host._variant_sources.is_empty()
 	var need_annotations: bool = show_aa or show_genome
 	var need_reference: bool = bool(host.genome_view.needs_reference_data(show_aa, show_genome))
 	var show_stop_codons: bool = bool(host.genome_view.needs_stop_codon_overview(show_aa))
@@ -169,7 +174,8 @@ func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> vo
 		"mode": 0 if (host._has_bam_loaded and host._any_visible_read_track() and bp_per_px <= host.READ_RENDER_MAX_BP_PER_PX) else 1,
 		"scope_key": host._scope_cache_key(),
 		"fetch_reads": fetch_reads_in_window,
-		"show_stop_codons": show_stop_codons
+		"show_stop_codons": show_stop_codons,
+		"show_variants": show_variants
 	}
 	_visible_pending_requests[serial] = visible_req
 	_latest_visible_serial = serial
@@ -192,6 +198,8 @@ func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> vo
 		"show_gc_plot": show_gc_plot,
 		"show_depth_plot": show_depth_plot,
 		"show_stop_codons": show_stop_codons,
+		"show_variants": show_variants,
+		"variant_sources": host._variant_sources,
 		"has_bam_loaded": host._has_bam_loaded,
 		"seq_view_mode": host._seq_view_mode,
 		"current_chr_id": host._current_chr_id,
@@ -557,6 +565,7 @@ func _apply_visible_tile_result(tile_resp: Dictionary, visible_req: Dictionary) 
 	var read_payload_by_track = tile_resp.get("read_payload_by_track", {})
 	var annotation_features_raw: Array = tile_resp.get("annotation_features", [])
 	var stop_codon_tiles_raw: Array = tile_resp.get("stop_codon_tiles", [])
+	var variant_tiles_raw: Array = tile_resp.get("variant_tiles", [])
 	var annotation_stats: Dictionary = tile_resp.get("annotation_stats", {})
 	var all_gc_plot_tiles: Array = tile_resp.get("gc_plot_tiles", [])
 	var all_depth_plot_tiles: Array = tile_resp.get("depth_plot_tiles", [])
@@ -575,6 +584,11 @@ func _apply_visible_tile_result(tile_resp: Dictionary, visible_req: Dictionary) 
 		if typeof(tile_any) == TYPE_DICTIONARY:
 			stop_codon_tiles_typed.append(tile_any)
 	host.genome_view.set_stop_codon_tiles(stop_codon_tiles_typed)
+	var variant_tiles_typed: Array[Dictionary] = []
+	for tile_any in variant_tiles_raw:
+		if typeof(tile_any) == TYPE_DICTIONARY:
+			variant_tiles_typed.append(tile_any)
+	host.genome_view.set_variant_tiles(variant_tiles_typed)
 	host._apply_pending_annotation_highlight(annotation_features)
 	var gc_plot_tiles_typed: Array[Dictionary] = []
 	for tile_any in all_gc_plot_tiles:

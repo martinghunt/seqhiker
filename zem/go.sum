@@ -2,6 +2,10 @@ github.com/biogo/boom v0.0.0-20150317015657-28119bc1ffc1 h1:LAHY5JxqhOgJDeDBGKsQ
 github.com/biogo/boom v0.0.0-20150317015657-28119bc1ffc1/go.mod h1:fwtxkutinkQcME9Zlywh66T0jZLLjgrwSLY2WxH2N3U=
 github.com/biogo/hts v1.4.5 h1:mhVCpZaTYlAhBjMaAATGWBnauioBtmvOb0ApLdU4/+0=
 github.com/biogo/hts v1.4.5/go.mod h1:GgiMFa6c4eEkwS3kCBRPv3oPgtRm7L8SXvdE9nICnYc=
+github.com/brentp/irelate v0.0.1 h1:uVK5yw9XaDzi+04zbob4q9K6u2e5dcdqH7UO1+6Keo0=
+github.com/brentp/irelate v0.0.1/go.mod h1:Ct+JzyZC+JSi9WUkw3IGWc/j0yYEt4235wKCfLOKN54=
+github.com/brentp/vcfgo v0.0.0-20250902214554-a31336cef488 h1:kkdQjzmPByd/OTSedx5LAIsNjPgHTxzQv9OcBMTshi0=
+github.com/brentp/vcfgo v0.0.0-20250902214554-a31336cef488/go.mod h1:DDMWmbbsIQXT6k6RvgvlI1AGtjaYVr5de1c+ATUw9ls=
 github.com/dsnet/compress v0.0.1 h1:PlZu0n3Tuv04TzpfPbrnI0HW/YwodEXDS+oPKahKF0Q=
 github.com/dsnet/compress v0.0.1/go.mod h1:Aw8dCMJ7RioblQeTqt88akK31OvO8Dhf5JflhBbQEHo=
 github.com/dsnet/golib v0.0.0-20171103203638-1ea166775780/go.mod h1:Lj+Z9rebOhdfkVLjJ8T6VcRQv3SXugXy999NBtR9aFY=

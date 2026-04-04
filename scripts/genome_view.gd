@@ -20,6 +20,8 @@ signal feature_clicked(feature: Dictionary)
 signal feature_activated(feature: Dictionary)
 signal read_clicked(read: Dictionary)
 signal read_activated(read: Dictionary)
+signal variant_clicked(variant: Dictionary)
+signal variant_activated(variant: Dictionary)
 signal track_settings_requested(track_id: String)
 signal track_order_changed(order: PackedStringArray)
 signal track_visibility_changed(track_id: String, visible: bool)
@@ -52,8 +54,11 @@ const READ_TRACK_PREFIX := "reads:"
 const TRACK_ID_AA := "aa"
 const TRACK_ID_GC_PLOT := "gc_plot"
 const TRACK_ID_DEPTH_PLOT := "depth_plot"
+const TRACK_ID_VCF := "vcf"
 const TRACK_ID_GENOME := "genome"
 const TRACK_ID_MAP := "map"
+const VCF_ROW_H := 20.0
+const VCF_ROW_GAP := 2.0
 const PLOT_Y_UNIT := 0
 const PLOT_Y_AUTOSCALE := 1
 const PLOT_Y_FIXED := 2
@@ -124,6 +129,8 @@ var stop_codon_tiles: Array[Dictionary] = []
 var depth_plot_tiles: Array[Dictionary] = []
 var depth_plot_series: Array[Dictionary] = []
 var features: Array[Dictionary] = []
+var variant_sources: Array[Dictionary] = []
+var variant_tiles: Array[Dictionary] = []
 var loaded_files: PackedStringArray = PackedStringArray()
 var reference_start_bp := 0
 var reference_sequence := ""
@@ -139,6 +146,14 @@ var palette: Dictionary = {
 	"read": Color("0f8b8d"),
 	"gc_plot": Color("2aa198"),
 	"depth_plot": Color("345995"),
+	"vcf_row_bg": Color("ffffff"),
+	"vcf_row_alt_bg": Color("efefef"),
+	"vcf_gt_ref_fill": Color("2b2520"),
+	"vcf_gt_ref_text": Color("fff7eb"),
+	"vcf_gt_het_fill": Color("0f8b8d"),
+	"vcf_gt_het_text": Color("2b2520"),
+	"vcf_gt_hom_alt_fill": Color("d7263d"),
+	"vcf_gt_hom_alt_text": Color("ffffff"),
 	"snp": Color("d7263d"),
 	"snp_text": Color("ffffff"),
 	"aa_forward": Color("8a4fff"),
@@ -160,8 +175,10 @@ var _zoom_from_start_bp := 0.0
 var _zoom_to_start_bp := 0.0
 var _feature_hitboxes: Array[Dictionary] = []
 var _read_hitboxes: Array[Dictionary] = []
+var _variant_hitboxes: Array[Dictionary] = []
 var _selected_feature_key := ""
 var _selected_read_index := -1
+var _selected_variant_key := ""
 var _selected_read_track_id := ""
 var _selected_read_pair_name := ""
 var _selected_read_flags := 0
@@ -207,12 +224,13 @@ var _depth_plot_y_max := 1.0
 var _axis_coords_with_commas := false
 var _gc_plot_h := DEFAULT_PLOT_H
 var _depth_plot_h := DEFAULT_PLOT_H
-var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_DEPTH_PLOT, TRACK_ID_GC_PLOT, TRACK_ID_AA, TRACK_ID_GENOME, TRACK_ID_MAP])
+var _track_order: PackedStringArray = PackedStringArray([TRACK_ID_READS, TRACK_ID_DEPTH_PLOT, TRACK_ID_GC_PLOT, TRACK_ID_AA, TRACK_ID_VCF, TRACK_ID_GENOME, TRACK_ID_MAP])
 var _track_visible := {
 	TRACK_ID_READS: false,
 	TRACK_ID_AA: true,
 	TRACK_ID_GC_PLOT: false,
 	TRACK_ID_DEPTH_PLOT: false,
+	TRACK_ID_VCF: false,
 	TRACK_ID_GENOME: true,
 	TRACK_ID_MAP: true
 }
@@ -601,6 +619,16 @@ func set_features(next_features: Array[Dictionary]) -> void:
 	features = next_features
 	queue_redraw()
 
+func set_variant_sources(next_sources: Array[Dictionary]) -> void:
+	variant_sources = next_sources.duplicate(true)
+	if variant_sources.is_empty():
+		_selected_variant_key = ""
+	queue_redraw()
+
+func set_variant_tiles(next_tiles: Array[Dictionary]) -> void:
+	variant_tiles = next_tiles.duplicate(true)
+	queue_redraw()
+
 func set_reference_slice(start_bp: int, sequence: String) -> void:
 	reference_start_bp = start_bp
 	reference_sequence = sequence
@@ -647,6 +675,8 @@ func clear_all_data() -> void:
 	depth_plot_tiles.clear()
 	depth_plot_series.clear()
 	features.clear()
+	variant_sources.clear()
+	variant_tiles.clear()
 	concat_segments.clear()
 	loaded_files = PackedStringArray()
 	chromosome_name = ""
@@ -665,6 +695,7 @@ func clear_all_data() -> void:
 	_selected_read_pair_a_end = -1
 	_selected_read_pair_b_start = -1
 	_selected_read_pair_b_end = -1
+	_selected_variant_key = ""
 	_region_select_dragging = false
 	_region_select_has_selection = false
 	_map_drag_active = false
@@ -938,7 +969,7 @@ func set_track_visible(track_id: String, show_track: bool) -> void:
 
 func set_track_order(order: PackedStringArray) -> void:
 	var prev := _track_order
-	var valid := PackedStringArray([TRACK_ID_AA, TRACK_ID_GC_PLOT, TRACK_ID_DEPTH_PLOT, TRACK_ID_GENOME, TRACK_ID_MAP])
+	var valid := PackedStringArray([TRACK_ID_AA, TRACK_ID_GC_PLOT, TRACK_ID_DEPTH_PLOT, TRACK_ID_VCF, TRACK_ID_GENOME, TRACK_ID_MAP])
 	var seen: Dictionary = {}
 	var next := PackedStringArray()
 	for id_any in order:
@@ -1185,6 +1216,7 @@ func _draw_view_to(target) -> void:
 	if target == self:
 		_read_hitboxes.clear()
 		_feature_hitboxes.clear()
+		_variant_hitboxes.clear()
 	var track_rects := _track_layout_rects()
 	var previous_track_id := _active_read_track_id
 	for track_id in _track_order:
@@ -1208,6 +1240,8 @@ func _draw_view_to(target) -> void:
 							_draw_plot_track_multi(area, depth_plot_series, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, target)
 						else:
 							_draw_plot_track(area, depth_plot_tiles, _depth_plot_y_mode, _depth_plot_y_min, _depth_plot_y_max, palette.get("depth_plot", palette["read"]), target)
+					TRACK_ID_VCF:
+						_draw_variant_track(area, target)
 					TRACK_ID_GENOME:
 						_draw_genome_track(area, target)
 					TRACK_ID_MAP:
@@ -1268,6 +1302,8 @@ func _track_label_for_id(track_id: String) -> String:
 			return "GC Plot"
 		TRACK_ID_DEPTH_PLOT:
 			return "Depth Plot"
+		TRACK_ID_VCF:
+			return "VCF"
 		TRACK_ID_GENOME:
 			return "Genome"
 		TRACK_ID_MAP:
@@ -1285,6 +1321,147 @@ func _track_index_for_y(y: float) -> int:
 		if y < r.position.y + r.size.y * 0.5:
 			return i
 	return max(0, _track_order.size() - 1)
+
+func _variant_rows() -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	var row_index := 0
+	for src_any in variant_sources:
+		if typeof(src_any) != TYPE_DICTIONARY:
+			continue
+		var src: Dictionary = src_any
+		var sample_names: PackedStringArray = src.get("sample_names", PackedStringArray())
+		for sample_index in range(sample_names.size()):
+			rows.append({
+				"row_index": row_index,
+				"source_id": int(src.get("id", 0)),
+				"source_name": str(src.get("name", "")),
+				"sample_index": sample_index,
+				"sample_name": str(sample_names[sample_index])
+			})
+			row_index += 1
+	return rows
+
+func _variant_track_height() -> float:
+	var row_count := _variant_rows().size()
+	if row_count <= 0:
+		return maxf(24.0, VCF_ROW_H)
+	return row_count * (VCF_ROW_H + VCF_ROW_GAP) - VCF_ROW_GAP
+
+func _vcf_genotype_colors(gt_class: int) -> Dictionary:
+	match gt_class:
+		1:
+			return {
+				"fill": palette.get("vcf_gt_ref_fill", palette.get("text", Color.BLACK)),
+				"text": palette.get("vcf_gt_ref_text", palette.get("panel", Color.WHITE))
+			}
+		2:
+			return {
+				"fill": palette.get("vcf_gt_het_fill", palette.get("read", Color("0f8b8d"))),
+				"text": palette.get("vcf_gt_het_text", palette.get("text", Color.BLACK))
+			}
+		3:
+			return {
+				"fill": palette.get("vcf_gt_hom_alt_fill", palette.get("snp", Color("d7263d"))),
+				"text": palette.get("vcf_gt_hom_alt_text", palette.get("snp_text", Color.WHITE))
+			}
+		_:
+			return {
+				"fill": palette.get("vcf_gt_ref_fill", palette.get("text", Color.BLACK)),
+				"text": palette.get("vcf_gt_ref_text", palette.get("panel", Color.WHITE))
+			}
+
+func _draw_variant_track(area: Rect2, target = null) -> void:
+	var rows := _variant_rows()
+	if rows.is_empty():
+		_draw_rect_on(target, area, palette.get("panel", Color.WHITE), true)
+		_draw_grid(area, target)
+		return
+	var label_font := get_theme_default_font()
+	var label_font_size := _font_size_small
+	var label_x := TRACK_LEFT_PAD + 4.0
+	var label_w := maxf(8.0, area.size.x - label_x - 4.0)
+	for row_any in rows:
+		var row: Dictionary = row_any
+		var row_index := int(row.get("row_index", 0))
+		var row_y := area.position.y + row_index * (VCF_ROW_H + VCF_ROW_GAP)
+		var row_rect := Rect2(0.0, row_y, area.size.x, VCF_ROW_H)
+		var bg_key := "vcf_row_alt_bg" if (row_index % 2) == 1 else "vcf_row_bg"
+		var bg_col: Color = palette.get(bg_key, palette.get("panel", Color.WHITE))
+		_draw_rect_on(target, row_rect, bg_col, true)
+		var label_text := str(row.get("sample_name", "sample"))
+		var baseline_y := _text_baseline_for_center(row_rect.position.y + row_rect.size.y * 0.5, label_font, label_font_size)
+		_draw_string_on(target, label_font, Vector2(label_x, baseline_y), label_text, HORIZONTAL_ALIGNMENT_LEFT, label_w, label_font_size, _axis_text_color())
+	_draw_grid(area, target)
+	var text_font := sequence_letter_font()
+	var border_color: Color = palette.get("text", Color.BLACK)
+	var row_by_key := {}
+	for row_any in rows:
+		var row: Dictionary = row_any
+		row_by_key["%d|%d" % [int(row.get("source_id", 0)), int(row.get("sample_index", 0))]] = row
+	for tile_any in variant_tiles:
+		if typeof(tile_any) != TYPE_DICTIONARY:
+			continue
+		var tile: Dictionary = tile_any
+		var source_id := int(tile.get("source_id", 0))
+		if source_id == 0 and variant_sources.size() == 1:
+			var only_source_any = variant_sources[0]
+			if typeof(only_source_any) == TYPE_DICTIONARY:
+				source_id = int((only_source_any as Dictionary).get("id", 0))
+		var chr_id := int(tile.get("chr_id", -1))
+		for variant_any in tile.get("variants", []):
+			if typeof(variant_any) != TYPE_DICTIONARY:
+				continue
+			var variant: Dictionary = variant_any
+			if int(variant.get("kind", 0)) != 1:
+				continue
+			var sample_classes: PackedByteArray = variant.get("sample_classes", PackedByteArray())
+			var sample_texts: PackedStringArray = variant.get("sample_texts", PackedStringArray())
+			var base_start := int(variant.get("start", 0))
+			var base_end := int(variant.get("end", base_start + 1))
+			var x0 := TRACK_LEFT_PAD + _bp_to_x(base_start)
+			var x1 := TRACK_LEFT_PAD + _bp_to_x(base_end)
+			var center_x := 0.5 * (x0 + x1)
+			var raw_w := maxf(1.0, x1 - x0)
+			for sample_index in range(sample_classes.size()):
+				var gt_class := int(sample_classes[sample_index])
+				if gt_class == 0:
+					continue
+				var display_text := ""
+				if sample_index < sample_texts.size():
+					display_text = str(sample_texts[sample_index])
+				var text_w := text_font.get_string_size(display_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_small).x if not display_text.is_empty() else 0.0
+				var can_draw_text := not display_text.is_empty() and raw_w >= text_w + 6.0
+				var draw_w := raw_w
+				if can_draw_text:
+					draw_w = maxf(draw_w, text_w + 6.0)
+				var row_key := "%d|%d" % [source_id, sample_index]
+				if not row_by_key.has(row_key):
+					continue
+				var row: Dictionary = row_by_key[row_key]
+				var row_index := int(row.get("row_index", 0))
+				var row_y := area.position.y + row_index * (VCF_ROW_H + VCF_ROW_GAP)
+				var block_rect := Rect2(center_x - draw_w * 0.5, row_y + 2.0, draw_w, VCF_ROW_H - 4.0)
+				var gt_colors := _vcf_genotype_colors(gt_class)
+				var fill: Color = gt_colors.get("fill", palette.get("read", Color("0f8b8d")))
+				var text_color: Color = gt_colors.get("text", palette.get("text", Color.BLACK))
+				_draw_rect_on(target, block_rect, fill, true)
+				var hit_variant := variant.duplicate(true)
+				hit_variant["source_id"] = source_id
+				hit_variant["chr_id"] = chr_id
+				hit_variant["sample_index"] = sample_index
+				hit_variant["sample_name"] = str(row.get("sample_name", ""))
+				hit_variant["source_name"] = str(row.get("source_name", ""))
+				var variant_key := _variant_key(hit_variant)
+				if variant_key == _selected_variant_key:
+					_draw_rect_on(target, block_rect.grow(1.5), border_color, false, 2.0)
+				if can_draw_text:
+					var text_baseline := _text_baseline_for_center(block_rect.position.y + block_rect.size.y * 0.5, text_font, _font_size_small)
+					_draw_string_on(target, text_font, Vector2(block_rect.position.x, text_baseline), display_text, HORIZONTAL_ALIGNMENT_CENTER, block_rect.size.x, _font_size_small, text_color)
+				if target == self:
+					_variant_hitboxes.append({
+						"rect": block_rect.grow(2.0),
+						"variant": hit_variant
+					})
 
 func _draw_read_tracks(area: Rect2) -> void:
 	_read_renderer.draw_read_tracks(area)
@@ -1667,6 +1844,32 @@ func clear_selected_read() -> void:
 	_selected_read_pair_b_start = -1
 	_selected_read_pair_b_end = -1
 	queue_redraw()
+
+func set_selected_variant(variant: Dictionary, toggle: bool = false) -> void:
+	var next_key := _variant_key(variant)
+	if next_key.is_empty():
+		return
+	if toggle and next_key == _selected_variant_key:
+		_selected_variant_key = ""
+	else:
+		_selected_variant_key = next_key
+	queue_redraw()
+
+func clear_selected_variant() -> void:
+	if _selected_variant_key.is_empty():
+		return
+	_selected_variant_key = ""
+	queue_redraw()
+
+func _variant_key(variant: Dictionary) -> String:
+	return "%s|%d|%d|%d|%s|%s" % [
+		str(variant.get("source_id", "")),
+		int(variant.get("chr_id", -1)),
+		int(variant.get("sample_index", -1)),
+		int(variant.get("source_start", int(variant.get("start", 0)))),
+		str(variant.get("ref", "")),
+		str(variant.get("alt_summary", ""))
+	]
 
 func _read_key(read: Dictionary) -> String:
 	if read.is_empty():
@@ -2073,12 +2276,15 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		var read_rect := _any_read_track_rect_at_point(mouse_pos)
 		var aa_rect := _track_rect(TRACK_ID_AA)
+		var vcf_rect := _track_rect(TRACK_ID_VCF)
 		var genome_rect := _track_rect(TRACK_ID_GENOME)
 		var in_reads := read_rect.size.x > 0.0 and read_rect.has_point(mouse_pos)
 		var in_aa := aa_rect.has_point(mouse_pos)
+		var in_vcf := vcf_rect.size.x > 0.0 and vcf_rect.has_point(mouse_pos)
 		var in_genome := genome_rect.has_point(mouse_pos)
 		var hit_feature := false
 		var hit_read := false
+		var hit_variant := false
 		if in_reads:
 			for i in range(_read_hitboxes.size() - 1, -1, -1):
 				var read_hit: Dictionary = _read_hitboxes[i]
@@ -2093,6 +2299,24 @@ func _gui_input(event: InputEvent) -> void:
 					accept_event()
 					return
 			clear_selected_read()
+			accept_event()
+			return
+		if in_vcf:
+			for i in range(_variant_hitboxes.size() - 1, -1, -1):
+				var variant_hit: Dictionary = _variant_hitboxes[i]
+				var variant_rect_hit: Rect2 = variant_hit["rect"]
+				if not variant_rect_hit.has_point(mouse_pos):
+					continue
+				clear_selected_read()
+				clear_selected_feature()
+				set_selected_variant(variant_hit["variant"], false)
+				hit_variant = true
+				emit_signal("variant_clicked", variant_hit["variant"])
+				if mb.double_click:
+					emit_signal("variant_activated", variant_hit["variant"])
+				accept_event()
+				return
+			clear_selected_variant()
 			accept_event()
 			return
 		if in_aa:
@@ -2126,6 +2350,21 @@ func _gui_input(event: InputEvent) -> void:
 						emit_signal("read_activated", read_hit_any["read"])
 					accept_event()
 					return
+		if not in_vcf:
+			for i in range(_variant_hitboxes.size() - 1, -1, -1):
+				var variant_hit_any: Dictionary = _variant_hitboxes[i]
+				var variant_rect_any: Rect2 = variant_hit_any["rect"]
+				if not variant_rect_any.has_point(mouse_pos):
+					continue
+				clear_selected_read()
+				clear_selected_feature()
+				set_selected_variant(variant_hit_any["variant"], false)
+				hit_variant = true
+				emit_signal("variant_clicked", variant_hit_any["variant"])
+				if mb.double_click:
+					emit_signal("variant_activated", variant_hit_any["variant"])
+				accept_event()
+				return
 		if not in_aa:
 			for hit_any in _feature_hitboxes:
 				var feat_rect_any: Rect2 = hit_any["rect"]
@@ -2157,6 +2396,8 @@ func _gui_input(event: InputEvent) -> void:
 				return
 		if not hit_feature and not hit_read:
 			clear_selected_read()
+		if not hit_variant:
+			clear_selected_variant()
 		if not hit_feature:
 			clear_selected_feature()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
@@ -2619,6 +2860,8 @@ func _track_fixed_height(track_id: String) -> float:
 			return _gc_plot_h
 		TRACK_ID_DEPTH_PLOT:
 			return _depth_plot_h
+		TRACK_ID_VCF:
+			return _variant_track_height()
 		TRACK_ID_GENOME:
 			return GENOME_H
 		TRACK_ID_MAP:

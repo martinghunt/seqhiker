@@ -19,6 +19,7 @@ const (
 	inputKindGFF3
 	inputKindFlatFile
 	inputKindComparisonSession
+	inputKindVCF
 )
 
 func gatherInputFiles(path string) ([]string, error) {
@@ -86,6 +87,8 @@ func detectInputKindByName(name string) inputKind {
 		return inputKindGFF3
 	case ".embl", ".gb", ".gbk", ".genbank":
 		return inputKindFlatFile
+	case ".vcf":
+		return inputKindVCF
 	default:
 		return inputKindUnknown
 	}
@@ -110,6 +113,9 @@ func detectInputKindByContent(path string) (inputKind, error) {
 		}
 		if strings.HasPrefix(line, "##gff-version") || looksLikeGFF3Data(line) {
 			return inputKindGFF3, nil
+		}
+		if strings.HasPrefix(line, "##fileformat=VCF") || strings.HasPrefix(line, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO") {
+			return inputKindVCF, nil
 		}
 		if strings.HasPrefix(line, "LOCUS ") || strings.HasPrefix(line, "ID   ") {
 			return inputKindFlatFile, nil

@@ -42,6 +42,10 @@ const (
 	MsgAddComparisonGenomeFiles     uint16 = 33
 	MsgSearchComparisonDNAExact     uint16 = 34
 	MsgGetStopCodonTile             uint16 = 35
+	MsgLoadVariantFile              uint16 = 36
+	MsgListVariantSources           uint16 = 37
+	MsgGetVariantTile               uint16 = 38
+	MsgGetVariantDetail             uint16 = 39
 )
 
 type FrameHeader struct {
@@ -59,6 +63,13 @@ type ChromInfo struct {
 type AnnotationCountInfo struct {
 	ID    uint16
 	Count uint32
+}
+
+type VariantSourceInfo struct {
+	ID          uint16
+	Name        string
+	Path        string
+	SampleNames []string
 }
 
 func ReadFrameHeader(r io.Reader) (*FrameHeader, error) {
@@ -163,6 +174,25 @@ func encodeBAMLoaded(sourceID uint16, msg string) []byte {
 	return buf
 }
 
+func encodeVariantSourceLoaded(sourceID uint16, sampleNames []string, msg string) []byte {
+	total := 6 + len(msg)
+	for _, sample := range sampleNames {
+		total += 2 + len(sample)
+	}
+	buf := make([]byte, total)
+	binary.LittleEndian.PutUint16(buf[0:2], sourceID)
+	binary.LittleEndian.PutUint16(buf[2:4], uint16(len(sampleNames)))
+	off := 4
+	for _, sample := range sampleNames {
+		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(sample)))
+		copy(buf[off+2:off+2+len(sample)], sample)
+		off += 2 + len(sample)
+	}
+	binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(msg)))
+	copy(buf[off+2:], msg)
+	return buf
+}
+
 func encodeLoadState(hasSequence bool) []byte {
 	if hasSequence {
 		return []byte{1}
@@ -170,7 +200,7 @@ func encodeLoadState(hasSequence bool) []byte {
 	return []byte{0}
 }
 
-func encodeInputInfo(hasSequence bool, hasAnnotation bool, hasEmbeddedGFF3Sequence bool, isComparisonSession bool) []byte {
+func encodeInputInfo(hasSequence bool, hasAnnotation bool, hasEmbeddedGFF3Sequence bool, isComparisonSession bool, hasVariants bool) []byte {
 	var flags byte
 	if hasSequence {
 		flags |= 1
@@ -184,7 +214,39 @@ func encodeInputInfo(hasSequence bool, hasAnnotation bool, hasEmbeddedGFF3Sequen
 	if isComparisonSession {
 		flags |= 4
 	}
+	if hasVariants {
+		flags |= 16
+	}
 	return []byte{flags}
+}
+
+func encodeVariantSources(sources []VariantSourceInfo) []byte {
+	total := 2
+	for _, source := range sources {
+		total += 8 + len(source.Name) + len(source.Path)
+		for _, sample := range source.SampleNames {
+			total += 2 + len(sample)
+		}
+	}
+	buf := make([]byte, total)
+	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(sources)))
+	off := 2
+	for _, source := range sources {
+		binary.LittleEndian.PutUint16(buf[off:off+2], source.ID)
+		binary.LittleEndian.PutUint16(buf[off+2:off+4], uint16(len(source.Name)))
+		binary.LittleEndian.PutUint16(buf[off+4:off+6], uint16(len(source.Path)))
+		binary.LittleEndian.PutUint16(buf[off+6:off+8], uint16(len(source.SampleNames)))
+		copy(buf[off+8:off+8+len(source.Name)], source.Name)
+		off += 8 + len(source.Name)
+		copy(buf[off:off+len(source.Path)], source.Path)
+		off += len(source.Path)
+		for _, sample := range source.SampleNames {
+			binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(sample)))
+			copy(buf[off+2:off+2+len(sample)], sample)
+			off += 2 + len(sample)
+		}
+	}
+	return buf
 }
 
 func encodeDNAExactHits(truncated bool, hits []DNAExactHit) []byte {
