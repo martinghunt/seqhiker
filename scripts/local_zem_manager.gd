@@ -25,7 +25,7 @@ func connect_with_local_fallback(host: String, port: int, connect_timeout_ms: in
 	var try_local := should_try_local(host)
 	if try_local:
 		if not ensure_local_zem_installed():
-			_last_connect_error = "Local zem binary missing and install failed for %s:%d" % [host, port]
+			_last_connect_error = "Local seqhiker server binary missing and install failed for %s:%d" % [host, port]
 			return false
 	if _zem.connect_to_server(host, port, connect_timeout_ms):
 		var probe_existing := _probe_zem_ready()
@@ -36,7 +36,7 @@ func connect_with_local_fallback(host: String, port: int, connect_timeout_ms: in
 			else:
 				return true
 		else:
-			_last_connect_error = "Connected but zem probe failed: %s" % str(probe_existing.get("error", "unknown error"))
+			_last_connect_error = "Connected but seqhiker server probe failed: %s" % str(probe_existing.get("error", "unknown error"))
 			_zem.disconnect_from_server()
 	if not try_local:
 		if _last_connect_error.is_empty():
@@ -44,7 +44,7 @@ func connect_with_local_fallback(host: String, port: int, connect_timeout_ms: in
 		return false
 	if not _start_local_zem(host, port):
 		if _last_connect_error.is_empty():
-			_last_connect_error = "Unable to start local zem at %s:%d" % [host, port]
+			_last_connect_error = "Unable to start local seqhiker server at %s:%d" % [host, port]
 		return false
 	for _i in range(maxi(1, wait_attempts)):
 		OS.delay_msec(maxi(1, wait_step_ms))
@@ -52,10 +52,10 @@ func connect_with_local_fallback(host: String, port: int, connect_timeout_ms: in
 			var probe_started := _probe_zem_ready()
 			if bool(probe_started.get("ok", false)):
 				return true
-			_last_connect_error = "Local zem started but probe failed: %s" % str(probe_started.get("error", "unknown error"))
+			_last_connect_error = "Local seqhiker server started but probe failed: %s" % str(probe_started.get("error", "unknown error"))
 			_zem.disconnect_from_server()
 	if _last_connect_error.is_empty():
-		_last_connect_error = "Local zem did not become ready at %s:%d" % [host, port]
+		_last_connect_error = "Local seqhiker server did not become ready at %s:%d" % [host, port]
 	return false
 
 func ensure_local_zem_installed() -> bool:
@@ -78,7 +78,7 @@ func ensure_local_zem_installed() -> bool:
 			_local_zem_path = legacy_abs
 			_last_connect_error = ""
 			return true
-		_last_connect_error = "No bundled zem found at res://bin/%s" % bin_name
+		_last_connect_error = "No bundled seqhiker server found at res://bin/%s" % bin_name
 		return false
 	var expected_version := _expected_zem_version()
 	var target_matches_version := FileAccess.file_exists(target_abs) and _installed_binary_version_matches(target_abs)
@@ -92,24 +92,24 @@ func ensure_local_zem_installed() -> bool:
 		return true
 	if not FileAccess.file_exists(target_abs):
 		if not _copy_file_any_to_abs(source, target_abs):
-			_last_connect_error = "Failed to copy zem into %s" % target_abs
+			_last_connect_error = "Failed to copy seqhiker server into %s" % target_abs
 			return false
 	elif not target_matches_version:
 		if not _copy_file_any_to_abs(source, target_abs):
-			_last_connect_error = "Failed to replace zem in %s" % target_abs
+			_last_connect_error = "Failed to replace seqhiker server in %s" % target_abs
 			return false
 	else:
 		if src_hash.is_empty() or dst_hash.is_empty() or src_hash != dst_hash:
 			if not _copy_file_any_to_abs(source, target_abs):
-				_last_connect_error = "Failed to update zem in %s" % target_abs
+				_last_connect_error = "Failed to update seqhiker server in %s" % target_abs
 				return false
 	if not OS.has_feature("windows"):
 		OS.execute("chmod", ["+x", target_abs], [], true)
 	if not _write_installed_version(target_abs):
-		_last_connect_error = "Failed to write zem version marker for %s" % target_abs
+		_last_connect_error = "Failed to write seqhiker server version marker for %s" % target_abs
 		return false
 	if not expected_version.is_empty() and not _installed_binary_version_matches(target_abs):
-		_last_connect_error = "Installed zem version does not match project version %s" % expected_version
+		_last_connect_error = "Installed seqhiker server version does not match project version %s" % expected_version
 		return false
 	_last_connect_error = ""
 	return true
@@ -224,10 +224,10 @@ func _connected_server_version_matches() -> bool:
 		return true
 	var resp: Dictionary = _zem.get_server_version()
 	if not bool(resp.get("ok", false)):
-		_last_connect_error = "Connected but zem version probe failed: %s" % str(resp.get("error", "unknown error"))
+		_last_connect_error = "Connected but seqhiker server version probe failed: %s" % str(resp.get("error", "unknown error"))
 		return false
 	var actual_version := str(resp.get("version", "")).strip_edges()
 	if actual_version == expected_version:
 		return true
-	_last_connect_error = "Zem version mismatch: app %s, server %s" % [expected_version, actual_version]
+	_last_connect_error = "Seqhiker server version mismatch: app %s, server %s" % [expected_version, actual_version]
 	return false

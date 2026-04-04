@@ -199,7 +199,7 @@ func refresh_chromosomes(reset_viewport: bool = true) -> void:
 		host._annotation_counts_by_chr = counts_resp.get("counts", {})
 	else:
 		host._annotation_counts_by_chr = {}
-		host._set_status("Annotation preload disabled: counts unavailable (restart zem)", true)
+		host._set_status("Annotation preload disabled: counts unavailable (restart seqhiker server)", true)
 	rebuild_concat_segments()
 	refresh_sequence_options()
 	if host._go_controller != null:

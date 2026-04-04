@@ -554,14 +554,14 @@ func _startup_connect_local_zem() -> void:
 	_startup_zem_port = ZEM_DEFAULT_PORT
 	if not _local_zem_manager.should_try_local(_startup_zem_host):
 		return
-	_set_status("Preparing local zem...")
-	genome_view.set_empty_state_status("Preparing local zem...")
+	_set_status("Preparing seqhiker server...")
+	genome_view.set_empty_state_status("Preparing seqhiker server...")
 	_startup_zem_prepare_thread = Thread.new()
 	var err := _startup_zem_prepare_thread.start(Callable(self, "_startup_prepare_local_zem_worker"))
 	if err != OK:
 		_startup_zem_prepare_thread = null
-		_set_status("Could not start local zem preparation thread: %s" % error_string(err), true)
-		genome_view.set_empty_state_status("Could not start local zem preparation.")
+		_set_status("Could not start seqhiker server preparation thread: %s" % error_string(err), true)
+		genome_view.set_empty_state_status("Could not start seqhiker server preparation.")
 		return
 
 func _startup_prepare_local_zem_worker() -> Dictionary:
@@ -579,17 +579,17 @@ func _finish_startup_prepare_local_zem(result: Variant) -> void:
 			_set_status(last_error, true)
 			genome_view.set_empty_state_status(last_error)
 		else:
-			_set_status("Local zem missing and install failed.", true)
-			genome_view.set_empty_state_status("Local zem missing and install failed.")
+			_set_status("Local seqhiker server missing and install failed.", true)
+			genome_view.set_empty_state_status("Local seqhiker server missing and install failed.")
 		return
-	genome_view.set_empty_state_status("Starting local zem...")
-	_set_status("Starting local zem...")
+	genome_view.set_empty_state_status("Starting seqhiker server...")
+	_set_status("Starting seqhiker server...")
 	_startup_zem_connect_thread = Thread.new()
 	var err := _startup_zem_connect_thread.start(Callable(self, "_startup_connect_local_zem_worker").bind(_startup_zem_host, _startup_zem_port))
 	if err != OK:
 		_startup_zem_connect_thread = null
-		_set_status("Could not start local zem connection thread: %s" % error_string(err), true)
-		genome_view.set_empty_state_status("Could not start local zem.")
+		_set_status("Could not start seqhiker server connection thread: %s" % error_string(err), true)
+		genome_view.set_empty_state_status("Could not start seqhiker server.")
 
 func _startup_connect_local_zem_worker(host: String, port: int) -> Dictionary:
 	var ok: bool = _local_zem_manager.connect_with_local_fallback(host, port, 100, 180, 100)
@@ -606,13 +606,13 @@ func _finish_startup_connect_local_zem(result: Variant) -> void:
 			_set_status(last_error, true)
 			genome_view.set_empty_state_status(last_error)
 		else:
-			_set_status("Unable to start local zem.", true)
-			genome_view.set_empty_state_status("Unable to start local zem.")
+			_set_status("Unable to start seqhiker server.", true)
+			genome_view.set_empty_state_status("Unable to start seqhiker server.")
 		return
 	_zem.disconnect_from_server()
 	if not _zem.connect_to_server(_startup_zem_host, _startup_zem_port, 500):
-		_set_status("Local zem started but reconnect failed.", true)
-		genome_view.set_empty_state_status("Local zem started but reconnect failed.")
+		_set_status("Seqhiker server started but reconnect failed.", true)
+		genome_view.set_empty_state_status("Seqhiker server started but reconnect failed.")
 		return
 	var version_resp: Dictionary = _zem.get_server_version()
 	_connected_zem_version = str(version_resp.get("version", "")).strip_edges() if bool(version_resp.get("ok", false)) else ""
