@@ -1398,6 +1398,62 @@ func _vcf_insertion_bp(variant: Dictionary) -> float:
 	var base_start := int(variant.get("start", 0))
 	return float(base_start + ref.length())
 
+func _vcf_render_kind(variant: Dictionary) -> int:
+	var kind := int(variant.get("kind", 0))
+	if kind != 5:
+		return kind
+	var ref := str(variant.get("ref", ""))
+	var alt_summary := str(variant.get("alt_summary", ""))
+	if ref.is_empty() or alt_summary.is_empty():
+		return kind
+	var alts := alt_summary.split(",", false)
+	if alts.is_empty():
+		return kind
+	var all_snp := ref.length() == 1
+	var all_insertion := true
+	var all_deletion := true
+	for alt_any in alts:
+		var alt := str(alt_any)
+		if alt.length() != 1:
+			all_snp = false
+		if alt.length() <= ref.length() or not alt.begins_with(ref):
+			all_insertion = false
+		if alt.length() != 1 or ref.length() <= 1 or alt[0] != ref[0]:
+			all_deletion = false
+		if alt.length() == 1 and ref.length() == 1:
+			continue
+		if alt.length() > ref.length() and alt.begins_with(ref):
+			continue
+		if alt.length() == 1 and ref.length() > 1 and alt[0] == ref[0]:
+			continue
+		all_snp = false
+	if all_snp:
+		return 1
+	if all_insertion:
+		return 3
+	if all_deletion:
+		return 4
+	return kind
+
+func _draw_vcf_complex_wave(target, rect: Rect2, color: Color) -> void:
+	var width := rect.size.x
+	if width <= 0.0:
+		return
+	var mid_y := rect.position.y + rect.size.y * 0.5
+	var amplitude := maxf(1.5, rect.size.y * 0.22)
+	var bp_width_px := maxf(1.0, 1.0 / maxf(0.000001, bp_per_px))
+	var wavelength := maxf(2.0, bp_width_px * 0.5)
+	var points := PackedVector2Array()
+	var step := maxf(1.0, wavelength / 5.0)
+	var x := 0.0
+	while x < width:
+		var phase := (x / wavelength) * TAU
+		points.append(Vector2(rect.position.x + x, mid_y + sin(phase) * amplitude))
+		x += step
+	points.append(Vector2(rect.position.x + width, mid_y + sin((width / wavelength) * TAU) * amplitude))
+	for i in range(points.size() - 1):
+		_draw_line_on(target, points[i], points[i + 1], color, 2.1)
+
 func _draw_variant_track(area: Rect2, target = null) -> void:
 	var rows := _variant_rows()
 	if rows.is_empty():
@@ -1440,8 +1496,8 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 			if typeof(variant_any) != TYPE_DICTIONARY:
 				continue
 			var variant: Dictionary = variant_any
-			var kind := int(variant.get("kind", 0))
-			if kind != 1 and kind != 3 and kind != 4:
+			var kind := _vcf_render_kind(variant)
+			if kind != 1 and kind != 3 and kind != 4 and kind != 5:
 				continue
 			var sample_classes: PackedByteArray = variant.get("sample_classes", PackedByteArray())
 			var sample_texts: PackedStringArray = variant.get("sample_texts", PackedStringArray())
@@ -1451,6 +1507,8 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 			var center_x := 0.0
 			var is_deletion := false
 			var is_insertion := false
+			var suppress_text := false
+			var is_complex := false
 			if kind == 1:
 				var base_start := int(variant.get("start", 0))
 				var base_end := int(variant.get("end", base_start + 1))
@@ -1467,7 +1525,7 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 				x1 = center_x
 				raw_w = 0.0
 				is_insertion = true
-			else:
+			elif kind == 4:
 				var del_span := _vcf_deletion_span(variant)
 				if del_span.x < 0.0:
 					continue
@@ -1476,12 +1534,21 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 				raw_w = maxf(1.0, x1 - x0)
 				center_x = 0.5 * (x0 + x1)
 				is_deletion = true
+			else:
+				var complex_start := int(variant.get("start", 0))
+				var complex_end := int(variant.get("end", complex_start + 1))
+				x0 = TRACK_LEFT_PAD + _bp_to_x(complex_start)
+				x1 = TRACK_LEFT_PAD + _bp_to_x(complex_end)
+				raw_w = maxf(1.0, x1 - x0)
+				center_x = 0.5 * (x0 + x1)
+				suppress_text = true
+				is_complex = true
 			for sample_index in range(sample_classes.size()):
 				var gt_class := int(sample_classes[sample_index])
 				if gt_class == 0:
 					continue
 				var display_text := ""
-				if not is_deletion and sample_index < sample_texts.size():
+				if not is_deletion and not is_insertion and not suppress_text and sample_index < sample_texts.size():
 					display_text = str(sample_texts[sample_index])
 				var text_w := text_font.get_string_size(display_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _font_size_small).x if not display_text.is_empty() else 0.0
 				var can_draw_text := not display_text.is_empty() and raw_w >= text_w + 6.0
@@ -1498,7 +1565,7 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 				var gt_colors := _vcf_genotype_colors(gt_class)
 				var fill: Color = gt_colors.get("fill", palette.get("read", Color("0f8b8d")))
 				var text_color: Color = gt_colors.get("text", palette.get("text", Color.BLACK))
-				if not is_insertion:
+				if not is_insertion and not is_complex:
 					_draw_rect_on(target, block_rect, fill, true)
 				if is_deletion:
 					var trim_h := maxf(0.0, block_rect.size.y * 0.25)
@@ -1511,8 +1578,20 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 					_draw_line_on(target, Vector2(block_rect.position.x, mid_y), Vector2(block_rect.position.x + block_rect.size.x, mid_y), border_color, 0.75)
 					var y0 := block_rect.position.y
 					var y1 := block_rect.position.y + block_rect.size.y
-					_draw_line_on(target, Vector2(block_rect.position.x, y0), Vector2(block_rect.position.x, y1), border_color, 1.5)
-					_draw_line_on(target, Vector2(block_rect.position.x + block_rect.size.x, y0), Vector2(block_rect.position.x + block_rect.size.x, y1), border_color, 1.5)
+					_draw_line_on(target, Vector2(block_rect.position.x, y0), Vector2(block_rect.position.x, y1), border_color, 2.5)
+					_draw_line_on(target, Vector2(block_rect.position.x + block_rect.size.x, y0), Vector2(block_rect.position.x + block_rect.size.x, y1), border_color, 2.5)
+				elif is_complex:
+					var trim_h := maxf(0.0, block_rect.size.y * 0.25)
+					var row_bg_key := "vcf_row_alt_bg" if (row_index % 2) == 1 else "vcf_row_bg"
+					var row_bg: Color = palette.get(row_bg_key, palette.get("panel", Color.WHITE))
+					if trim_h > 0.0 and block_rect.size.x > 0.0:
+						_draw_rect_on(target, Rect2(block_rect.position.x, block_rect.position.y, block_rect.size.x, trim_h), row_bg, true)
+						_draw_rect_on(target, Rect2(block_rect.position.x, block_rect.position.y + block_rect.size.y - trim_h, block_rect.size.x, trim_h), row_bg, true)
+					_draw_vcf_complex_wave(target, block_rect, fill)
+					var y0 := block_rect.position.y
+					var y1 := block_rect.position.y + block_rect.size.y
+					_draw_line_on(target, Vector2(block_rect.position.x, y0), Vector2(block_rect.position.x, y1), fill, 2.5)
+					_draw_line_on(target, Vector2(block_rect.position.x + block_rect.size.x, y0), Vector2(block_rect.position.x + block_rect.size.x, y1), fill, 2.5)
 				elif is_insertion:
 					var y0 := row_y + 3.0
 					var y1 := row_y + VCF_ROW_H - 3.0

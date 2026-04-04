@@ -219,6 +219,14 @@ func buildDemoVCFRecords(contigByName map[string]string) []demoVCFRecord {
 	insNearRefRef := ctgA[insNearRefPos0 : insNearRefPos0+1]
 	insNearRefAlt := insNearRefRef + "CA"
 
+	complexNearPos0 := testSNPPos + 24
+	complexNearRef := ctgA[complexNearPos0 : complexNearPos0+4]
+	complexNearAlt := buildComplexAlt(complexNearRef) + "AA"
+
+	complexNearRefPos0 := testSNPPos + 30
+	complexNearRefRef := ctgA[complexNearRefPos0 : complexNearRefPos0+5]
+	complexNearRefAlt := buildComplexAlt(complexNearRefRef)
+
 	insPos0 := testInsertionPos
 	insRef := ctgA[insPos0 : insPos0+1]
 	insAlt := insRef + "TGA"
@@ -325,6 +333,30 @@ func buildDemoVCFRecords(contigByName map[string]string) []demoVCFRecord {
 			qual:       "56",
 			filter:     "PASS",
 			info:       "TYPE=INS",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/0:16:16,0", "0/1:16:8,8"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       complexNearPos0 + 1,
+			id:         "demo_complex_near_1",
+			ref:        complexNearRef,
+			alt:        complexNearAlt,
+			qual:       "55",
+			filter:     "PASS",
+			info:       "TYPE=COMPLEX",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/1:18:9,9", "1/1:18:0,18"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       complexNearRefPos0 + 1,
+			id:         "demo_complex_near_2",
+			ref:        complexNearRefRef,
+			alt:        complexNearRefAlt,
+			qual:       "54",
+			filter:     "PASS",
+			info:       "TYPE=COMPLEX",
 			formatKeys: []string{"GT", "DP", "AD"},
 			samples:    []string{"0/0:16:16,0", "0/1:16:8,8"},
 		},
