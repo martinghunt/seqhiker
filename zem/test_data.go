@@ -211,6 +211,14 @@ func buildDemoVCFRecords(contigByName map[string]string) []demoVCFRecord {
 	delNearRefRef := ctgA[delNearRefPos0 : delNearRefPos0+4]
 	delNearRefAlt := delNearRefRef[:1]
 
+	insNearPos0 := testSNPPos + 18
+	insNearRef := ctgA[insNearPos0 : insNearPos0+1]
+	insNearAlt := insNearRef + "TG"
+
+	insNearRefPos0 := testSNPPos + 21
+	insNearRefRef := ctgA[insNearRefPos0 : insNearRefPos0+1]
+	insNearRefAlt := insNearRefRef + "CA"
+
 	insPos0 := testInsertionPos
 	insRef := ctgA[insPos0 : insPos0+1]
 	insAlt := insRef + "TGA"
@@ -293,6 +301,30 @@ func buildDemoVCFRecords(contigByName map[string]string) []demoVCFRecord {
 			qual:       "56",
 			filter:     "PASS",
 			info:       "TYPE=DEL",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/0:16:16,0", "0/1:16:8,8"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       insNearPos0 + 1,
+			id:         "demo_ins_near_1",
+			ref:        insNearRef,
+			alt:        insNearAlt,
+			qual:       "57",
+			filter:     "PASS",
+			info:       "TYPE=INS",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/1:18:9,9", "1/1:18:0,18"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       insNearRefPos0 + 1,
+			id:         "demo_ins_near_2",
+			ref:        insNearRefRef,
+			alt:        insNearRefAlt,
+			qual:       "56",
+			filter:     "PASS",
+			info:       "TYPE=INS",
 			formatKeys: []string{"GT", "DP", "AD"},
 			samples:    []string{"0/0:16:16,0", "0/1:16:8,8"},
 		},

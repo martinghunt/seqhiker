@@ -1386,6 +1386,18 @@ func _vcf_deletion_span(variant: Dictionary) -> Vector2:
 		return Vector2(-1.0, -1.0)
 	return Vector2(del_start, del_end)
 
+func _vcf_insertion_bp(variant: Dictionary) -> float:
+	var ref := str(variant.get("ref", ""))
+	var alt_summary := str(variant.get("alt_summary", ""))
+	if ref.is_empty() or alt_summary.is_empty() or alt_summary.contains(","):
+		return -1.0
+	if alt_summary.length() <= ref.length():
+		return -1.0
+	if not alt_summary.begins_with(ref):
+		return -1.0
+	var base_start := int(variant.get("start", 0))
+	return float(base_start + ref.length())
+
 func _draw_variant_track(area: Rect2, target = null) -> void:
 	var rows := _variant_rows()
 	if rows.is_empty():
@@ -1429,7 +1441,7 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 				continue
 			var variant: Dictionary = variant_any
 			var kind := int(variant.get("kind", 0))
-			if kind != 1 and kind != 4:
+			if kind != 1 and kind != 3 and kind != 4:
 				continue
 			var sample_classes: PackedByteArray = variant.get("sample_classes", PackedByteArray())
 			var sample_texts: PackedStringArray = variant.get("sample_texts", PackedStringArray())
@@ -1438,6 +1450,7 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 			var raw_w := 0.0
 			var center_x := 0.0
 			var is_deletion := false
+			var is_insertion := false
 			if kind == 1:
 				var base_start := int(variant.get("start", 0))
 				var base_end := int(variant.get("end", base_start + 1))
@@ -1445,6 +1458,15 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 				x1 = TRACK_LEFT_PAD + _bp_to_x(base_end)
 				raw_w = maxf(1.0, x1 - x0)
 				center_x = 0.5 * (x0 + x1)
+			elif kind == 3:
+				var insert_bp := _vcf_insertion_bp(variant)
+				if insert_bp < 0.0:
+					continue
+				center_x = TRACK_LEFT_PAD + _bp_to_x(insert_bp)
+				x0 = center_x
+				x1 = center_x
+				raw_w = 0.0
+				is_insertion = true
 			else:
 				var del_span := _vcf_deletion_span(variant)
 				if del_span.x < 0.0:
@@ -1476,7 +1498,8 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 				var gt_colors := _vcf_genotype_colors(gt_class)
 				var fill: Color = gt_colors.get("fill", palette.get("read", Color("0f8b8d")))
 				var text_color: Color = gt_colors.get("text", palette.get("text", Color.BLACK))
-				_draw_rect_on(target, block_rect, fill, true)
+				if not is_insertion:
+					_draw_rect_on(target, block_rect, fill, true)
 				if is_deletion:
 					var trim_h := maxf(0.0, block_rect.size.y * 0.25)
 					var row_bg_key := "vcf_row_alt_bg" if (row_index % 2) == 1 else "vcf_row_bg"
@@ -1490,6 +1513,15 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 					var y1 := block_rect.position.y + block_rect.size.y
 					_draw_line_on(target, Vector2(block_rect.position.x, y0), Vector2(block_rect.position.x, y1), border_color, 1.5)
 					_draw_line_on(target, Vector2(block_rect.position.x + block_rect.size.x, y0), Vector2(block_rect.position.x + block_rect.size.x, y1), border_color, 1.5)
+				elif is_insertion:
+					var y0 := row_y + 3.0
+					var y1 := row_y + VCF_ROW_H - 3.0
+					var cap_w := maxf(4.0, (VCF_ROW_H - 4.0) * 0.7)
+					var cap_line_w := maxf(1.0, (VCF_ROW_H - 4.0) * 0.15)
+					var stem_line_w := maxf(1.0, (VCF_ROW_H - 4.0) * 0.3)
+					_draw_line_on(target, Vector2(center_x, y0), Vector2(center_x, y1), fill, stem_line_w)
+					_draw_line_on(target, Vector2(center_x - cap_w * 0.5, y0), Vector2(center_x + cap_w * 0.5, y0), fill, cap_line_w)
+					_draw_line_on(target, Vector2(center_x - cap_w * 0.5, y1), Vector2(center_x + cap_w * 0.5, y1), fill, cap_line_w)
 				var hit_variant := variant.duplicate(true)
 				hit_variant["source_id"] = source_id
 				hit_variant["chr_id"] = chr_id
@@ -1498,13 +1530,17 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 				hit_variant["source_name"] = str(row.get("source_name", ""))
 				var variant_key := _variant_key(hit_variant)
 				if variant_key == _selected_variant_key:
-					_draw_rect_on(target, block_rect.grow(1.5), border_color, false, 2.0)
+					if is_insertion:
+						_draw_rect_on(target, Rect2(center_x - 7.0, row_y + 1.0, 14.0, VCF_ROW_H - 2.0), border_color, false, 2.0)
+					else:
+						_draw_rect_on(target, block_rect.grow(1.5), border_color, false, 2.0)
 				if can_draw_text:
 					var text_baseline := _text_baseline_for_center(block_rect.position.y + block_rect.size.y * 0.5, text_font, _font_size_small)
 					_draw_string_on(target, text_font, Vector2(block_rect.position.x, text_baseline), display_text, HORIZONTAL_ALIGNMENT_CENTER, block_rect.size.x, _font_size_small, text_color)
 				if target == self:
+					var hit_rect := Rect2(center_x - 7.0, row_y + 1.0, 14.0, VCF_ROW_H - 2.0) if is_insertion else block_rect.grow(2.0)
 					_variant_hitboxes.append({
-						"rect": block_rect.grow(2.0),
+						"rect": hit_rect,
 						"variant": hit_variant
 					})
 

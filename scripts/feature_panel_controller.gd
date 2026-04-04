@@ -213,6 +213,17 @@ func on_variant_clicked(variant: Dictionary, detail: Dictionary) -> void:
 	var seq_text := "INFO: %s" % str(detail.get("info", "."))
 	var samples: Array = detail.get("samples", [])
 	if not samples.is_empty():
+		var prioritized: Array = []
+		var remaining: Array = []
+		for sample_any in samples:
+			if typeof(sample_any) != TYPE_DICTIONARY:
+				continue
+			var sample: Dictionary = sample_any
+			if str(sample.get("name", "")) == sample_name:
+				prioritized.append(sample)
+			else:
+				remaining.append(sample)
+		samples = prioritized + remaining
 		seq_text += "\n\nSamples"
 		for sample_any in samples:
 			if typeof(sample_any) != TYPE_DICTIONARY:
