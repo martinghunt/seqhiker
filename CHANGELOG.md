@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - "Total Perspective" - 2026-04-05
+
 ### Added
 - VCF support - shows variants from VCF in a dedicated track.
 - Genome comparison view with per-genome rows, locking, reordering, toolbar actions, and comparison session save/load.
@@ -39,5 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Release `v0.42.0` ("Mostly Harmless"), before changelog tracking started in this file.
 
-[Unreleased]: https://github.com/martinghunt/seqhiker/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/martinghunt/seqhiker/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/martinghunt/seqhiker/compare/v0.42.0...v1.0.0
 [0.42.0]: https://github.com/martinghunt/seqhiker/releases/tag/v0.42.0
