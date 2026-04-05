@@ -55,91 +55,7 @@ func on_fetch_timer_timeout() -> void:
 	refresh_visible_data()
 
 
-func refresh_visible_data() -> void:
-	if host._current_chr_len <= 0:
-		host._finish_sync_fetch_attempt()
-		return
-	if host._debug_enabled:
-		host._reset_debug_annotation_counters()
-	var show_reads: bool = host._any_visible_read_track()
-	var fetch_reads_in_window := show_reads and not detailed_read_strips_enabled(host._last_bp_per_px)
-	var show_aa: bool = bool(host.genome_view.is_track_visible(host.TRACK_AA))
-	var show_gc_plot: bool = bool(host.genome_view.is_track_visible(host.TRACK_GC_PLOT))
-	var show_depth_plot: bool = bool(host.genome_view.is_track_visible(host.TRACK_DEPTH_PLOT))
-	var show_genome: bool = bool(host.genome_view.is_track_visible(host.TRACK_GENOME))
-	var show_variants: bool = bool(host.genome_view.is_track_visible(host.TRACK_VCF)) and not host._variant_sources.is_empty()
-	var need_annotations: bool = show_aa or show_genome
-	var need_reference: bool = host.genome_view.needs_reference_data(show_aa, show_genome)
-	var show_stop_codons: bool = bool(host.genome_view.needs_stop_codon_overview(show_aa))
-	var span: int = maxi(1, host._last_end - host._last_start)
-	var left_span_mult := NORMAL_LEFT_SPAN_MULT
-	var right_span_mult := AUTOPLAY_RIGHT_SPAN_MULT if host._auto_play_enabled else NORMAL_RIGHT_SPAN_MULT
-	var query_start := maxi(0, int(floor(float(host._last_start) - float(span) * left_span_mult)))
-	var query_end := mini(host._current_chr_len, int(ceil(float(host._last_end) + float(span) * right_span_mult)))
-	var overlaps: Array[Dictionary] = []
-	var visible_track_ids := {}
-	for t_any in host._bam_tracks:
-		var track_vis: Dictionary = t_any
-		var track_vis_id := str(track_vis.get("track_id", ""))
-		visible_track_ids[track_vis_id] = host.genome_view.is_track_visible(track_vis_id)
-	if host._seq_view_mode != host.SEQ_VIEW_SINGLE:
-		overlaps = host._segments_overlapping(query_start, query_end)
-	elif not need_reference:
-		host.genome_view.set_reference_slice(query_start, "")
-	host.tile_fetch_serial += 1
-	var serial: int = int(host.tile_fetch_serial)
-	var visible_req := {
-		"serial": serial,
-		"query_start": query_start,
-		"query_end": query_end,
-		"need_reference": need_reference,
-		"ref_start": query_start,
-		"ref_sequence": "",
-		"zoom": host._compute_tile_zoom(host._last_bp_per_px),
-		"mode": 0 if (host._has_bam_loaded and host._any_visible_read_track() and host._last_bp_per_px <= host.READ_RENDER_MAX_BP_PER_PX) else 1,
-		"scope_key": host._scope_cache_key(),
-		"fetch_reads": fetch_reads_in_window,
-		"show_stop_codons": show_stop_codons,
-		"show_variants": show_variants
-	}
-	_visible_pending_requests[serial] = visible_req
-	_latest_visible_serial = serial
-	host._tile_controller.request_tiles({
-		"serial": serial,
-		"request_kind": "visible",
-		"high_priority": true,
-		"host": "127.0.0.1",
-		"port": host.ZEM_DEFAULT_PORT,
-		"generation": host._tile_cache_generation,
-		"scope_key": host._scope_cache_key(),
-		"need_reference": need_reference,
-		"visible_start": host._last_start,
-		"visible_end": host._last_end,
-		"query_start": query_start,
-		"query_end": query_end,
-		"last_bp_per_px": host._last_bp_per_px,
-		"show_reads": fetch_reads_in_window,
-		"show_annotations": need_annotations,
-		"show_gc_plot": show_gc_plot,
-		"show_depth_plot": show_depth_plot,
-		"show_stop_codons": show_stop_codons,
-		"show_variants": show_variants,
-		"variant_sources": host._variant_sources,
-		"has_bam_loaded": host._has_bam_loaded,
-		"seq_view_mode": host._seq_view_mode,
-		"current_chr_id": host._current_chr_id,
-		"bam_tracks": host._bam_tracks,
-		"overlaps": overlaps,
-		"visible_track_ids": visible_track_ids,
-		"gc_window_bp": host._gc_window_bp,
-		"annotation_cap_total": annotation_pixel_budget(),
-		"annotation_min_len_bp": annotation_min_feature_len_bp()
-	})
-
-
-func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> void:
-	if host._current_chr_len <= 0:
-		return
+func _build_visible_tile_request(visible_start: int, visible_end: int, bp_per_px: float, right_span_mult: float, clear_reference_when_unused: bool) -> Dictionary:
 	var show_reads: bool = host._any_visible_read_track()
 	var fetch_reads_in_window := show_reads and not detailed_read_strips_enabled(bp_per_px)
 	var show_aa: bool = bool(host.genome_view.is_track_visible(host.TRACK_AA))
@@ -150,9 +66,9 @@ func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> vo
 	var need_annotations: bool = show_aa or show_genome
 	var need_reference: bool = bool(host.genome_view.needs_reference_data(show_aa, show_genome))
 	var show_stop_codons: bool = bool(host.genome_view.needs_stop_codon_overview(show_aa))
-	var span: int = maxi(1, end_bp - start_bp)
-	var query_start := maxi(0, int(floor(float(start_bp) - float(span) * NORMAL_LEFT_SPAN_MULT)))
-	var query_end := mini(host._current_chr_len, int(ceil(float(end_bp) + float(span) * NORMAL_RIGHT_SPAN_MULT)))
+	var span: int = maxi(1, visible_end - visible_start)
+	var query_start := maxi(0, int(floor(float(visible_start) - float(span) * NORMAL_LEFT_SPAN_MULT)))
+	var query_end := mini(host._current_chr_len, int(ceil(float(visible_end) + float(span) * right_span_mult)))
 	var overlaps: Array[Dictionary] = []
 	var visible_track_ids := {}
 	for t_any in host._bam_tracks:
@@ -161,55 +77,90 @@ func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> vo
 		visible_track_ids[track_vis_id] = host.genome_view.is_track_visible(track_vis_id)
 	if host._seq_view_mode != host.SEQ_VIEW_SINGLE:
 		overlaps = host._segments_overlapping(query_start, query_end)
+	elif clear_reference_when_unused and not need_reference:
+		host.genome_view.set_reference_slice(query_start, "")
+	var scope_key: String = str(host._scope_cache_key())
+	var zoom: int = int(host._compute_tile_zoom(bp_per_px))
+	var mode: int = 0 if (host._has_bam_loaded and host._any_visible_read_track() and bp_per_px <= host.READ_RENDER_MAX_BP_PER_PX) else 1
+	return {
+		"visible_req": {
+			"query_start": query_start,
+			"query_end": query_end,
+			"need_reference": need_reference,
+			"ref_start": query_start,
+			"ref_sequence": "",
+			"zoom": zoom,
+			"mode": mode,
+			"scope_key": scope_key,
+			"fetch_reads": fetch_reads_in_window,
+			"show_stop_codons": show_stop_codons,
+			"show_variants": show_variants
+		},
+		"tile_request": {
+			"request_kind": "visible",
+			"high_priority": true,
+			"host": "127.0.0.1",
+			"port": host.ZEM_DEFAULT_PORT,
+			"generation": host._tile_cache_generation,
+			"scope_key": scope_key,
+			"need_reference": need_reference,
+			"visible_start": visible_start,
+			"visible_end": visible_end,
+			"query_start": query_start,
+			"query_end": query_end,
+			"last_bp_per_px": bp_per_px,
+			"show_reads": fetch_reads_in_window,
+			"show_annotations": need_annotations,
+			"show_gc_plot": show_gc_plot,
+			"show_depth_plot": show_depth_plot,
+			"show_stop_codons": show_stop_codons,
+			"show_variants": show_variants,
+			"variant_sources": host._variant_sources,
+			"has_bam_loaded": host._has_bam_loaded,
+			"seq_view_mode": host._seq_view_mode,
+			"current_chr_id": host._current_chr_id,
+			"bam_tracks": host._bam_tracks,
+			"overlaps": overlaps,
+			"visible_track_ids": visible_track_ids,
+			"gc_window_bp": host._gc_window_bp,
+			"annotation_cap_total": annotation_pixel_budget(),
+			"annotation_min_len_bp": annotation_min_feature_len_bp()
+		}
+	}
+
+
+func refresh_visible_data() -> void:
+	if host._current_chr_len <= 0:
+		host._finish_sync_fetch_attempt()
+		return
+	if host._debug_enabled:
+		host._reset_debug_annotation_counters()
+	var right_span_mult := AUTOPLAY_RIGHT_SPAN_MULT if host._auto_play_enabled else NORMAL_RIGHT_SPAN_MULT
+	var request_payload := _build_visible_tile_request(host._last_start, host._last_end, host._last_bp_per_px, right_span_mult, true)
+	var visible_req: Dictionary = request_payload.get("visible_req", {})
+	var tile_request: Dictionary = request_payload.get("tile_request", {})
 	host.tile_fetch_serial += 1
 	var serial: int = int(host.tile_fetch_serial)
-	var visible_req := {
-		"serial": serial,
-		"query_start": query_start,
-		"query_end": query_end,
-		"need_reference": need_reference,
-		"ref_start": query_start,
-		"ref_sequence": "",
-		"zoom": host._compute_tile_zoom(bp_per_px),
-		"mode": 0 if (host._has_bam_loaded and host._any_visible_read_track() and bp_per_px <= host.READ_RENDER_MAX_BP_PER_PX) else 1,
-		"scope_key": host._scope_cache_key(),
-		"fetch_reads": fetch_reads_in_window,
-		"show_stop_codons": show_stop_codons,
-		"show_variants": show_variants
-	}
+	visible_req["serial"] = serial
 	_visible_pending_requests[serial] = visible_req
 	_latest_visible_serial = serial
-	host._tile_controller.request_tiles({
-		"serial": serial,
-		"request_kind": "visible",
-		"high_priority": true,
-		"host": "127.0.0.1",
-		"port": host.ZEM_DEFAULT_PORT,
-		"generation": host._tile_cache_generation,
-		"scope_key": host._scope_cache_key(),
-		"need_reference": need_reference,
-		"visible_start": start_bp,
-		"visible_end": end_bp,
-		"query_start": query_start,
-		"query_end": query_end,
-		"last_bp_per_px": bp_per_px,
-		"show_reads": fetch_reads_in_window,
-		"show_annotations": need_annotations,
-		"show_gc_plot": show_gc_plot,
-		"show_depth_plot": show_depth_plot,
-		"show_stop_codons": show_stop_codons,
-		"show_variants": show_variants,
-		"variant_sources": host._variant_sources,
-		"has_bam_loaded": host._has_bam_loaded,
-		"seq_view_mode": host._seq_view_mode,
-		"current_chr_id": host._current_chr_id,
-		"bam_tracks": host._bam_tracks,
-		"overlaps": overlaps,
-		"visible_track_ids": visible_track_ids,
-		"gc_window_bp": host._gc_window_bp,
-		"annotation_cap_total": annotation_pixel_budget(),
-		"annotation_min_len_bp": annotation_min_feature_len_bp()
-	})
+	tile_request["serial"] = serial
+	host._tile_controller.request_tiles(tile_request)
+
+
+func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> void:
+	if host._current_chr_len <= 0:
+		return
+	var request_payload := _build_visible_tile_request(start_bp, end_bp, bp_per_px, NORMAL_RIGHT_SPAN_MULT, false)
+	var visible_req: Dictionary = request_payload.get("visible_req", {})
+	var tile_request: Dictionary = request_payload.get("tile_request", {})
+	host.tile_fetch_serial += 1
+	var serial: int = int(host.tile_fetch_serial)
+	visible_req["serial"] = serial
+	_visible_pending_requests[serial] = visible_req
+	_latest_visible_serial = serial
+	tile_request["serial"] = serial
+	host._tile_controller.request_tiles(tile_request)
 
 
 func update_detailed_read_strips(start_bp: int, end_bp: int, bp_per_px: float) -> void:
