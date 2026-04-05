@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- VCF support - shows variants from VCF in a dedicated track.
 - Genome comparison view with per-genome rows, locking, reordering, toolbar actions, and comparison session save/load.
 - Match selection, double-click navigation, region selection, selected-match lists, and comparison-mode search/go integration.
 - Nucleotide-level comparison detail rendering with per-base connectors, SNP styling, and SVG export for comparison screenshots.
