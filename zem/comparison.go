@@ -290,14 +290,21 @@ func (e *Engine) ListComparisonGenomes() []ComparisonGenomeInfo {
 }
 
 func (e *Engine) ListComparisonPairs() []ComparisonPairInfo {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	out := make([]ComparisonPairInfo, 0, len(e.comparisonPairOrder))
 	for _, pairID := range e.comparisonPairOrder {
 		pair := e.comparisonPairs[pairID]
 		if pair == nil {
 			continue
+		}
+		if pair.Status != comparisonStatusReady {
+			query := e.comparisonGenomes[pair.TopGenomeID]
+			target := e.comparisonGenomes[pair.BottomGenomeID]
+			pair.Blocks = buildComparisonBlocksForDisplay(query, target, pair.TopGenomeID, pair.BottomGenomeID)
+			_ = e.ensureComparisonPairDetailCacheLocked(pair, query, target)
+			pair.Status = comparisonStatusReady
 		}
 		out = append(out, ComparisonPairInfo{
 			ID:             pair.ID,
@@ -311,12 +318,19 @@ func (e *Engine) ListComparisonPairs() []ComparisonPairInfo {
 }
 
 func (e *Engine) GetComparisonBlocks(pairID uint16) ([]ComparisonBlock, error) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	pair, ok := e.comparisonPairs[pairID]
 	if !ok || pair == nil {
 		return nil, fmt.Errorf("comparison pair %d not found", pairID)
+	}
+	if pair.Status != comparisonStatusReady {
+		query := e.comparisonGenomes[pair.TopGenomeID]
+		target := e.comparisonGenomes[pair.BottomGenomeID]
+		pair.Blocks = buildComparisonBlocksForDisplay(query, target, pair.TopGenomeID, pair.BottomGenomeID)
+		_ = e.ensureComparisonPairDetailCacheLocked(pair, query, target)
+		pair.Status = comparisonStatusReady
 	}
 	out := make([]ComparisonBlock, 0, len(pair.Blocks))
 	for _, block := range pair.Blocks {
@@ -542,12 +556,6 @@ func (e *Engine) rebuildComparisonPairsLocked() {
 			BottomGenomeID: e.comparisonGenomeOrder[i+1],
 			Status:         comparisonStatusPending,
 			Blocks:         nil,
-		}
-		blocks, _, _, err := e.getOrBuildComparisonPairLocked(pair.TopGenomeID, pair.BottomGenomeID)
-		if err == nil {
-			pair.Blocks = blocks
-			_ = e.ensureComparisonPairDetailCacheLocked(pair, e.comparisonGenomes[pair.TopGenomeID], e.comparisonGenomes[pair.BottomGenomeID])
-			pair.Status = comparisonStatusReady
 		}
 		e.comparisonPairs[pairID] = pair
 		e.comparisonPairOrder = append(e.comparisonPairOrder, pairID)

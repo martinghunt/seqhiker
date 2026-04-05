@@ -216,7 +216,7 @@ func refresh_view(theme_name: String) -> void:
 		for genome in _comparison_genomes:
 			order.append(int(genome.get("id", -1)))
 	for i in range(order.size() - 1):
-		_ensure_pair_blocks(int(order[i]), int(order[i + 1]))
+		call_deferred("_ensure_pair_blocks", int(order[i]), int(order[i + 1]))
 
 
 func reset_view_to_full_genomes() -> void:
@@ -272,22 +272,26 @@ func _ensure_empty_state_ready() -> bool:
 	return true
 
 
-func add_genome(path: String) -> bool:
+func add_genome(path: String, show_loading: bool = true) -> bool:
 	if not _ensure_empty_state_ready():
 		return false
-	_set_loading_message("Loading comparison genome...")
+	if show_loading:
+		_set_loading_message("Loading comparison genome...")
 	var resp: Dictionary = zem.add_comparison_genome(path)
 	var ok := _apply_added_comparison_genome_response(resp)
-	_set_loading_message("")
+	if show_loading:
+		_set_loading_message("")
 	return ok
 
-func add_genome_files(paths: PackedStringArray) -> bool:
+func add_genome_files(paths: PackedStringArray, show_loading: bool = true) -> bool:
 	if not _ensure_empty_state_ready():
 		return false
-	_set_loading_message("Loading comparison genome...")
+	if show_loading:
+		_set_loading_message("Loading comparison genome...")
 	var resp: Dictionary = zem.add_comparison_genome_files(paths)
 	var ok := _apply_added_comparison_genome_response(resp)
-	_set_loading_message("")
+	if show_loading:
+		_set_loading_message("")
 	return ok
 
 func _apply_added_comparison_genome_response(resp: Dictionary) -> bool:
@@ -380,10 +384,10 @@ func load_generated_genomes(paths: PackedStringArray) -> bool:
 	return true
 
 
-func add_input_files(files: PackedStringArray) -> bool:
+func add_input_files(files: PackedStringArray, show_loading: bool = true) -> bool:
 	var drop_info: Dictionary = host._inspect_dropped_files(files)
 	if bool(drop_info.get("ok", false)) and bool(drop_info.get("has_sequence", false)) and int(drop_info.get("sequence_root_count", 0)) == 1 and files.size() > 1:
-		if add_genome_files(files):
+		if add_genome_files(files, show_loading):
 			return true
 	var added_any := false
 	for file_any in files:
@@ -393,7 +397,7 @@ func add_input_files(files: PackedStringArray) -> bool:
 		var inspect: Dictionary = host._inspect_dropped_files(PackedStringArray([path]))
 		if not bool(inspect.get("has_sequence", false)):
 			continue
-		if add_genome(path):
+		if add_genome(path, show_loading):
 			added_any = true
 	return added_any
 
@@ -407,28 +411,97 @@ func finalize_added_genomes() -> void:
 
 
 func handle_files_dropped(files: PackedStringArray) -> void:
-	if not add_input_files(files):
+	var show_preview := _should_show_pending_drop_preview(files)
+	if show_preview:
+		_show_pending_drop_preview(files)
+		await (Engine.get_main_loop() as SceneTree).process_frame
+		await RenderingServer.frame_post_draw
+	if not add_input_files(files, not show_preview):
+		_clear_pending_drop_preview()
 		host._set_status("Could not add a comparison genome from dropped files.", true)
 		host._refresh_comparison_topbar_state()
 		return
+	_clear_pending_drop_preview()
 	finalize_added_genomes()
 
 
+func _should_show_pending_drop_preview(files: PackedStringArray) -> bool:
+	if _comparison_genomes.is_empty():
+		return false
+	if files.is_empty():
+		return false
+	var drop_info: Dictionary = host._inspect_dropped_files(files)
+	return bool(drop_info.get("ok", false)) and bool(drop_info.get("has_sequence", false)) and int(drop_info.get("sequence_root_count", 0)) == 1
+
+
+func _show_pending_drop_preview(files: PackedStringArray) -> void:
+	if comparison_view == null or not comparison_view.has_method("set_pending_drop_preview"):
+		return
+	var genome := _build_pending_drop_preview(files)
+	var anchor_genome_id := int(_comparison_genomes[_comparison_genomes.size() - 1].get("id", -1))
+	comparison_view.set_pending_drop_preview(genome, anchor_genome_id)
+
+
+func _clear_pending_drop_preview() -> void:
+	if comparison_view != null and comparison_view.has_method("clear_pending_drop_preview"):
+		comparison_view.clear_pending_drop_preview()
+
+
+func _build_pending_drop_preview(files: PackedStringArray) -> Dictionary:
+	var path := _pending_drop_sequence_path(files)
+	var name := path.get_file().get_basename()
+	if name.is_empty():
+		name = "Genome"
+	var length := 1000
+	if not _comparison_genomes.is_empty():
+		length = maxi(length, int(_comparison_genomes[_comparison_genomes.size() - 1].get("length", 0)))
+	return {
+		"id": -1,
+		"name": name,
+		"length": length,
+		"features": [],
+		"segments": [{
+			"name": name,
+			"start": 0,
+			"end": length,
+			"feature_count": 0
+		}]
+	}
+
+
+func _pending_drop_sequence_path(files: PackedStringArray) -> String:
+	for file_any in files:
+		var path := str(file_any)
+		if path.is_empty():
+			continue
+		var inspect: Dictionary = host._inspect_dropped_files(PackedStringArray([path]))
+		if bool(inspect.get("ok", false)) and bool(inspect.get("has_sequence", false)):
+			return path
+	return str(files[0]) if not files.is_empty() else ""
+
+
 func _ensure_pair_blocks(query_genome_id: int, target_genome_id: int) -> void:
+	if query_genome_id < 0 or target_genome_id < 0:
+		return
 	if comparison_view != null and comparison_view.has_method("pair_cached") and comparison_view.pair_cached(query_genome_id, target_genome_id):
+		return
+	if comparison_view != null and comparison_view.has_method("pair_pending") and comparison_view.pair_pending(query_genome_id, target_genome_id):
 		return
 	var key := "%d:%d" % [mini(query_genome_id, target_genome_id), maxi(query_genome_id, target_genome_id)]
 	if _comparison_pair_cache.has(key):
 		var cached: Dictionary = _comparison_pair_cache[key]
 		var cached_blocks: Array = cached.get("blocks", [])
 		if not cached_blocks.is_empty():
-			comparison_view.set_pair_blocks(int(cached.get("query_id", query_genome_id)), int(cached.get("target_id", target_genome_id)), cached_blocks)
+			if comparison_view != null and comparison_view.has_method("set_pair_blocks"):
+				comparison_view.set_pair_blocks(int(cached.get("query_id", query_genome_id)), int(cached.get("target_id", target_genome_id)), cached_blocks)
 			return
 		_comparison_pair_cache.erase(key)
-	_set_loading_message("Calculating comparison matches...")
+	if comparison_view != null and comparison_view.has_method("set_pair_pending"):
+		comparison_view.set_pair_pending(query_genome_id, target_genome_id, true)
 	var resp: Dictionary = zem.get_comparison_blocks_by_genomes(query_genome_id, target_genome_id)
 	if not bool(resp.get("ok", false)):
-		_set_loading_message("")
+		if comparison_view != null and comparison_view.has_method("set_pair_pending"):
+			comparison_view.set_pair_pending(query_genome_id, target_genome_id, false)
 		host._set_status("Comparison query failed: %s" % str(resp.get("error", "error")), true)
 		return
 	var blocks: Array = resp.get("blocks", [])
@@ -451,14 +524,15 @@ func _ensure_pair_blocks(query_genome_id: int, target_genome_id: int) -> void:
 	}
 	if not blocks.is_empty():
 		_comparison_pair_cache[key] = payload
-	if comparison_view != null:
+	if comparison_view != null and comparison_view.has_method("set_pair_blocks"):
 		comparison_view.set_pair_blocks(query_genome_id, target_genome_id, blocks)
-	_set_loading_message("")
+	elif comparison_view != null and comparison_view.has_method("set_pair_pending"):
+		comparison_view.set_pair_pending(query_genome_id, target_genome_id, false)
 
 
 func _on_comparison_genome_order_changed(order: PackedInt32Array) -> void:
 	for i in range(order.size() - 1):
-		_ensure_pair_blocks(int(order[i]), int(order[i + 1]))
+		call_deferred("_ensure_pair_blocks", int(order[i]), int(order[i + 1]))
 
 
 func _on_comparison_block_cap_changed(value: float) -> void:

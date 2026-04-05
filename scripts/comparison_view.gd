@@ -32,12 +32,16 @@ var _genomes_by_id := {}
 var _order := PackedInt32Array()
 var _offsets := {}
 var _pair_blocks := {}
+var _pending_pair_keys := {}
+var _pending_drop_preview: Dictionary = {}
+var _pending_drop_anchor_genome_id := -1
 var _detail_blocks := {}
 var _reference_slices := {}
 var _detail_request_pending := false
 var _colorize_nucleotides := true
 var _sequence_letter_font_name := "Anonymous Pro"
 var _rows := {}
+var _pending_preview_row = null
 var _lock_buttons := {}
 var _pair_locks := {}
 var _drawn_match_hitboxes := []
@@ -113,6 +117,9 @@ func clear_view() -> void:
 	_order = PackedInt32Array()
 	_offsets.clear()
 	_pair_blocks.clear()
+	_pending_pair_keys.clear()
+	_pending_drop_preview.clear()
+	_pending_drop_anchor_genome_id = -1
 	_detail_blocks.clear()
 	_reference_slices.clear()
 	_detail_request_pending = false
@@ -138,6 +145,9 @@ func clear_view() -> void:
 	_view_span_bp = DEFAULT_VIEW_SPAN_BP
 	_loading_message = ""
 	_post_layout_refresh_pending = false
+	if _pending_preview_row != null and is_instance_valid(_pending_preview_row):
+		_pending_preview_row.queue_free()
+	_pending_preview_row = null
 	if _pan_tween != null:
 		_pan_tween.kill()
 		_pan_tween = null
@@ -363,6 +373,7 @@ func set_genomes(genomes: Array) -> void:
 		valid_offsets[int(genome_id)] = _offsets.get(int(genome_id), 0.0)
 	_offsets = valid_offsets
 	_order = next_order
+	_prune_pending_pair_keys()
 	_sync_row_instances()
 	if had_no_genomes and not _order.is_empty():
 		reset_view_to_full_genomes()
@@ -373,15 +384,41 @@ func set_genomes(genomes: Array) -> void:
 	_emit_viewport_changed()
 	queue_redraw()
 
+func set_pending_drop_preview(genome: Dictionary, anchor_genome_id: int) -> void:
+	_pending_drop_preview = genome.duplicate(true)
+	_pending_drop_anchor_genome_id = anchor_genome_id
+	_ensure_pending_preview_row()
+	_layout_rows_and_locks()
+	queue_redraw()
+
+
+func clear_pending_drop_preview() -> void:
+	_pending_drop_preview.clear()
+	_pending_drop_anchor_genome_id = -1
+	if _pending_preview_row != null and is_instance_valid(_pending_preview_row):
+		_pending_preview_row.queue_free()
+	_pending_preview_row = null
+	_layout_rows_and_locks()
+	queue_redraw()
+
 
 func set_pair_blocks(query_genome_id: int, target_genome_id: int, blocks: Array) -> void:
 	var key := _pair_key(query_genome_id, target_genome_id)
+	_pending_pair_keys.erase(key)
 	_pair_blocks[key] = {
 		"query_id": query_genome_id,
 		"target_id": target_genome_id,
 		"blocks": blocks.duplicate(true)
 	}
 	_schedule_detail_request()
+	queue_redraw()
+
+func set_pair_pending(query_genome_id: int, target_genome_id: int, pending: bool) -> void:
+	var key := _pair_key(query_genome_id, target_genome_id)
+	if pending:
+		_pending_pair_keys[key] = true
+	else:
+		_pending_pair_keys.erase(key)
 	queue_redraw()
 
 func set_colorize_nucleotides(enabled: bool) -> void:
@@ -415,6 +452,9 @@ func pair_cached(query_genome_id: int, target_genome_id: int) -> bool:
 	if payload.is_empty():
 		return false
 	return not (payload.get("blocks", []) as Array).is_empty()
+
+func pair_pending(query_genome_id: int, target_genome_id: int) -> bool:
+	return bool(_pending_pair_keys.get(_pair_key(query_genome_id, target_genome_id), false))
 
 
 func get_order() -> PackedInt32Array:
@@ -728,6 +768,7 @@ func _draw_to(target) -> void:
 		var detail_bottom_y: float = bottom_row.get_detail_anchor_y_in_parent()
 		if bottom_y <= top_y:
 			continue
+		_draw_pending_pair_placeholder(target, top_id, bottom_id, x_min, x_max, top_y, bottom_y)
 		var visible_blocks: Array = _display_blocks_for_pair(top_id, bottom_id)
 		var selected_blocks: Array = []
 		for block_any in visible_blocks:
@@ -739,13 +780,17 @@ func _draw_to(target) -> void:
 		for selected_block_any in selected_blocks:
 			var selected_block: Dictionary = selected_block_any
 			_draw_pair_block(target, selected_block, top_id, bottom_id, top_row, bottom_row, top_axis, bottom_axis, top_y, bottom_y, detail_top_y, detail_bottom_y, x_min, x_max)
+	_draw_pending_preview_pair_placeholder(target)
 	for genome_id_any in _order:
 		var row = _rows.get(int(genome_id_any))
 		if row != null and row.has_method("export_to"):
 			row.export_to(target)
+	if _pending_preview_row != null and is_instance_valid(_pending_preview_row) and _pending_preview_row.has_method("export_to"):
+		_pending_preview_row.export_to(target)
 	if target == self:
 		_draw_empty_state_prompt()
 		_draw_drag_indicator()
+		_draw_pending_comparison_notice()
 		_draw_loading_overlay()
 
 
@@ -827,11 +872,32 @@ func _sync_row_instances() -> void:
 		var row = _rows[genome_id]
 		row.queue_free()
 		_rows.erase(genome_id)
+	_ensure_pending_preview_row()
 	_cleanup_lock_buttons()
+
+
+func _ensure_pending_preview_row() -> void:
+	if _pending_drop_preview.is_empty():
+		if _pending_preview_row != null and is_instance_valid(_pending_preview_row):
+			_pending_preview_row.queue_free()
+		_pending_preview_row = null
+		return
+	if _pending_preview_row == null or not is_instance_valid(_pending_preview_row):
+		_pending_preview_row = ROW_SCENE.instantiate()
+		_pending_preview_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_pending_preview_row)
+	_pending_preview_row.visible = true
+	_pending_preview_row.set_theme_colors(_theme_colors)
+	_pending_preview_row.set_colorize_nucleotides(_colorize_nucleotides)
+	if _pending_preview_row.has_method("set_sequence_letter_font_name"):
+		_pending_preview_row.set_sequence_letter_font_name(_sequence_letter_font_name)
+	_pending_preview_row.configure_row(_pending_drop_preview, 0.0, _view_span_bp)
 
 
 func _layout_rows_and_locks() -> void:
 	if _order.is_empty():
+		if _pending_preview_row != null and is_instance_valid(_pending_preview_row):
+			_pending_preview_row.visible = false
 		return
 	var match_band_h := _match_band_height()
 	for i in range(_order.size()):
@@ -843,6 +909,16 @@ func _layout_rows_and_locks() -> void:
 		row.size = Vector2(size.x, ROW_H)
 		row.set_view_span_bp(_view_span_bp)
 		row.set_view_offset(float(_offsets.get(genome_id, 0.0)))
+	if _pending_preview_row != null and is_instance_valid(_pending_preview_row):
+		var anchor_index := _order.find(_pending_drop_anchor_genome_id)
+		if not _pending_drop_preview.is_empty() and anchor_index >= 0:
+			_pending_preview_row.visible = true
+			_pending_preview_row.position = Vector2(0.0, TOP_PAD + float(anchor_index + 1) * (ROW_H + match_band_h))
+			_pending_preview_row.size = Vector2(size.x, ROW_H)
+			_pending_preview_row.set_view_span_bp(_view_span_bp)
+			_pending_preview_row.set_view_offset(0.0)
+		else:
+			_pending_preview_row.visible = false
 	_update_lock_buttons(match_band_h)
 
 
@@ -864,6 +940,9 @@ func _apply_post_layout_refresh() -> void:
 		var slice_data: Dictionary = _reference_slices.get(int(genome_id), {})
 		if not slice_data.is_empty():
 			row.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
+	if _pending_preview_row != null and is_instance_valid(_pending_preview_row) and _pending_preview_row.visible:
+		_pending_preview_row.set_view_span_bp(_view_span_bp)
+		_pending_preview_row.set_view_offset(0.0)
 	_schedule_detail_request()
 	queue_redraw()
 
@@ -1837,6 +1916,131 @@ func _draw_empty_state_prompt() -> void:
 	var pos := Vector2((size.x - text_size.x) * 0.5, (size.y + font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5)
 	draw_string(font, pos, message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text", Color.BLACK))
 
+func _draw_pending_pair_placeholder(target, top_id: int, bottom_id: int, x_min: float, x_max: float, top_y: float, bottom_y: float) -> void:
+	var key := _pair_key(top_id, bottom_id)
+	if not bool(_pending_pair_keys.get(key, false)):
+		return
+	var payload: Dictionary = _pair_blocks.get(key, {})
+	if not payload.is_empty() and not (payload.get("blocks", []) as Array).is_empty():
+		return
+	var band_rect := Rect2(Vector2(x_min, top_y), Vector2(x_max - x_min, bottom_y - top_y))
+	if band_rect.size.x <= 12.0 or band_rect.size.y <= 12.0:
+		return
+	var fill: Color = _theme_colors.get("panel_alt", Color.WHITE)
+	fill.a = 0.7
+	_draw_rect_on(target, band_rect, fill, true)
+	var outline: Color = _theme_colors.get("border", _theme_colors.get("text", Color.BLACK))
+	_draw_rect_on(target, band_rect, outline, false, 1.0)
+	var font := get_theme_default_font()
+	var font_size := maxi(14, get_theme_default_font_size() + 1)
+	var message := "Running comparison"
+	var text_size := font.get_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var pos := Vector2(
+		band_rect.position.x + (band_rect.size.x - text_size.x) * 0.5,
+		band_rect.position.y + (band_rect.size.y + font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5
+	)
+	if target == self:
+		draw_string(font, pos, message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text_muted", _theme_colors.get("text", Color.BLACK)))
+	else:
+		target.draw_string(font, pos, message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text_muted", _theme_colors.get("text", Color.BLACK)))
+
+
+func _draw_pending_preview_pair_placeholder(target) -> void:
+	if _pending_drop_preview.is_empty() or _pending_preview_row == null or not is_instance_valid(_pending_preview_row) or not _pending_preview_row.visible:
+		return
+	var top_row = _rows.get(_pending_drop_anchor_genome_id)
+	if top_row == null:
+		return
+	var top_axis: Rect2 = top_row.get_axis_rect_in_parent()
+	var bottom_axis: Rect2 = _pending_preview_row.get_axis_rect_in_parent()
+	var x_min := maxf(top_axis.position.x, bottom_axis.position.x)
+	var x_max := minf(top_axis.position.x + top_axis.size.x, bottom_axis.position.x + bottom_axis.size.x)
+	if x_max <= x_min:
+		return
+	var top_y: float = top_row.get_match_band_bottom_in_parent() + MATCH_PAD_Y
+	var bottom_y: float = _pending_preview_row.get_match_band_top_in_parent() - MATCH_PAD_Y
+	if bottom_y <= top_y:
+		return
+	var band_rect := Rect2(Vector2(x_min, top_y), Vector2(x_max - x_min, bottom_y - top_y))
+	if band_rect.size.x <= 12.0 or band_rect.size.y <= 12.0:
+		return
+	var fill: Color = _theme_colors.get("panel_alt", Color.WHITE)
+	fill.a = 0.7
+	_draw_rect_on(target, band_rect, fill, true)
+	var outline: Color = _theme_colors.get("border", _theme_colors.get("text", Color.BLACK))
+	_draw_rect_on(target, band_rect, outline, false, 1.0)
+	var font := get_theme_default_font()
+	var font_size := maxi(14, get_theme_default_font_size() + 1)
+	var message := "Running comparison"
+	var text_size := font.get_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var pos := Vector2(
+		band_rect.position.x + (band_rect.size.x - text_size.x) * 0.5,
+		band_rect.position.y + (band_rect.size.y + font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5
+	)
+	if target == self:
+		draw_string(font, pos, message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text_muted", _theme_colors.get("text", Color.BLACK)))
+	else:
+		target.draw_string(font, pos, message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text_muted", _theme_colors.get("text", Color.BLACK)))
+
+
+func _draw_pending_comparison_notice() -> void:
+	if not _has_pending_pairs() or not _loading_message.is_empty():
+		return
+	var message := "Running comparison"
+	var font := get_theme_default_font()
+	var font_size := maxi(16, get_theme_default_font_size() + 2)
+	var text_size := font.get_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var pad_x := 18.0
+	var pad_y := 12.0
+	var box := Rect2(
+		Vector2((size.x - text_size.x) * 0.5 - pad_x, (size.y - text_size.y) * 0.5 - pad_y),
+		Vector2(text_size.x + pad_x * 2.0, text_size.y + pad_y * 2.0)
+	)
+	draw_rect(box, _theme_colors.get("panel_alt", Color.WHITE), true)
+	draw_rect(box, _theme_colors.get("border", Color.BLACK), false, 1.0)
+	var baseline := box.position.y + pad_y + font.get_ascent(font_size)
+	draw_string(font, Vector2(box.position.x + pad_x, baseline), message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text", Color.BLACK))
+
+
+func _has_pending_pairs() -> bool:
+	if not _pending_drop_preview.is_empty():
+		return true
+	for key_any in _pending_pair_keys.keys():
+		if _pair_pending_active(str(key_any)):
+			return true
+	return false
+
+
+func _prune_pending_pair_keys() -> void:
+	var remove_keys: Array[String] = []
+	for key_any in _pending_pair_keys.keys():
+		var key := str(key_any)
+		if _pair_pending_active(key):
+			continue
+		remove_keys.append(key)
+	for key in remove_keys:
+		_pending_pair_keys.erase(key)
+
+
+func _pair_pending_active(key: String) -> bool:
+	if not bool(_pending_pair_keys.get(key, false)):
+		return false
+	var ids := key.split(":")
+	if ids.size() != 2:
+		return false
+	var top_id := int(ids[0])
+	var bottom_id := int(ids[1])
+	if not _genomes_by_id.has(top_id) or not _genomes_by_id.has(bottom_id):
+		return false
+	var top_index := _order.find(top_id)
+	var bottom_index := _order.find(bottom_id)
+	if top_index < 0 or bottom_index < 0 or abs(top_index - bottom_index) != 1:
+		return false
+	var payload: Dictionary = _pair_blocks.get(key, {})
+	if not payload.is_empty() and not (payload.get("blocks", []) as Array).is_empty():
+		return false
+	return true
+
 
 func _draw_loading_overlay() -> void:
 	if _loading_message.is_empty():
@@ -1885,10 +2089,18 @@ func _draw_colored_polygon_on(target, points: PackedVector2Array, color: Color) 
 
 
 func _match_band_height() -> float:
-	if _order.size() <= 1:
+	var row_count := _display_row_count()
+	if row_count <= 1:
 		return MIN_MATCH_BAND_H
-	var free_h := maxf(0.0, size.y - TOP_PAD - BOTTOM_PAD - ROW_H * float(_order.size()))
-	return maxf(MIN_MATCH_BAND_H, free_h / float(_order.size() - 1))
+	var free_h := maxf(0.0, size.y - TOP_PAD - BOTTOM_PAD - ROW_H * float(row_count))
+	return maxf(MIN_MATCH_BAND_H, free_h / float(row_count - 1))
+
+
+func _display_row_count() -> int:
+	var count := _order.size()
+	if not _pending_drop_preview.is_empty():
+		count += 1
+	return count
 
 
 func _longest_genome_len() -> float:
