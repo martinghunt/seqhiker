@@ -24,6 +24,15 @@ func apply_already_loaded_genome(files: PackedStringArray) -> void:
 	host._refresh_visible_data()
 
 
+func reset_browser_state() -> bool:
+	var reset_resp: Dictionary = host._zem.reset_browser_state()
+	if not bool(reset_resp.get("ok", false)):
+		host._set_status("Browser reset failed: %s" % str(reset_resp.get("error", "error")), true)
+		return false
+	host._reset_loaded_state()
+	return true
+
+
 func _load_paths(files: PackedStringArray) -> Dictionary:
 	if not ensure_server_connected():
 		return {"ok": false, "error": str(host._last_status_message)}
@@ -33,18 +42,28 @@ func _load_paths(files: PackedStringArray) -> Dictionary:
 		host._set_status(err_msg, true)
 		return {"ok": false, "error": err_msg}
 	var dropped_sequence := bool(drop_info.get("has_sequence", false))
+	var embedded_only := false
+	var allow_embedded_merge_attempt := false
 	if int(drop_info.get("sequence_root_count", 0)) > 1:
 		var err_msg := "Drop only one sequence-bearing genome source at a time."
 		host._set_status(err_msg, true)
 		return {"ok": false, "error": err_msg}
 	if dropped_sequence:
-		var embedded_only := int(drop_info.get("embedded_gff_sequence_root_count", 0)) == int(drop_info.get("sequence_root_count", 0))
-		if not (host._has_sequence_loaded and embedded_only):
-			host._reset_loaded_state()
+		embedded_only = int(drop_info.get("embedded_gff_sequence_root_count", 0)) == int(drop_info.get("sequence_root_count", 0))
+		allow_embedded_merge_attempt = host._has_sequence_loaded and embedded_only
+		if not allow_embedded_merge_attempt and not reset_browser_state():
+			return {"ok": false, "error": str(host._last_status_message)}
 	else:
 		host._view_slots.clear()
 	if not load_dropped_files(files):
-		return {"ok": false, "error": str(host._last_status_message)}
+		var last_error := str(host._last_status_message)
+		if allow_embedded_merge_attempt and last_error.contains("embedded GFF3 sequence does not match loaded reference"):
+			if not reset_browser_state():
+				return {"ok": false, "error": str(host._last_status_message)}
+			if not load_dropped_files(files):
+				return {"ok": false, "error": str(host._last_status_message)}
+		else:
+			return {"ok": false, "error": str(host._last_status_message)}
 	record_loaded_files(files, dropped_sequence)
 	host.genome_view.load_files(files)
 	refresh_sequence_loaded_state()

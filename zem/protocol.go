@@ -47,6 +47,7 @@ const (
 	MsgGetVariantTile               uint16 = 38
 	MsgGetVariantDetail             uint16 = 39
 	MsgLoadGenomeFiles              uint16 = 40
+	MsgResetBrowserState            uint16 = 41
 )
 
 type FrameHeader struct {

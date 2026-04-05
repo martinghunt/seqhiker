@@ -177,6 +177,10 @@ func _clear_comparison_view() -> void:
 
 
 func _clear_browser_view() -> void:
+	var reset_resp: Dictionary = host._zem.reset_browser_state()
+	if not bool(reset_resp.get("ok", false)):
+		host._set_status("Browser reset failed: %s" % str(reset_resp.get("error", "error")), true)
+		return
 	host._reset_loaded_state()
 	host._close_feature_panel()
 	refresh_comparison_topbar_state()

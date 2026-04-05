@@ -102,6 +102,10 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		}
 		return MsgAck, ackPayload("genome loaded"), nil
 
+	case MsgResetBrowserState:
+		engine.ResetBrowserState()
+		return MsgAck, ackPayload("browser state reset"), nil
+
 	case MsgLoadBAM:
 		path, cutoff, err := decodeLoadBAMPayload(payload)
 		if err != nil {

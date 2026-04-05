@@ -73,6 +73,32 @@ func TestInspectInputEmbeddedGFF3ReportsSequenceAndAnnotation(t *testing.T) {
 	}
 }
 
+func TestInspectInputEmbeddedGFF3WithLongLineReportsSequenceAndAnnotation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "embedded.gff3")
+	longAttr := strings.Repeat("A", 200000)
+	content := "##gff-version 3\n" +
+		"chr1\tsrc\tgene\t2\t5\t.\t+\t.\tID=gene1;Name=test;Note=" + longAttr + "\n" +
+		"##FASTA\n" +
+		">chr1\n" +
+		"ACGTACGT\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, isSession, hasVariants, err := e.InspectInput(path)
+	if err != nil {
+		t.Fatalf("InspectInput returned error: %v", err)
+	}
+	if !hasSequence || !hasAnnotation || !hasEmbeddedGFF3Sequence {
+		t.Fatalf("unexpected inspect flags: seq=%v ann=%v emb=%v", hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence)
+	}
+	if isSession || hasVariants {
+		t.Fatalf("unexpected inspect flags: session=%v variants=%v", isSession, hasVariants)
+	}
+}
+
 func TestLoadEmbeddedGFF3MergesAnnotationsIntoMatchingGenome(t *testing.T) {
 	dir := t.TempDir()
 	fastaPath := filepath.Join(dir, "ref.fa")
@@ -187,6 +213,30 @@ func TestLoadGenomeFilesMergesMatchingEmbeddedGFF3(t *testing.T) {
 	}
 	if got := len(e.features["chr1"]); got != 1 {
 		t.Fatalf("expected 1 merged feature, got %d", got)
+	}
+}
+
+func TestResetBrowserStateClearsLoadedGenome(t *testing.T) {
+	dir := t.TempDir()
+	fastaPath := filepath.Join(dir, "ref.fa")
+	if err := os.WriteFile(fastaPath, []byte(">chr1\nACGTACGT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(fastaPath); err != nil {
+		t.Fatalf("LoadGenome returned error: %v", err)
+	}
+	if !e.HasSequenceLoaded() {
+		t.Fatal("expected sequence to be loaded")
+	}
+
+	e.ResetBrowserState()
+	if e.HasSequenceLoaded() {
+		t.Fatal("expected sequence to be cleared")
+	}
+	if got := len(e.ListChromosomes()); got != 0 {
+		t.Fatalf("expected no chromosomes after reset, got %d", got)
 	}
 }
 

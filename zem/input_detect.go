@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -101,9 +102,16 @@ func detectInputKindByContent(path string) (inputKind, error) {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	reader := bufio.NewReader(f)
+	for {
+		rawLine, err := nextLongLine(reader)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return inputKindUnknown, err
+		}
+		line := strings.TrimSpace(rawLine)
 		line = strings.TrimPrefix(line, "\uFEFF")
 		if line == "" {
 			continue
@@ -122,9 +130,6 @@ func detectInputKindByContent(path string) (inputKind, error) {
 		}
 		return inputKindUnknown, nil
 	}
-	if err := scanner.Err(); err != nil {
-		return inputKindUnknown, err
-	}
 	return inputKindUnknown, nil
 }
 
@@ -142,16 +147,20 @@ func gff3HasEmbeddedSequence(path string) (bool, error) {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	reader := bufio.NewReader(f)
+	for {
+		rawLine, err := nextLongLine(reader)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return false, err
+		}
+		line := strings.TrimSpace(rawLine)
 		line = strings.TrimPrefix(line, "\uFEFF")
 		if line == "##FASTA" {
 			return true, nil
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return false, err
 	}
 	return false, nil
 }

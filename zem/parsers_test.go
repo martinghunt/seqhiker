@@ -76,12 +76,48 @@ func TestDetectInputKindPrefersContentOverMisleadingExtension(t *testing.T) {
 	}
 }
 
+func TestDetectInputKindByContentHandlesLongGFF3Line(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "embedded.txt")
+	longAttr := strings.Repeat("A", 200000)
+	content := "chr1\tsrc\tgene\t1\t4\t.\t+\t.\tID=g1;Note=" + longAttr + "\n##FASTA\n>chr1\nACGT\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := detectInputKindByContent(path)
+	if err != nil {
+		t.Fatalf("detectInputKindByContent returned error: %v", err)
+	}
+	if got != inputKindGFF3 {
+		t.Fatalf("detectInputKindByContent(%q) = %v, want %v", path, got, inputKindGFF3)
+	}
+}
+
+func TestGFF3HasEmbeddedSequenceHandlesLongLineBeforeFASTA(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "embedded.gff3")
+	longAttr := strings.Repeat("A", 200000)
+	content := "##gff-version 3\nchr1\tsrc\tgene\t1\t4\t.\t+\t.\tID=g1;Note=" + longAttr + "\n##FASTA\n>chr1\nACGT\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hasEmbedded, err := gff3HasEmbeddedSequence(path)
+	if err != nil {
+		t.Fatalf("gff3HasEmbeddedSequence returned error: %v", err)
+	}
+	if !hasEmbedded {
+		t.Fatal("expected embedded sequence to be detected")
+	}
+}
+
 func TestGatherInputFilesFiltersAndSorts(t *testing.T) {
 	dir := t.TempDir()
 	paths := map[string]string{
-		"b.gff3":      "##gff-version 3\n",
-		"a.fa":        ">chr1\nACGT\n",
-		"c.txt":       "ignore me\n",
+		"b.gff3":       "##gff-version 3\n",
+		"a.fa":         ">chr1\nACGT\n",
+		"c.txt":        "ignore me\n",
 		"misnamed.gbk": ">chr2\nTGCA\n",
 	}
 	for name, content := range paths {

@@ -233,6 +233,24 @@ func (e *Engine) LoadGenome(path string) error {
 	return e.loadGenomeEntries(entries)
 }
 
+func (e *Engine) ResetBrowserState() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.chromOrder = e.chromOrder[:0]
+	e.chrToID = make(map[string]uint16)
+	e.idToChr = make(map[uint16]string)
+	e.chrLength = make(map[string]int)
+	e.sequences = make(map[string]string)
+	e.features = make(map[string][]Feature)
+	e.gcPrefix = make(map[string][]uint32)
+	e.atgcPrefix = make(map[string][]uint32)
+	e.resetBAMStateLocked()
+	e.resetVariantStateLocked()
+	e.globalGeneration++
+	e.resetTileCacheLocked()
+}
+
 func (e *Engine) LoadGenomeFiles(paths []string) error {
 	if len(paths) == 0 {
 		return errors.New("load genome requires at least one input path")
