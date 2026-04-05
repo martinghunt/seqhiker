@@ -2,7 +2,6 @@
 
 Genome browser for FASTA, annotation, BAM, and VCF files, with a stacked genome comparison view.
 
-Currently in beta. It is fairly stable. Feel free to give it a try.
 
 Documentation: https://seqhiker.readthedocs.io/en/
 
