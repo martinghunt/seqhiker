@@ -77,6 +77,4 @@ func on_variant_selected(variant: Dictionary) -> void:
 	host._play_ui_sound(host.SoundControllerScript.SOUND_BLIP)
 	if not host._feature_panel_open:
 		return
-	if host.feature_title_label.text != "Variant Details":
-		return
 	on_variant_clicked(variant)

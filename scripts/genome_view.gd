@@ -1,6 +1,7 @@
 extends Control
 class_name GenomeView
 
+const VariantUtilsScript = preload("res://scripts/variant_utils.gd")
 const MapStripRendererScript = preload("res://scripts/map_strip_renderer.gd")
 const MAGRATHEA_FONT := preload("res://fonts/magrathea.ttf")
 const ANONYMOUS_PRO_FONT := preload("res://fonts/Anonymous-Pro/Anonymous_Pro.ttf")
@@ -1400,40 +1401,9 @@ func _vcf_insertion_bp(variant: Dictionary) -> float:
 
 func _vcf_render_kind(variant: Dictionary) -> int:
 	var kind := int(variant.get("kind", 0))
-	if kind != 5:
-		return kind
 	var ref := str(variant.get("ref", ""))
 	var alt_summary := str(variant.get("alt_summary", ""))
-	if ref.is_empty() or alt_summary.is_empty():
-		return kind
-	var alts := alt_summary.split(",", false)
-	if alts.is_empty():
-		return kind
-	var all_snp := ref.length() == 1
-	var all_insertion := true
-	var all_deletion := true
-	for alt_any in alts:
-		var alt := str(alt_any)
-		if alt.length() != 1:
-			all_snp = false
-		if alt.length() <= ref.length() or not alt.begins_with(ref):
-			all_insertion = false
-		if alt.length() != 1 or ref.length() <= 1 or alt[0] != ref[0]:
-			all_deletion = false
-		if alt.length() == 1 and ref.length() == 1:
-			continue
-		if alt.length() > ref.length() and alt.begins_with(ref):
-			continue
-		if alt.length() == 1 and ref.length() > 1 and alt[0] == ref[0]:
-			continue
-		all_snp = false
-	if all_snp:
-		return 1
-	if all_insertion:
-		return 3
-	if all_deletion:
-		return 4
-	return kind
+	return VariantUtilsScript.display_kind(kind, ref, alt_summary)
 
 func _draw_vcf_complex_wave(target, rect: Rect2, color: Color) -> void:
 	var width := rect.size.x
@@ -1443,6 +1413,7 @@ func _draw_vcf_complex_wave(target, rect: Rect2, color: Color) -> void:
 	var amplitude := maxf(1.5, rect.size.y * 0.22)
 	var bp_width_px := maxf(1.0, 1.0 / maxf(0.000001, bp_per_px))
 	var wavelength := maxf(2.0, bp_width_px * 0.5)
+	var wave_line_w := clampf(bp_width_px * 0.35, 0.75, 2.6)
 	var points := PackedVector2Array()
 	var step := maxf(1.0, wavelength / 5.0)
 	var x := 0.0
@@ -1452,7 +1423,7 @@ func _draw_vcf_complex_wave(target, rect: Rect2, color: Color) -> void:
 		x += step
 	points.append(Vector2(rect.position.x + width, mid_y + sin((width / wavelength) * TAU) * amplitude))
 	for i in range(points.size() - 1):
-		_draw_line_on(target, points[i], points[i + 1], color, 2.1)
+		_draw_line_on(target, points[i], points[i + 1], color, wave_line_w)
 
 func _draw_variant_track(area: Rect2, target = null) -> void:
 	var rows := _variant_rows()
@@ -1562,6 +1533,7 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 				var row_index := int(row.get("row_index", 0))
 				var row_y := area.position.y + row_index * (VCF_ROW_H + VCF_ROW_GAP)
 				var block_rect := Rect2(center_x - draw_w * 0.5, row_y + 2.0, draw_w, VCF_ROW_H - 4.0)
+				var site_px := clampf(maxf(raw_w, 1.0 / maxf(bp_per_px, 0.000001)), 0.75, float(VCF_ROW_H - 4.0))
 				var gt_colors := _vcf_genotype_colors(gt_class)
 				var fill: Color = gt_colors.get("fill", palette.get("read", Color("0f8b8d")))
 				var text_color: Color = gt_colors.get("text", palette.get("text", Color.BLACK))
@@ -1575,11 +1547,13 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 						_draw_rect_on(target, Rect2(block_rect.position.x, block_rect.position.y, block_rect.size.x, trim_h), row_bg, true)
 						_draw_rect_on(target, Rect2(block_rect.position.x, block_rect.position.y + block_rect.size.y - trim_h, block_rect.size.x, trim_h), row_bg, true)
 					var mid_y := block_rect.position.y + block_rect.size.y * 0.5
-					_draw_line_on(target, Vector2(block_rect.position.x, mid_y), Vector2(block_rect.position.x + block_rect.size.x, mid_y), border_color, 0.75)
+					var del_mid_w := clampf(site_px * 0.18, 0.5, 1.0)
+					var del_end_w := clampf(site_px * 0.32, 0.75, 3.2)
+					_draw_line_on(target, Vector2(block_rect.position.x, mid_y), Vector2(block_rect.position.x + block_rect.size.x, mid_y), border_color, del_mid_w)
 					var y0 := block_rect.position.y
 					var y1 := block_rect.position.y + block_rect.size.y
-					_draw_line_on(target, Vector2(block_rect.position.x, y0), Vector2(block_rect.position.x, y1), border_color, 2.5)
-					_draw_line_on(target, Vector2(block_rect.position.x + block_rect.size.x, y0), Vector2(block_rect.position.x + block_rect.size.x, y1), border_color, 2.5)
+					_draw_line_on(target, Vector2(block_rect.position.x, y0), Vector2(block_rect.position.x, y1), fill, del_end_w)
+					_draw_line_on(target, Vector2(block_rect.position.x + block_rect.size.x, y0), Vector2(block_rect.position.x + block_rect.size.x, y1), fill, del_end_w)
 				elif is_complex:
 					var trim_h := maxf(0.0, block_rect.size.y * 0.25)
 					var row_bg_key := "vcf_row_alt_bg" if (row_index % 2) == 1 else "vcf_row_bg"
@@ -1590,14 +1564,15 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 					_draw_vcf_complex_wave(target, block_rect, fill)
 					var y0 := block_rect.position.y
 					var y1 := block_rect.position.y + block_rect.size.y
-					_draw_line_on(target, Vector2(block_rect.position.x, y0), Vector2(block_rect.position.x, y1), fill, 2.5)
-					_draw_line_on(target, Vector2(block_rect.position.x + block_rect.size.x, y0), Vector2(block_rect.position.x + block_rect.size.x, y1), fill, 2.5)
+					var complex_end_w := clampf(site_px * 0.32, 0.75, 3.2)
+					_draw_line_on(target, Vector2(block_rect.position.x, y0), Vector2(block_rect.position.x, y1), fill, complex_end_w)
+					_draw_line_on(target, Vector2(block_rect.position.x + block_rect.size.x, y0), Vector2(block_rect.position.x + block_rect.size.x, y1), fill, complex_end_w)
 				elif is_insertion:
 					var y0 := row_y + 3.0
 					var y1 := row_y + VCF_ROW_H - 3.0
-					var cap_w := maxf(4.0, (VCF_ROW_H - 4.0) * 0.7)
-					var cap_line_w := maxf(1.0, (VCF_ROW_H - 4.0) * 0.15)
-					var stem_line_w := maxf(1.0, (VCF_ROW_H - 4.0) * 0.3)
+					var cap_w := clampf(site_px * 0.8, 1.0, (VCF_ROW_H - 4.0) * 0.7)
+					var cap_line_w := clampf(site_px * 0.16, 0.5, 1.2)
+					var stem_line_w := clampf(site_px * 0.24, 0.75, 1.8)
 					_draw_line_on(target, Vector2(center_x, y0), Vector2(center_x, y1), fill, stem_line_w)
 					_draw_line_on(target, Vector2(center_x - cap_w * 0.5, y0), Vector2(center_x + cap_w * 0.5, y0), fill, cap_line_w)
 					_draw_line_on(target, Vector2(center_x - cap_w * 0.5, y1), Vector2(center_x + cap_w * 0.5, y1), fill, cap_line_w)
