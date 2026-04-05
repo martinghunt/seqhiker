@@ -1,6 +1,6 @@
 # The Seqhiker's Guide
 
-`seqhiker` is an interactive genome browser for viewing reference sequence, annotations, BAM alignments, and whole-genome comparison layouts.
+`seqhiker` is an interactive genome browser for viewing reference sequence, annotations, BAM alignments, VCF variants, and whole-genome comparison layouts.
 
 DON'T PANIC - it is currently in Beta, but should be fairly stable. Feel free to give it
 a try.
@@ -40,6 +40,7 @@ You can then add:
 
 - GFF3 annotations
 - BAM files
+- VCF files
 
 You can also switch to `Comparison view` and add genomes one-by-one to compare them.
 
@@ -55,4 +56,5 @@ navigation
 comparison-view
 genome-and-annotation-tracks
 reads-track
+vcf-track
 ```

@@ -1,6 +1,6 @@
 # seqhiker
 
-Genome browser for FASTA, annotation, and BAM files, with a stacked genome comparison view.
+Genome browser for FASTA, annotation, BAM, and VCF files, with a stacked genome comparison view.
 
 Currently in beta. It is fairly stable. Feel free to give it a try.
 
@@ -42,10 +42,10 @@ Typical files:
 - EMBL
 - GFF3
 - BAM (sorted and indexed)
+- VCF
 
 `seqhiker` will load the files and open the matching genome view.
 
 A standalone GFF3 with an embedded `##FASTA` section is treated as a sequence-bearing genome file.
 
 You can also switch to `Comparison view` in the toolbar and add genomes one-by-one to compare them.
-
