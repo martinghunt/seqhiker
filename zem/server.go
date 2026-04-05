@@ -92,6 +92,16 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		}
 		return MsgAck, ackPayload("genome loaded"), nil
 
+	case MsgLoadGenomeFiles:
+		paths, err := decodeStringListPayload(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		if err := engine.LoadGenomeFiles(paths); err != nil {
+			return 0, nil, err
+		}
+		return MsgAck, ackPayload("genome loaded"), nil
+
 	case MsgLoadBAM:
 		path, cutoff, err := decodeLoadBAMPayload(payload)
 		if err != nil {

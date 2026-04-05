@@ -40,6 +40,7 @@ const MSG_LOAD_VARIANT_FILE := 36
 const MSG_LIST_VARIANT_SOURCES := 37
 const MSG_GET_VARIANT_TILE := 38
 const MSG_GET_VARIANT_DETAIL := 39
+const MSG_LOAD_GENOME_FILES := 40
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -90,6 +91,10 @@ func load_genome(path: String) -> Dictionary:
 	for i in range(path_bytes.size()):
 		payload[2 + i] = path_bytes[i]
 	return _send_request(MSG_LOAD_GENOME, payload, LOAD_TIMEOUT_MS)
+
+func load_genome_files(paths: PackedStringArray) -> Dictionary:
+	var payload := _encode_string_list(paths)
+	return _send_request(MSG_LOAD_GENOME_FILES, payload, LOAD_TIMEOUT_MS)
 
 func add_comparison_genome_files(paths: PackedStringArray) -> Dictionary:
 	var payload := _encode_string_list(paths)

@@ -49,6 +49,7 @@ Then `length` bytes of payload.
 - `32 MsgGetComparisonBlockDetail`
 - `33 MsgAddComparisonGenomeFiles`
 - `34 MsgSearchComparisonDNAExact`
+- `40 MsgLoadGenomeFiles`
 
 ## Common Encodings
 
@@ -74,6 +75,7 @@ Used by:
 
 Used by:
 - `MsgAddComparisonGenomeFiles`
+- `MsgLoadGenomeFiles`
 
 Returned by:
 - `MsgDownloadGenome`
@@ -105,6 +107,14 @@ Supported formats:
 Compressed files are supported for sequence/annotation inputs via `xopen`
 (`.gz`, `.bgz`, `.bz2`, `.xz`, `.zst`, `.zstd`). Type routing falls back to
 content sniffing when extensions are ambiguous.
+
+### `MsgLoadGenomeFiles`
+
+String-list payload.
+
+Loads one single-genome session from multiple related genome / annotation
+paths in one request, using the same snapshot merge behavior as
+`MsgLoadGenome`.
 
 ### `MsgLoadBAM`
 

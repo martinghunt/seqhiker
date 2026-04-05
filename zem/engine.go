@@ -230,6 +230,27 @@ func (e *Engine) LoadGenome(path string) error {
 	if err != nil {
 		return err
 	}
+	return e.loadGenomeEntries(entries)
+}
+
+func (e *Engine) LoadGenomeFiles(paths []string) error {
+	if len(paths) == 0 {
+		return errors.New("load genome requires at least one input path")
+	}
+	entries := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		entries = append(entries, path)
+	}
+	if len(entries) == 0 {
+		return errors.New("load genome requires at least one input path")
+	}
+	return e.loadGenomeEntries(entries)
+}
+
+func (e *Engine) loadGenomeEntries(entries []string) error {
 	snapshot, hasSequenceInput, err := loadGenomeSnapshotEntries(entries)
 	if err != nil {
 		return err

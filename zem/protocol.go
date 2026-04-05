@@ -46,6 +46,7 @@ const (
 	MsgListVariantSources           uint16 = 37
 	MsgGetVariantTile               uint16 = 38
 	MsgGetVariantDetail             uint16 = 39
+	MsgLoadGenomeFiles              uint16 = 40
 )
 
 type FrameHeader struct {

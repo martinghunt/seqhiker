@@ -133,6 +133,63 @@ func TestLoadEmbeddedGFF3RejectsMismatchedLoadedGenome(t *testing.T) {
 	}
 }
 
+func TestLoadGenomeFilesCombinesSequenceAndAnnotation(t *testing.T) {
+	dir := t.TempDir()
+	fastaPath := filepath.Join(dir, "ref.fa")
+	gffPath := filepath.Join(dir, "ann.gff3")
+	if err := os.WriteFile(fastaPath, []byte(">chr1\nAACCGGTT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gffPath, []byte("##gff-version 3\nchr1\tsrc\tgene\t2\t7\t.\t+\t.\tID=g1;Name=gene1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenomeFiles([]string{fastaPath, gffPath}); err != nil {
+		t.Fatalf("LoadGenomeFiles returned error: %v", err)
+	}
+	if got := e.sequences["chr1"]; got != "AACCGGTT" {
+		t.Fatalf("sequence mismatch: got %q", got)
+	}
+	if got := len(e.features["chr1"]); got != 1 {
+		t.Fatalf("expected 1 merged feature, got %d", got)
+	}
+	if got := e.features["chr1"][0]; got.Start != 1 || got.End != 7 {
+		t.Fatalf("unexpected feature coordinates: %+v", got)
+	}
+}
+
+func TestLoadGenomeFilesMergesMatchingEmbeddedGFF3(t *testing.T) {
+	dir := t.TempDir()
+	fastaPath := filepath.Join(dir, "ref.fa")
+	gffPath := filepath.Join(dir, "embedded.gff3")
+	if err := os.WriteFile(fastaPath, []byte(">chr1\nACGTACGT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gff := "##gff-version 3\n" +
+		"chr1\tsrc\tgene\t2\t5\t.\t+\t.\tID=gene1;Name=test\n" +
+		"##FASTA\n" +
+		">chr1\n" +
+		"ACGTACGT\n"
+	if err := os.WriteFile(gffPath, []byte(gff), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(fastaPath); err != nil {
+		t.Fatalf("LoadGenome FASTA returned error: %v", err)
+	}
+	if err := e.LoadGenomeFiles([]string{gffPath}); err != nil {
+		t.Fatalf("LoadGenomeFiles embedded GFF3 returned error: %v", err)
+	}
+	if got := e.sequences["chr1"]; got != "ACGTACGT" {
+		t.Fatalf("sequence changed after embedded GFF3 merge: got %q", got)
+	}
+	if got := len(e.features["chr1"]); got != 1 {
+		t.Fatalf("expected 1 merged feature, got %d", got)
+	}
+}
+
 func TestSearchDNAExact(t *testing.T) {
 	e := NewEngine()
 	e.sequences["chr1"] = "ACGTACGT"

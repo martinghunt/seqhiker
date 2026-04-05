@@ -116,6 +116,16 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 		elif genome_targets.find(path) < 0:
 			genome_targets.append(path)
 	var pending: Array[String] = genome_targets.duplicate()
+	if pending.size() > 1:
+		var grouped_resp: Dictionary = host._zem.load_genome_files(PackedStringArray(pending))
+		if grouped_resp.get("ok", false):
+			pending.clear()
+		else:
+			var grouped_err := str(grouped_resp.get("error", "error"))
+			if not grouped_err.contains("no reference sequence loaded"):
+				host._set_status("Load genome failed: %s" % grouped_err, true)
+				return false
+			# Keep the old deferred path for annotation-only drops without a reference.
 	while not pending.is_empty():
 		var deferred: Array[String] = []
 		var progress := false
