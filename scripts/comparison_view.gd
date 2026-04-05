@@ -2065,9 +2065,15 @@ func _draw_loading_overlay() -> void:
 
 func _draw_rect_on(target, rect: Rect2, color: Color, filled: bool, width: float = 1.0) -> void:
 	if target == self:
-		draw_rect(rect, color, filled, width)
+		if filled:
+			draw_rect(rect, color, true)
+		else:
+			draw_rect(rect, color, false, width)
 	else:
-		target.draw_rect(rect, color, filled, width)
+		if filled:
+			target.draw_rect(rect, color, true)
+		else:
+			target.draw_rect(rect, color, false, width)
 
 func _draw_line_on(target, p0: Vector2, p1: Vector2, color: Color, width: float = 1.0) -> void:
 	if target == self:
