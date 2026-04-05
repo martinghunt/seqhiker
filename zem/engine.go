@@ -21,6 +21,7 @@ const (
 	annotTileCacheKind     uint8 = 4
 	strandCovTileCacheKind uint8 = 5
 	stopCodonTileCacheKind uint8 = 6
+	variantTileCacheKind   uint8 = 7
 	maxScannedTileReads          = 2000000
 	snpDetailMaxZoom       uint8 = 5
 	plotTileBins                 = 256
@@ -149,6 +150,9 @@ type Engine struct {
 	bamSources       map[uint16]*bamSource
 	bamOrder         []uint16
 	nextBAMSourceID  uint16
+	variantSources   map[uint16]*variantSource
+	variantOrder     []uint16
+	nextVariantID    uint16
 	globalGeneration uint64
 	maxTileRecs      uint32
 	maxReadZoom      uint8
@@ -181,6 +185,9 @@ func NewEngine() *Engine {
 		bamSources:             make(map[uint16]*bamSource),
 		bamOrder:               make([]uint16, 0, 4),
 		nextBAMSourceID:        1,
+		variantSources:         make(map[uint16]*variantSource),
+		variantOrder:           make([]uint16, 0, 4),
+		nextVariantID:          1,
 		globalGeneration:       1,
 		maxTileRecs:            5000,
 		maxReadZoom:            7,
@@ -253,6 +260,7 @@ func (e *Engine) LoadGenome(path string) error {
 		e.idToChr = make(map[uint16]string)
 		e.chromOrder = e.chromOrder[:0]
 		e.resetBAMStateLocked()
+		e.resetVariantStateLocked()
 
 		for chr, seq := range snapshot.Sequences {
 			e.sequences[chr] = seq
@@ -355,22 +363,23 @@ func (e *Engine) HasSequenceLoaded() bool {
 	return len(e.sequences) > 0
 }
 
-func (e *Engine) InspectInput(path string) (bool, bool, bool, bool, error) {
+func (e *Engine) InspectInput(path string) (bool, bool, bool, bool, bool, error) {
 	entries, err := gatherInputFiles(path)
 	if err != nil {
 		kind, kindErr := detectInputKind(path)
 		if kindErr == nil && kind == inputKindComparisonSession {
-			return false, false, false, true, nil
+			return false, false, false, true, false, nil
 		}
-		return false, false, false, false, err
+		return false, false, false, false, false, err
 	}
 	hasSequence := false
 	hasAnnotation := false
 	hasEmbeddedGFF3Sequence := false
+	hasVariants := false
 	for _, p := range entries {
 		kind, err := detectInputKind(p)
 		if err != nil {
-			return false, false, false, false, err
+			return false, false, false, false, false, err
 		}
 		switch kind {
 		case inputKindFASTA, inputKindFlatFile:
@@ -379,19 +388,21 @@ func (e *Engine) InspectInput(path string) (bool, bool, bool, bool, error) {
 			hasAnnotation = true
 			hasEmbeddedSeq, err := gff3HasEmbeddedSequence(p)
 			if err != nil {
-				return false, false, false, false, err
+				return false, false, false, false, false, err
 			}
 			if hasEmbeddedSeq {
 				hasSequence = true
 				hasEmbeddedGFF3Sequence = true
 			}
+		case inputKindVCF:
+			hasVariants = true
 		case inputKindComparisonSession:
-			return false, false, false, true, nil
+			return false, false, false, true, false, nil
 		default:
-			return false, false, false, false, fmt.Errorf("unsupported genome/annotation file: %s", p)
+			return false, false, false, false, false, fmt.Errorf("unsupported genome/annotation file: %s", p)
 		}
 	}
-	return hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, false, nil
+	return hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, false, hasVariants, nil
 }
 
 func recordSNPPositions(rec *sam.Record, windowStart, windowEnd int, includeSNPs bool, refSeq string) []uint32 {
@@ -701,6 +712,14 @@ func (e *Engine) resetBAMStateLocked() {
 	e.bamSources = make(map[uint16]*bamSource)
 	e.bamOrder = e.bamOrder[:0]
 	e.nextBAMSourceID = 1
+	e.globalGeneration++
+	e.resetTileCacheLocked()
+}
+
+func (e *Engine) resetVariantStateLocked() {
+	e.variantSources = make(map[uint16]*variantSource)
+	e.variantOrder = e.variantOrder[:0]
+	e.nextVariantID = 1
 	e.globalGeneration++
 	e.resetTileCacheLocked()
 }

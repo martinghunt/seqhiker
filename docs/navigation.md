@@ -46,7 +46,9 @@ The shortcut are shown also shown in the tooltips (ie on mouse hover) inside the
 
 - Click a feature to select it
 - Click a read to select it
+- Click a variant to select it
 - Double-click a feature or read to open its detailed panel action
+- Double-click a variant to open its detailed panel action
 - Click and drag across the genome / annotation area to select a genomic region
 - In comparison view, click a match to select it
 - In comparison view, click and drag across a genome row to select a region and list overlapping matches

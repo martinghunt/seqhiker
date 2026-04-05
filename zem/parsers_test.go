@@ -19,6 +19,8 @@ func TestDetectInputKindByName(t *testing.T) {
 		{"ann.gff.xz", inputKindGFF3},
 		{"record.gbk", inputKindFlatFile},
 		{"record.genbank.zst", inputKindFlatFile},
+		{"calls.vcf", inputKindVCF},
+		{"calls.vcf.gz", inputKindVCF},
 		{"notes.txt", inputKindUnknown},
 	}
 	for _, tc := range cases {
@@ -38,6 +40,7 @@ func TestDetectInputKindByContent(t *testing.T) {
 		{"ref.txt", ">chr1\nACGT\n", inputKindFASTA},
 		{"ann.txt", "chr1\tsrc\tgene\t1\t4\t.\t+\t.\tID=g1\n", inputKindGFF3},
 		{"ann.txt", "##gff-version 3\nchr1\tsrc\tgene\t1\t4\t.\t+\t.\tID=g1\n", inputKindGFF3},
+		{"calls.txt", "##fileformat=VCFv4.3\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n", inputKindVCF},
 		{"flat.txt", "LOCUS       NC_000001\n", inputKindFlatFile},
 		{"record.txt", "ID   SC10H5 standard; DNA; PRO; 4870 BP.\n", inputKindFlatFile},
 		{"unknown.txt", "hello world\n", inputKindUnknown},

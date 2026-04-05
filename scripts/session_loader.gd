@@ -104,7 +104,12 @@ func inspect_dropped_files(files: PackedStringArray) -> Dictionary:
 func load_dropped_files(files: PackedStringArray) -> bool:
 	var genome_targets: Array[String] = []
 	var bam_targets: Array[String] = []
+	var variant_targets: Array[String] = []
 	for path in files:
+		var inspect: Dictionary = host._zem.inspect_input(path)
+		if inspect.get("ok", false) and bool(inspect.get("has_variants", false)):
+			variant_targets.append(path)
+			continue
 		var ext: String = path.get_extension().to_lower()
 		if ext == "bam":
 			bam_targets.append(path)
@@ -177,6 +182,14 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 		host._sync_bam_read_tracks()
 		host.genome_view.set_track_visible(track_id, true)
 	host.genome_view.set_read_loading_message("")
+	if not variant_targets.is_empty():
+		for variant_path in variant_targets:
+			var variant_resp: Dictionary = host._zem.load_variant_file(variant_path)
+			if not variant_resp.get("ok", false):
+				host._set_status("Load VCF failed: %s" % variant_resp.get("error", "error"), true)
+				return false
+		if not host._refresh_variant_sources():
+			return false
 	return true
 
 

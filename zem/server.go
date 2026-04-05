@@ -114,11 +114,25 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		if err != nil {
 			return 0, nil, err
 		}
-		hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, isComparisonSession, err := engine.InspectInput(path)
+		hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, isComparisonSession, hasVariants, err := engine.InspectInput(path)
 		if err != nil {
 			return 0, nil, err
 		}
-		return MsgInspectInput, encodeInputInfo(hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, isComparisonSession), nil
+		return MsgInspectInput, encodeInputInfo(hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, isComparisonSession, hasVariants), nil
+
+	case MsgLoadVariantFile:
+		path, err := decodePathPayload(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		source, err := engine.LoadVariantFile(path)
+		if err != nil {
+			return 0, nil, err
+		}
+		return MsgLoadVariantFile, encodeVariantSourceLoaded(source.ID, source.SampleNames, "variants loaded"), nil
+
+	case MsgListVariantSources:
+		return MsgListVariantSources, encodeVariantSources(engine.ListVariantSources()), nil
 
 	case MsgGetTile:
 		if len(payload) < 7 {
@@ -212,6 +226,34 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		tileIndex := binary.LittleEndian.Uint32(payload[3:7])
 		resp, err := engine.GetStopCodonTile(chrID, zoom, tileIndex)
 		return MsgGetStopCodonTile, resp, err
+
+	case MsgGetVariantTile:
+		if len(payload) < 9 {
+			return 0, nil, fmt.Errorf("invalid variant tile payload")
+		}
+		sourceID := binary.LittleEndian.Uint16(payload[0:2])
+		chrID := binary.LittleEndian.Uint16(payload[2:4])
+		zoom := payload[4]
+		tileIndex := binary.LittleEndian.Uint32(payload[5:9])
+		resp, err := engine.GetVariantTile(sourceID, chrID, zoom, tileIndex)
+		return MsgGetVariantTile, resp, err
+
+	case MsgGetVariantDetail:
+		if len(payload) < 12 {
+			return 0, nil, fmt.Errorf("invalid variant detail payload")
+		}
+		sourceID := binary.LittleEndian.Uint16(payload[0:2])
+		chrID := binary.LittleEndian.Uint16(payload[2:4])
+		start := binary.LittleEndian.Uint32(payload[4:8])
+		refLen := int(binary.LittleEndian.Uint16(payload[8:10]))
+		altLen := int(binary.LittleEndian.Uint16(payload[10:12]))
+		if len(payload) < 12+refLen+altLen {
+			return 0, nil, fmt.Errorf("invalid variant detail payload length")
+		}
+		ref := string(payload[12 : 12+refLen])
+		altSummary := string(payload[12+refLen : 12+refLen+altLen])
+		resp, err := engine.GetVariantDetail(sourceID, chrID, start, ref, altSummary)
+		return MsgGetVariantDetail, resp, err
 
 	case MsgGetReferenceSlice:
 		if len(payload) < 10 {
@@ -320,6 +362,13 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 			return 0, nil, err
 		}
 		for _, path := range files {
+			kind, kindErr := detectInputKind(path)
+			if kindErr != nil {
+				return 0, nil, kindErr
+			}
+			if kind == inputKindVCF {
+				continue
+			}
 			ext := strings.ToLower(filepath.Ext(path))
 			if ext == ".bam" {
 				if _, err := engine.LoadBAM(path, 0); err != nil {

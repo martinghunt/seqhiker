@@ -36,6 +36,10 @@ const MSG_GET_COMPARISON_BLOCK_DETAIL := 32
 const MSG_ADD_COMPARISON_GENOME_FILES := 33
 const MSG_SEARCH_COMPARISON_DNA_EXACT := 34
 const MSG_GET_STOP_CODON_TILE := 35
+const MSG_LOAD_VARIANT_FILE := 36
+const MSG_LIST_VARIANT_SOURCES := 37
+const MSG_GET_VARIANT_TILE := 38
+const MSG_GET_VARIANT_DETAIL := 39
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -163,6 +167,7 @@ func inspect_input(path: String) -> Dictionary:
 	resp["has_annotation"] = (flags & 2) != 0
 	resp["is_comparison_session"] = (flags & 4) != 0
 	resp["has_embedded_gff3_sequence"] = (flags & 8) != 0
+	resp["has_variants"] = (flags & 16) != 0
 	return resp
 
 func _encode_string_list(values: PackedStringArray) -> PackedByteArray:
@@ -294,6 +299,61 @@ func get_stop_codon_tile(chr_id: int, zoom: int, tile_index: int) -> Dictionary:
 	if not resp.get("ok", false):
 		return resp
 	resp["tile"] = _parse_stop_codon_tile(resp["payload"])
+	return resp
+
+func load_variant_file(path: String) -> Dictionary:
+	var path_bytes := path.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(2 + path_bytes.size())
+	payload.encode_u16(0, path_bytes.size())
+	for i in range(path_bytes.size()):
+		payload[2 + i] = path_bytes[i]
+	var resp := _send_request(MSG_LOAD_VARIANT_FILE, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	var payload_bytes: PackedByteArray = resp.get("payload", PackedByteArray())
+	if payload_bytes.size() >= 4:
+		resp.merge(_parse_variant_source_loaded(payload_bytes), true)
+	return resp
+
+func list_variant_sources() -> Dictionary:
+	var resp := _send_request(MSG_LIST_VARIANT_SOURCES, PackedByteArray())
+	if not resp.get("ok", false):
+		return resp
+	resp["sources"] = _parse_variant_sources(resp.get("payload", PackedByteArray()))
+	return resp
+
+func get_variant_tile(source_id: int, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(9)
+	payload.encode_u16(0, source_id)
+	payload.encode_u16(2, chr_id)
+	payload[4] = zoom
+	payload.encode_u32(5, tile_index)
+	var resp := _send_request(MSG_GET_VARIANT_TILE, payload)
+	if not resp.get("ok", false):
+		return resp
+	resp["tile"] = _parse_variant_tile(resp.get("payload", PackedByteArray()))
+	return resp
+
+func get_variant_detail(source_id: int, chr_id: int, start_bp: int, ref: String, alt_summary: String) -> Dictionary:
+	var ref_bytes := ref.to_utf8_buffer()
+	var alt_bytes := alt_summary.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(12 + ref_bytes.size() + alt_bytes.size())
+	payload.encode_u16(0, source_id)
+	payload.encode_u16(2, chr_id)
+	payload.encode_u32(4, start_bp)
+	payload.encode_u16(8, ref_bytes.size())
+	payload.encode_u16(10, alt_bytes.size())
+	for i in range(ref_bytes.size()):
+		payload[12 + i] = ref_bytes[i]
+	for i in range(alt_bytes.size()):
+		payload[12 + ref_bytes.size() + i] = alt_bytes[i]
+	var resp := _send_request(MSG_GET_VARIANT_DETAIL, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["detail"] = _parse_variant_detail(resp.get("payload", PackedByteArray()))
 	return resp
 
 func get_reference_slice(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
@@ -787,6 +847,236 @@ func _parse_comparison_block_detail(payload: PackedByteArray) -> Dictionary:
 		"ops": ops,
 		"variants": variants
 	}
+
+func _parse_variant_source_loaded(payload: PackedByteArray) -> Dictionary:
+	var out := {
+		"source_id": 0,
+		"sample_names": PackedStringArray(),
+		"message": ""
+	}
+	if payload.size() < 4:
+		return out
+	var source_id := int(payload.decode_u16(0))
+	var sample_count := int(payload.decode_u16(2))
+	var off := 4
+	var sample_names := PackedStringArray()
+	for _i in range(sample_count):
+		if off + 2 > payload.size():
+			break
+		var sample_len := int(payload.decode_u16(off))
+		off += 2
+		if off + sample_len > payload.size():
+			break
+		sample_names.append(_decode_wire_text(payload.slice(off, off + sample_len)))
+		off += sample_len
+	if off + 2 <= payload.size():
+		var msg_len := int(payload.decode_u16(off))
+		off += 2
+		if off + msg_len <= payload.size():
+			out["message"] = _decode_wire_text(payload.slice(off, off + msg_len))
+	out["source_id"] = source_id
+	out["sample_names"] = sample_names
+	return out
+
+func _parse_variant_sources(payload: PackedByteArray) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if payload.size() < 2:
+		return out
+	var count := int(payload.decode_u16(0))
+	var off := 2
+	for _i in range(count):
+		if off + 8 > payload.size():
+			break
+		var source_id := int(payload.decode_u16(off))
+		var name_len := int(payload.decode_u16(off + 2))
+		var path_len := int(payload.decode_u16(off + 4))
+		var sample_count := int(payload.decode_u16(off + 6))
+		off += 8
+		if off + name_len + path_len > payload.size():
+			break
+		var name := _decode_wire_text(payload.slice(off, off + name_len))
+		off += name_len
+		var path := _decode_wire_text(payload.slice(off, off + path_len))
+		off += path_len
+		var sample_names := PackedStringArray()
+		for _j in range(sample_count):
+			if off + 2 > payload.size():
+				break
+			var sample_len := int(payload.decode_u16(off))
+			off += 2
+			if off + sample_len > payload.size():
+				break
+			sample_names.append(_decode_wire_text(payload.slice(off, off + sample_len)))
+			off += sample_len
+		out.append({
+			"id": source_id,
+			"name": name,
+			"path": path,
+			"sample_names": sample_names
+		})
+	return out
+
+func _parse_variant_tile(payload: PackedByteArray) -> Dictionary:
+	var out := {
+		"start": 0,
+		"end": 0,
+		"variants": []
+	}
+	if payload.size() < 13:
+		return out
+	var tile_type := int(payload[0])
+	if tile_type != 1:
+		return out
+	var tile_start := int(payload.decode_u32(1))
+	var tile_end := int(payload.decode_u32(5))
+	var count := int(payload.decode_u32(9))
+	var off := 13
+	var variants: Array[Dictionary] = []
+	for _i in range(count):
+		if off + 27 > payload.size():
+			break
+		var start_bp := int(payload.decode_u32(off))
+		var end_bp := int(payload.decode_u32(off + 4))
+		var kind := int(payload[off + 8])
+		var sample_count := int(payload.decode_u16(off + 9))
+		var qual := payload.decode_float(off + 11)
+		var class_len := int(payload.decode_u16(off + 15))
+		var text_blob_len := int(payload.decode_u16(off + 17))
+		var id_len := int(payload.decode_u16(off + 19))
+		var ref_len := int(payload.decode_u16(off + 21))
+		var alt_len := int(payload.decode_u16(off + 23))
+		var filter_len := int(payload.decode_u16(off + 25))
+		off += 27
+		if off + class_len + text_blob_len + id_len + ref_len + alt_len + filter_len > payload.size():
+			break
+		var sample_classes := PackedByteArray()
+		if class_len > 0:
+			sample_classes = payload.slice(off, off + class_len)
+		off += class_len
+		var sample_texts := PackedStringArray()
+		var text_end := off + text_blob_len
+		for _j in range(sample_count):
+			if off + 2 > text_end:
+				break
+			var text_len := int(payload.decode_u16(off))
+			off += 2
+			if off + text_len > text_end:
+				break
+			sample_texts.append(_decode_wire_text(payload.slice(off, off + text_len)))
+			off += text_len
+		off = text_end
+		var rec_id := _decode_wire_text(payload.slice(off, off + id_len))
+		off += id_len
+		var ref := _decode_wire_text(payload.slice(off, off + ref_len))
+		off += ref_len
+		var alt_summary := _decode_wire_text(payload.slice(off, off + alt_len))
+		off += alt_len
+		var filter := _decode_wire_text(payload.slice(off, off + filter_len))
+		off += filter_len
+		variants.append({
+			"start": start_bp,
+			"end": end_bp,
+			"kind": kind,
+			"sample_count": sample_count,
+			"sample_classes": sample_classes,
+			"sample_texts": sample_texts,
+			"qual": qual,
+			"id": rec_id,
+			"ref": ref,
+			"alt_summary": alt_summary,
+			"filter": filter
+		})
+	out["start"] = tile_start
+	out["end"] = tile_end
+	out["variants"] = variants
+	return out
+
+func _parse_variant_detail(payload: PackedByteArray) -> Dictionary:
+	var out := {}
+	if payload.size() < 29:
+		return out
+	var source_id := int(payload.decode_u16(0))
+	var start_bp := int(payload.decode_u32(2))
+	var end_bp := int(payload.decode_u32(6))
+	var kind := int(payload[10])
+	var qual := payload.decode_float(11)
+	var format_count := int(payload.decode_u16(15))
+	var sample_count := int(payload.decode_u16(17))
+	var source_name_len := int(payload.decode_u16(19))
+	var source_path_len := int(payload.decode_u16(21))
+	var chrom_len := int(payload.decode_u16(23))
+	var id_len := int(payload.decode_u16(25))
+	var ref_len := int(payload.decode_u16(27))
+	var off := 29
+	var variable_texts: Array[String] = []
+	for _i in range(3):
+		if off + 2 > payload.size():
+			return out
+		var text_len := int(payload.decode_u16(off))
+		off += 2
+		if off + text_len > payload.size():
+			return out
+		variable_texts.append(_decode_wire_text(payload.slice(off, off + text_len)))
+		off += text_len
+	if off + source_name_len + source_path_len + chrom_len + id_len + ref_len > payload.size():
+		return out
+	var source_name := _decode_wire_text(payload.slice(off, off + source_name_len))
+	off += source_name_len
+	var source_path := _decode_wire_text(payload.slice(off, off + source_path_len))
+	off += source_path_len
+	var chrom := _decode_wire_text(payload.slice(off, off + chrom_len))
+	off += chrom_len
+	var rec_id := _decode_wire_text(payload.slice(off, off + id_len))
+	off += id_len
+	var ref := _decode_wire_text(payload.slice(off, off + ref_len))
+	off += ref_len
+	var format_keys := PackedStringArray()
+	for _j in range(format_count):
+		if off + 2 > payload.size():
+			return out
+		var key_len := int(payload.decode_u16(off))
+		off += 2
+		if off + key_len > payload.size():
+			return out
+		format_keys.append(_decode_wire_text(payload.slice(off, off + key_len)))
+		off += key_len
+	var samples: Array[Dictionary] = []
+	for _k in range(sample_count):
+		if off + 5 > payload.size():
+			return out
+		var has_alt := payload[off] != 0
+		off += 1
+		var name_len := int(payload.decode_u16(off))
+		off += 2
+		var value_len := int(payload.decode_u16(off))
+		off += 2
+		if off + name_len + value_len > payload.size():
+			return out
+		var sample_name := _decode_wire_text(payload.slice(off, off + name_len))
+		off += name_len
+		var sample_value := _decode_wire_text(payload.slice(off, off + value_len))
+		off += value_len
+		samples.append({
+			"name": sample_name,
+			"value": sample_value,
+			"has_alt": has_alt
+		})
+	out["source_id"] = source_id
+	out["source_name"] = source_name
+	out["source_path"] = source_path
+	out["chrom"] = chrom
+	out["start"] = start_bp
+	out["end"] = end_bp
+	out["kind"] = kind
+	out["id"] = rec_id
+	out["ref"] = ref
+	out["alt_summary"] = variable_texts[0] if variable_texts.size() > 0 else ""
+	out["filter"] = variable_texts[1] if variable_texts.size() > 1 else ""
+	out["info"] = variable_texts[2] if variable_texts.size() > 2 else ""
+	out["qual"] = qual
+	out["format_keys"] = format_keys
+	out["samples"] = samples
+	return out
 
 func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []

@@ -43,6 +43,15 @@ BAM files must be:
 - coordinate-sorted
 - indexed, with .bam.bai or .bai present
 
+## Variant files
+
+Supported variant input:
+
+- VCF
+- compressed VCF (`.vcf.gz`, `.vcf.xz`, `.vcf.zst`)
+
+Variant files are loaded into a shared `VCF` browser track with one row per sample.
+
 ## Download by accession
 
 `seqhiker` can also download genome data by accession from inside the app.
@@ -69,7 +78,10 @@ Common ways to use `seqhiker`:
 - FASTA + GFF3
 - GFF3 with embedded sequence
 - FASTA + BAM
+- FASTA + VCF
+- FASTA + GFF3 + VCF
 - FASTA + GFF3 + BAM
+- FASTA + GFF3 + BAM + VCF
 - GenBank alone
 - EMBL alone
 - comparison of multiple FASTA/GFF3 genomes loaded one-by-one

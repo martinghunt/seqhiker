@@ -36,6 +36,11 @@ const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 #  - gc_plot: GC plot color
 #  - depth_plot: depth plot color
 #  - depth_plot_series: per-BAM depth plot series colors
+#  - vcf_row_bg: VCF sample-row background
+#  - vcf_row_alt_bg: alternating VCF sample-row background
+#  - vcf_gt_ref_fill/text: VCF genotype colors for 0/0 calls
+#  - vcf_gt_het_fill/text: VCF genotype colors for heterozygous calls
+#  - vcf_gt_hom_alt_fill/text: VCF genotype colors for homozygous ALT calls
 #  - pileup_logo_bases: per-base colors for pileup logo A/C/G/T/D
 #  - snp: SNP marker fill
 #  - snp_text: text drawn on SNP markers
@@ -89,6 +94,20 @@ const THEMES := {
 			Color("b5b5b5"),
 			Color("d0d0d0")
 		],
+		"vcf_row_bg": Color("ffffff"),
+		"vcf_row_alt_bg": Color("efefef"),
+		"vcf_gt_ref_fill": Color("000000"),
+		"vcf_gt_ref_text": Color("ffffff"),
+		"vcf_gt_het_fill": Color8(25, 7, 244),
+		"vcf_gt_het_text": Color("000000"),
+		"vcf_gt_hom_alt_fill": Color("ff0000"),
+		"vcf_gt_hom_alt_text": Color("ffffff"),
+		"vcf_snp_a": Color("2b9348"),
+		"vcf_snp_c": Color("1d4ed8"),
+		"vcf_snp_g": Color("a16207"),
+		"vcf_snp_t": Color("b91c1c"),
+		"vcf_snp_other": Color("4a4a4a"),
+		"vcf_snp_text": Color("ffffff"),
 		"pileup_logo_bases": {
 			"A": Color("2b9348"),
 			"C": Color("1d4ed8"),
@@ -145,6 +164,20 @@ const THEMES := {
 			Color("a4a4a4"),
 			Color("bcbcbc")
 		],
+		"vcf_row_bg": Color("ffffff"),
+		"vcf_row_alt_bg": Color("f0f0f0"),
+		"vcf_gt_ref_fill": Color("202020"),
+		"vcf_gt_ref_text": Color("ffffff"),
+		"vcf_gt_het_fill": Color("686868"),
+		"vcf_gt_het_text": Color("ffffff"),
+		"vcf_gt_hom_alt_fill": Color("2f2f2f"),
+		"vcf_gt_hom_alt_text": Color("ffffff"),
+		"vcf_snp_a": Color("4c4c4c"),
+		"vcf_snp_c": Color("666666"),
+		"vcf_snp_g": Color("808080"),
+		"vcf_snp_t": Color("9a9a9a"),
+		"vcf_snp_other": Color("2f2f2f"),
+		"vcf_snp_text": Color("ffffff"),
 		"pileup_logo_bases": {
 			"A": Color("4c4c4c"),
 			"C": Color("666666"),
@@ -201,6 +234,20 @@ const THEMES := {
 			Color("4f772d"),
 			Color("b56576")
 		],
+		"vcf_row_bg": Color("ffffff"),
+		"vcf_row_alt_bg": Color("efefef"),
+		"vcf_gt_ref_fill": Color("111111"),
+		"vcf_gt_ref_text": Color("ffffff"),
+		"vcf_gt_het_fill": Color("0f8b8d"),
+		"vcf_gt_het_text": Color("ffffff"),
+		"vcf_gt_hom_alt_fill": Color("b11f47"),
+		"vcf_gt_hom_alt_text": Color("ffffff"),
+		"vcf_snp_a": Color("2b9348"),
+		"vcf_snp_c": Color("1d4ed8"),
+		"vcf_snp_g": Color("a16207"),
+		"vcf_snp_t": Color("b91c1c"),
+		"vcf_snp_other": Color("4a5568"),
+		"vcf_snp_text": Color("ffffff"),
 		"pileup_logo_bases": {
 			"A": Color("2b9348"),
 			"C": Color("1d4ed8"),
@@ -257,6 +304,20 @@ const THEMES := {
 			Color("6a994e"),
 			Color("7f5539")
 		],
+		"vcf_row_bg": Color("f6fff0"),
+		"vcf_row_alt_bg": Color("eef8e9"),
+		"vcf_gt_ref_fill": Color("20301f"),
+		"vcf_gt_ref_text": Color("f6fff0"),
+		"vcf_gt_het_fill": Color("6a994e"),
+		"vcf_gt_het_text": Color("20301f"),
+		"vcf_gt_hom_alt_fill": Color("7a143a"),
+		"vcf_gt_hom_alt_text": Color("ffffff"),
+		"vcf_snp_a": Color("4f8a3f"),
+		"vcf_snp_c": Color("2f6f99"),
+		"vcf_snp_g": Color("8f6a1b"),
+		"vcf_snp_t": Color("9a3d32"),
+		"vcf_snp_other": Color("4f5f4d"),
+		"vcf_snp_text": Color("ffffff"),
 		"pileup_logo_bases": {
 			"A": Color("4f8a3f"),
 			"C": Color("2f6f99"),
@@ -313,6 +374,20 @@ const THEMES := {
 			Color("7d8597"),
 			Color("8d99ae")
 		],
+		"vcf_row_bg": Color("f6f9fc"),
+		"vcf_row_alt_bg": Color("edf2f6"),
+		"vcf_gt_ref_fill": Color("1f2933"),
+		"vcf_gt_ref_text": Color("f6f9fc"),
+		"vcf_gt_het_fill": Color("2d7dd2"),
+		"vcf_gt_het_text": Color("ffffff"),
+		"vcf_gt_hom_alt_fill": Color("d7263d"),
+		"vcf_gt_hom_alt_text": Color("ffffff"),
+		"vcf_snp_a": Color("2b9348"),
+		"vcf_snp_c": Color("1d4ed8"),
+		"vcf_snp_g": Color("a16207"),
+		"vcf_snp_t": Color("b91c1c"),
+		"vcf_snp_other": Color("4b5563"),
+		"vcf_snp_text": Color("ffffff"),
 		"pileup_logo_bases": {
 			"A": Color("2b9348"),
 			"C": Color("1d4ed8"),
@@ -369,6 +444,20 @@ const THEMES := {
 			Color("ffb86b"),
 			Color("8ec07c")
 		],
+		"vcf_row_bg": Color("21262d"),
+		"vcf_row_alt_bg": Color("2a3038"),
+		"vcf_gt_ref_fill": Color("e6edf3"),
+		"vcf_gt_ref_text": Color("21262d"),
+		"vcf_gt_het_fill": Color("4fb6c2"),
+		"vcf_gt_het_text": Color("111111"),
+		"vcf_gt_hom_alt_fill": Color("ff7b72"),
+		"vcf_gt_hom_alt_text": Color("111111"),
+		"vcf_snp_a": Color("5ac26b"),
+		"vcf_snp_c": Color("73b7ff"),
+		"vcf_snp_g": Color("d3a34a"),
+		"vcf_snp_t": Color("ff7b72"),
+		"vcf_snp_other": Color("aab6c2"),
+		"vcf_snp_text": Color("111111"),
 		"pileup_logo_bases": {
 			"A": Color("5ac26b"),
 			"C": Color("73b7ff"),
@@ -425,6 +514,20 @@ const THEMES := {
 			Color("686868"),
 			Color("505050")
 		],
+		"vcf_row_bg": Color("202020"),
+		"vcf_row_alt_bg": Color("2b2b2b"),
+		"vcf_gt_ref_fill": Color("e6e6e6"),
+		"vcf_gt_ref_text": Color("202020"),
+		"vcf_gt_het_fill": Color("9a9a9a"),
+		"vcf_gt_het_text": Color("111111"),
+		"vcf_gt_hom_alt_fill": Color("f0f0f0"),
+		"vcf_gt_hom_alt_text": Color("111111"),
+		"vcf_snp_a": Color("d0d0d0"),
+		"vcf_snp_c": Color("b0b0b0"),
+		"vcf_snp_g": Color("909090"),
+		"vcf_snp_t": Color("707070"),
+		"vcf_snp_other": Color("f0f0f0"),
+		"vcf_snp_text": Color("111111"),
 		"pileup_logo_bases": {
 			"A": Color("d0d0d0"),
 			"C": Color("b0b0b0"),
@@ -481,6 +584,20 @@ const THEMES := {
 			Color("859900"),
 			Color("d33682")
 		],
+		"vcf_row_bg": Color("fdf6e3"),
+		"vcf_row_alt_bg": Color("eee8d5"),
+		"vcf_gt_ref_fill": Color("657b83"),
+		"vcf_gt_ref_text": Color("fdf6e3"),
+		"vcf_gt_het_fill": Color("2aa198"),
+		"vcf_gt_het_text": Color("073642"),
+		"vcf_gt_hom_alt_fill": Color("d33682"),
+		"vcf_gt_hom_alt_text": Color("fdf6e3"),
+		"vcf_snp_a": Color("859900"),
+		"vcf_snp_c": Color("268bd2"),
+		"vcf_snp_g": Color("b58900"),
+		"vcf_snp_t": Color("dc322f"),
+		"vcf_snp_other": Color("657b83"),
+		"vcf_snp_text": Color("fdf6e3"),
 		"pileup_logo_bases": {
 			"A": Color("859900"),
 			"C": Color("268bd2"),
@@ -537,6 +654,20 @@ const THEMES := {
 			Color("859900"),
 			Color("d33682")
 		],
+		"vcf_row_bg": Color("002b36"),
+		"vcf_row_alt_bg": Color("073642"),
+		"vcf_gt_ref_fill": Color("839496"),
+		"vcf_gt_ref_text": Color("002b36"),
+		"vcf_gt_het_fill": Color("2aa198"),
+		"vcf_gt_het_text": Color("002b36"),
+		"vcf_gt_hom_alt_fill": Color("d33682"),
+		"vcf_gt_hom_alt_text": Color("fdf6e3"),
+		"vcf_snp_a": Color("859900"),
+		"vcf_snp_c": Color("268bd2"),
+		"vcf_snp_g": Color("b58900"),
+		"vcf_snp_t": Color("dc322f"),
+		"vcf_snp_other": Color("839496"),
+		"vcf_snp_text": Color("002b36"),
 		"pileup_logo_bases": {
 			"A": Color("859900"),
 			"C": Color("268bd2"),
@@ -592,6 +723,35 @@ func palette(theme_name: String) -> Dictionary:
 	var p := (THEMES[resolved] as Dictionary).duplicate(true)
 	if not p.has("stop_codon"):
 		p["stop_codon"] = p.get("text", Color.BLACK)
+	if not p.has("vcf_row_bg"):
+		p["vcf_row_bg"] = p.get("panel", Color.WHITE)
+	if not p.has("vcf_row_alt_bg"):
+		p["vcf_row_alt_bg"] = p.get("aa_alt_bg", p.get("panel_alt", Color("efefef")))
+	if not p.has("vcf_gt_ref_fill"):
+		p["vcf_gt_ref_fill"] = p.get("text", Color.BLACK)
+	if not p.has("vcf_gt_ref_text"):
+		p["vcf_gt_ref_text"] = p.get("panel", Color.WHITE)
+	if not p.has("vcf_gt_het_fill"):
+		p["vcf_gt_het_fill"] = p.get("read", Color("0f8b8d"))
+	if not p.has("vcf_gt_het_text"):
+		p["vcf_gt_het_text"] = p.get("text", Color.BLACK)
+	if not p.has("vcf_gt_hom_alt_fill"):
+		p["vcf_gt_hom_alt_fill"] = p.get("snp", Color("d7263d"))
+	if not p.has("vcf_gt_hom_alt_text"):
+		p["vcf_gt_hom_alt_text"] = p.get("snp_text", p.get("text_inverse", Color.WHITE))
+	var pileup_bases: Dictionary = p.get("pileup_logo_bases", {})
+	if not p.has("vcf_snp_a"):
+		p["vcf_snp_a"] = pileup_bases.get("A", p.get("read", Color("2b9348")))
+	if not p.has("vcf_snp_c"):
+		p["vcf_snp_c"] = pileup_bases.get("C", p.get("read", Color("1d4ed8")))
+	if not p.has("vcf_snp_g"):
+		p["vcf_snp_g"] = pileup_bases.get("G", p.get("read", Color("a16207")))
+	if not p.has("vcf_snp_t"):
+		p["vcf_snp_t"] = pileup_bases.get("T", p.get("read", Color("b91c1c")))
+	if not p.has("vcf_snp_other"):
+		p["vcf_snp_other"] = pileup_bases.get("D", p.get("read", Color("6b7280")))
+	if not p.has("vcf_snp_text"):
+		p["vcf_snp_text"] = p.get("text_inverse", Color.WHITE)
 	return p
 
 func genome_palette(theme_name: String) -> Dictionary:
@@ -613,6 +773,20 @@ func genome_palette(theme_name: String) -> Dictionary:
 		"gc_plot": p["gc_plot"],
 		"depth_plot": p["depth_plot"],
 		"depth_plot_series": p.get("depth_plot_series", [p["depth_plot"]]),
+		"vcf_row_bg": p.get("vcf_row_bg", p["panel"]),
+		"vcf_row_alt_bg": p.get("vcf_row_alt_bg", p["aa_alt_bg"]),
+		"vcf_gt_ref_fill": p.get("vcf_gt_ref_fill", p["text"]),
+		"vcf_gt_ref_text": p.get("vcf_gt_ref_text", p["panel"]),
+		"vcf_gt_het_fill": p.get("vcf_gt_het_fill", p["read"]),
+		"vcf_gt_het_text": p.get("vcf_gt_het_text", p["text"]),
+		"vcf_gt_hom_alt_fill": p.get("vcf_gt_hom_alt_fill", p["snp"]),
+		"vcf_gt_hom_alt_text": p.get("vcf_gt_hom_alt_text", p["snp_text"]),
+		"vcf_snp_a": p.get("vcf_snp_a", p["read"]),
+		"vcf_snp_c": p.get("vcf_snp_c", p["read"]),
+		"vcf_snp_g": p.get("vcf_snp_g", p["read"]),
+		"vcf_snp_t": p.get("vcf_snp_t", p["read"]),
+		"vcf_snp_other": p.get("vcf_snp_other", p["read"]),
+		"vcf_snp_text": p.get("vcf_snp_text", p["text_inverse"]),
 		"pileup_logo_bases": p.get("pileup_logo_bases", {}),
 		"snp": p["snp"],
 		"snp_text": p["snp_text"],

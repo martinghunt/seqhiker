@@ -1,8 +1,11 @@
 extends RefCounted
 class_name FeaturePanelController
 
+const VariantUtilsScript = preload("res://scripts/variant_utils.gd")
+
 var host: Node = null
 var _selected_matches_panel: VBoxContainer = null
+var _variant_detail_label: RichTextLabel = null
 var _selected_matches_summary: Label = null
 var _selected_matches_above_label: Label = null
 var _selected_matches_above_list: ItemList = null
@@ -14,7 +17,22 @@ var _selected_matches_below_payloads: Array[Dictionary] = []
 
 func configure(next_host: Node) -> void:
 	host = next_host
+	_ensure_variant_detail_label()
 	_ensure_selected_matches_panel()
+
+
+func _ensure_variant_detail_label() -> void:
+	if host == null or host.feature_content == null or _variant_detail_label != null:
+		return
+	_variant_detail_label = RichTextLabel.new()
+	_variant_detail_label.visible = false
+	_variant_detail_label.fit_content = true
+	_variant_detail_label.scroll_active = false
+	_variant_detail_label.selection_enabled = true
+	_variant_detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_variant_detail_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	host.feature_content.add_child(_variant_detail_label)
+	host.feature_content.move_child(_variant_detail_label, 0)
 
 func _ensure_selected_matches_panel() -> void:
 	if host == null or host.feature_content == null or _selected_matches_panel != null:
@@ -59,6 +77,8 @@ func _ensure_selected_matches_panel() -> void:
 
 func on_feature_clicked(feature: Dictionary) -> void:
 	host._prepare_context_panel(host.CONTEXT_PANEL_FEATURE, "Feature Details", true)
+	if _variant_detail_label != null:
+		_variant_detail_label.visible = false
 	host.feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -66,6 +86,11 @@ func on_feature_clicked(feature: Dictionary) -> void:
 	host.feature_source_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_seq_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_name_label.visible = true
+	host.feature_type_label.visible = true
+	host.feature_range_label.visible = true
+	host.feature_strand_label.visible = true
+	host.feature_source_label.visible = true
+	host.feature_seq_label.visible = true
 	host.feature_name_label.text = "Name: %s" % str(feature.get("name", "-"))
 	host.feature_type_label.text = "Type: %s" % str(feature.get("type", "-"))
 	host.feature_range_label.text = "Range: %d - %d" % [
@@ -128,6 +153,8 @@ func on_feature_selected(feature: Dictionary) -> void:
 
 func on_read_clicked(read: Dictionary) -> void:
 	host._prepare_context_panel(host.CONTEXT_PANEL_FEATURE, "Feature Details", true)
+	if _variant_detail_label != null:
+		_variant_detail_label.visible = false
 	host.feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -182,6 +209,113 @@ func on_read_clicked(read: Dictionary) -> void:
 		_hide_mate_jump_button()
 	host._feature_panel_open = true
 	host._slide_feature_panel(true, true)
+
+func on_variant_clicked(variant: Dictionary, detail: Dictionary) -> void:
+	host._prepare_context_panel(host.CONTEXT_PANEL_FEATURE, "Variant Details", true)
+	_ensure_variant_detail_label()
+	if _variant_detail_label != null:
+		_variant_detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	host.feature_name_label.visible = false
+	host.feature_type_label.visible = false
+	host.feature_range_label.visible = false
+	host.feature_strand_label.visible = false
+	host.feature_source_label.visible = false
+	host.feature_seq_label.visible = false
+	var source_name := str(detail.get("source_name", variant.get("source_name", "-")))
+	var sample_name := str(variant.get("sample_name", "-"))
+	var chrom := str(detail.get("chrom", host._current_chr_name))
+	var start_bp := int(detail.get("start", variant.get("source_start", variant.get("start", 0))))
+	var ref := str(detail.get("ref", variant.get("ref", "")))
+	var alt_summary := str(detail.get("alt_summary", variant.get("alt_summary", "")))
+	var rec_id := str(detail.get("id", variant.get("id", ".")))
+	var kind_label := _variant_type_detail_label(int(detail.get("kind", variant.get("kind", 0))), ref, alt_summary)
+	var seq_text := "Sample: %s\nFile: %s\nType: %s\n\nCHROM: %s\nPOS: %d\nID: %s\nREF: %s\nALT: %s\nQUAL: %s\nFILTER: %s\nINFO: %s" % [
+		sample_name,
+		source_name,
+		kind_label,
+		chrom,
+		_display_range_start_bp(start_bp),
+		rec_id,
+		ref,
+		alt_summary,
+		str(detail.get("qual", variant.get("qual", 0.0))),
+		str(detail.get("filter", variant.get("filter", "."))),
+		str(detail.get("info", "."))
+	]
+	var samples: Array = detail.get("samples", [])
+	if not samples.is_empty():
+		var selected_sample: Dictionary = {}
+		for sample_any in samples:
+			if typeof(sample_any) != TYPE_DICTIONARY:
+				continue
+			var sample: Dictionary = sample_any
+			if str(sample.get("name", "")) == sample_name:
+				selected_sample = sample
+				break
+		if not selected_sample.is_empty():
+			seq_text += "\n\nGenotype fields"
+			var sample_value := str(selected_sample.get("value", ".")).strip_edges()
+			if sample_value.is_empty() or sample_value == ".":
+				seq_text += "\nNo information"
+			else:
+				var parts := sample_value.split("  ", false)
+				var wrote_any := false
+				for part_any in parts:
+					var part := str(part_any).strip_edges()
+					if part.is_empty():
+						continue
+					var eq_idx := part.find("=")
+					if eq_idx > 0:
+						var key := part.substr(0, eq_idx).strip_edges()
+						var value := part.substr(eq_idx + 1).strip_edges()
+						seq_text += "\n%s: %s" % [key, value]
+					else:
+						seq_text += "\n%s" % part
+					wrote_any = true
+				if not wrote_any:
+					seq_text += "\nNo information"
+		else:
+			seq_text += "\n\nGenotype fields\nNo information"
+	if _variant_detail_label != null:
+		_variant_detail_label.text = seq_text
+		_variant_detail_label.visible = true
+	_hide_mate_jump_button()
+	host._feature_panel_open = true
+	host._slide_feature_panel(true, true)
+
+func _variant_kind_label(kind: int) -> String:
+	match kind:
+		1:
+			return "SNP"
+		2:
+			return "MNP"
+		3:
+			return "Insertion"
+		4:
+			return "Deletion"
+		5:
+			return "Complex"
+		6:
+			return "Symbolic"
+		_:
+			return "Variant"
+
+
+func _variant_type_detail_label(kind: int, ref: String, alt_summary: String) -> String:
+	kind = VariantUtilsScript.display_kind(kind, ref, alt_summary)
+	var label := _variant_kind_label(kind)
+	if alt_summary.contains(","):
+		return label
+	match kind:
+		3:
+			var inserted_bp := maxi(0, alt_summary.length() - ref.length())
+			if inserted_bp > 0:
+				return "%s (%dbp)" % [label, inserted_bp]
+		4:
+			var deleted_bp := maxi(0, ref.length() - alt_summary.length())
+			if deleted_bp > 0:
+				return "%s (%dbp)" % [label, deleted_bp]
+	return label
 
 func _chrom_name_for_id(chr_id: int) -> String:
 	for c_any in host._chromosomes:
@@ -274,6 +408,8 @@ func on_read_selected(read: Dictionary) -> void:
 
 func on_comparison_match_clicked(match: Dictionary) -> void:
 	host._prepare_context_panel(host.CONTEXT_PANEL_FEATURE, "Comparison Match", true)
+	if _variant_detail_label != null:
+		_variant_detail_label.visible = false
 	host.feature_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	host.feature_range_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -337,6 +473,8 @@ func show_selected_matches(selection: Dictionary) -> void:
 	host._slide_feature_panel(true, true)
 
 func hide_subpanels() -> void:
+	if _variant_detail_label != null:
+		_variant_detail_label.visible = false
 	if _selected_matches_panel != null:
 		_selected_matches_panel.visible = false
 

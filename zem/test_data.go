@@ -35,6 +35,7 @@ const (
 	demoVariantSNP
 	demoVariantInsertion
 	demoVariantDeletion
+	demoVariantComplex
 )
 
 type demoVariant struct {
@@ -42,6 +43,19 @@ type demoVariant struct {
 	ref  string
 	alt  string
 	kind demoVariantKind
+}
+
+type demoVCFRecord struct {
+	chrom      string
+	pos1       int
+	id         string
+	ref        string
+	alt        string
+	qual       string
+	filter     string
+	info       string
+	formatKeys []string
+	samples    []string
 }
 
 type testReadSpec struct {
@@ -94,7 +108,7 @@ func (e *Engine) GenerateTestData(rootDir string) ([]string, error) {
 	singleBAIPath := singleBAMPath + ".bai"
 	pairedBAMPath := filepath.Join(entryDir, "reads_paired.bam")
 	pairedBAIPath := pairedBAMPath + ".bai"
-
+	vcfPath := filepath.Join(entryDir, "variants.vcf")
 	if err := writeTestFASTA(refPath, contigs); err != nil {
 		return nil, err
 	}
@@ -107,8 +121,11 @@ func (e *Engine) GenerateTestData(rootDir string) ([]string, error) {
 	if err := writePairedEndTestBAMAndIndex(pairedBAMPath, pairedBAIPath, contigs, contigByName, rng); err != nil {
 		return nil, err
 	}
-
-	return []string{refPath, gffPath, singleBAMPath, pairedBAMPath}, nil
+	vcfRecords := buildDemoVCFRecords(contigByName)
+	if err := writeTestVCF(vcfPath, contigs, vcfRecords); err != nil {
+		return nil, err
+	}
+	return []string{refPath, gffPath, singleBAMPath, pairedBAMPath, vcfPath}, nil
 }
 
 func writeTestFASTA(path string, contigs []struct {
@@ -161,6 +178,264 @@ func writeTestGFF3(path string, contigs []struct {
 			buf.WriteString(fmt.Sprintf("%s\tdemo\tCDS\t4101\t6900\t.\t-\t0\tID=%s_cds2;Parent=%s_gene2;Name=%s_cds2\n", contig.name, contig.name, contig.name, contig.name))
 			buf.WriteString(fmt.Sprintf("%s\tdemo\trepeat_region\t9001\t9700\t.\t+\t.\tID=%s_repeat1;Name=%s_repeat1\n", contig.name, contig.name, contig.name))
 		}
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
+}
+
+func buildDemoVCFRecords(contigByName map[string]string) []demoVCFRecord {
+	ctgA := contigByName["ctgA"]
+	ctgB := contigByName["ctgB"]
+
+	snpRefPos0 := testSNPPos - 3
+	snpRefRef := ctgA[snpRefPos0 : snpRefPos0+1]
+	snpRefAlt := pickAltBase(ctgA[snpRefPos0])
+
+	snpHetPos0 := testSNPPos
+	snpHetRef := ctgA[snpHetPos0 : snpHetPos0+1]
+	snpHetAlt := pickAltBase(ctgA[snpHetPos0])
+
+	snpHomAltPos0 := testSNPPos + 3
+	snpHomAltRef := ctgA[snpHomAltPos0 : snpHomAltPos0+1]
+	snpHomAltAlt := pickAltBase(ctgA[snpHomAltPos0])
+
+	snpHetAltPos0 := testSNPPos + 6
+	snpHetAltRef := ctgA[snpHetAltPos0 : snpHetAltPos0+1]
+	snpHetAltA := pickAltBase(ctgA[snpHetAltPos0])
+	snpHetAltB := string([]byte{pickAltBaseExcluding(ctgA[snpHetAltPos0], []byte{snpHetAltA[0]})})
+
+	delNearPos0 := testSNPPos + 9
+	delNearRef := ctgA[delNearPos0 : delNearPos0+3]
+	delNearAlt := delNearRef[:1]
+
+	delNearRefPos0 := testSNPPos + 14
+	delNearRefRef := ctgA[delNearRefPos0 : delNearRefPos0+4]
+	delNearRefAlt := delNearRefRef[:1]
+
+	insNearPos0 := testSNPPos + 18
+	insNearRef := ctgA[insNearPos0 : insNearPos0+1]
+	insNearAlt := insNearRef + "TG"
+
+	insNearRefPos0 := testSNPPos + 21
+	insNearRefRef := ctgA[insNearRefPos0 : insNearRefPos0+1]
+	insNearRefAlt := insNearRefRef + "CA"
+
+	complexNearPos0 := testSNPPos + 24
+	complexNearRef := ctgA[complexNearPos0 : complexNearPos0+4]
+	complexNearAlt := buildComplexAlt(complexNearRef) + "AA"
+
+	complexNearRefPos0 := testSNPPos + 30
+	complexNearRefRef := ctgA[complexNearRefPos0 : complexNearRefPos0+5]
+	complexNearRefAlt := buildComplexAlt(complexNearRefRef)
+
+	insPos0 := testInsertionPos
+	insRef := ctgA[insPos0 : insPos0+1]
+	insAlt := insRef + "TGA"
+
+	delAnchor0 := testDeletionPos
+	delRef := ctgA[delAnchor0 : delAnchor0+1+testDeletionLen]
+	delAlt := ctgA[delAnchor0 : delAnchor0+1]
+
+	complexPos0 := 8400
+	complexRef := ctgB[complexPos0 : complexPos0+7]
+	complexAlt := buildComplexAlt(complexRef)
+
+	return []demoVCFRecord{
+		{
+			chrom:      "ctgA",
+			pos1:       snpRefPos0 + 1,
+			id:         "demo_snp_ref",
+			ref:        snpRefRef,
+			alt:        snpRefAlt,
+			qual:       "60",
+			filter:     "PASS",
+			info:       "TYPE=SNP",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/0:18:18,0", "0/1:18:9,9"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       snpHetPos0 + 1,
+			id:         "demo_snp_1",
+			ref:        snpHetRef,
+			alt:        snpHetAlt,
+			qual:       "60",
+			filter:     "PASS",
+			info:       "TYPE=SNP",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/1:18:9,9", "1/1:22:0,22"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       snpHomAltPos0 + 1,
+			id:         "demo_snp_hom_alt",
+			ref:        snpHomAltRef,
+			alt:        snpHomAltAlt,
+			qual:       "59",
+			filter:     "PASS",
+			info:       "TYPE=SNP",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"1/1:20:0,20", "0/0:20:20,0"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       snpHetAltPos0 + 1,
+			id:         "demo_snp_het_alt",
+			ref:        snpHetAltRef,
+			alt:        snpHetAltA + "," + snpHetAltB,
+			qual:       "58",
+			filter:     "PASS",
+			info:       "TYPE=SNP",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"1/2:16:0,8,8", "0/1:16:8,8,0"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       delNearPos0 + 1,
+			id:         "demo_del_near_1",
+			ref:        delNearRef,
+			alt:        delNearAlt,
+			qual:       "57",
+			filter:     "PASS",
+			info:       "TYPE=DEL",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/1:18:9,9", "1/1:18:0,18"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       delNearRefPos0 + 1,
+			id:         "demo_del_near_2",
+			ref:        delNearRefRef,
+			alt:        delNearRefAlt,
+			qual:       "56",
+			filter:     "PASS",
+			info:       "TYPE=DEL",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/0:16:16,0", "0/1:16:8,8"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       insNearPos0 + 1,
+			id:         "demo_ins_near_1",
+			ref:        insNearRef,
+			alt:        insNearAlt,
+			qual:       "57",
+			filter:     "PASS",
+			info:       "TYPE=INS",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/1:18:9,9", "1/1:18:0,18"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       insNearRefPos0 + 1,
+			id:         "demo_ins_near_2",
+			ref:        insNearRefRef,
+			alt:        insNearRefAlt,
+			qual:       "56",
+			filter:     "PASS",
+			info:       "TYPE=INS",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/0:16:16,0", "0/1:16:8,8"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       complexNearPos0 + 1,
+			id:         "demo_complex_near_1",
+			ref:        complexNearRef,
+			alt:        complexNearAlt,
+			qual:       "55",
+			filter:     "PASS",
+			info:       "TYPE=COMPLEX",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/1:18:9,9", "1/1:18:0,18"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       complexNearRefPos0 + 1,
+			id:         "demo_complex_near_2",
+			ref:        complexNearRefRef,
+			alt:        complexNearRefAlt,
+			qual:       "54",
+			filter:     "PASS",
+			info:       "TYPE=COMPLEX",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/0:16:16,0", "0/1:16:8,8"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       insPos0 + 1,
+			id:         "demo_ins_1",
+			ref:        insRef,
+			alt:        insAlt,
+			qual:       "58",
+			filter:     "PASS",
+			info:       "TYPE=INS",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"1/1:16:0,16", "0/1:19:10,9"},
+		},
+		{
+			chrom:      "ctgA",
+			pos1:       delAnchor0 + 1,
+			id:         "demo_del_1",
+			ref:        delRef,
+			alt:        delAlt,
+			qual:       "57",
+			filter:     "PASS",
+			info:       "TYPE=DEL",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"0/1:20:11,9", "1/1:17:0,17"},
+		},
+		{
+			chrom:      "ctgB",
+			pos1:       complexPos0 + 1,
+			id:         "demo_complex_1",
+			ref:        complexRef,
+			alt:        complexAlt,
+			qual:       "55",
+			filter:     "PASS",
+			info:       "TYPE=COMPLEX",
+			formatKeys: []string{"GT", "DP", "AD"},
+			samples:    []string{"1/1:14:0,14", "0/1:21:12,9"},
+		},
+	}
+}
+
+func writeTestVCF(path string, contigs []struct {
+	name string
+	seq  string
+}, records []demoVCFRecord) error {
+	var buf bytes.Buffer
+	buf.WriteString("##fileformat=VCFv4.2\n")
+	for _, contig := range contigs {
+		buf.WriteString(fmt.Sprintf("##contig=<ID=%s,length=%d>\n", contig.name, len(contig.seq)))
+	}
+	buf.WriteString("##INFO=<ID=TYPE,Number=1,Type=String,Description=\"Demo variant class\">\n")
+	buf.WriteString("##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n")
+	buf.WriteString("##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Read depth\">\n")
+	buf.WriteString("##FORMAT=<ID=AD,Number=R,Type=Integer,Description=\"Allelic depths\">\n")
+	buf.WriteString("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample_a\tsample_b\n")
+	for _, record := range records {
+		buf.WriteString(record.chrom)
+		buf.WriteByte('\t')
+		buf.WriteString(fmt.Sprintf("%d", record.pos1))
+		buf.WriteByte('\t')
+		buf.WriteString(record.id)
+		buf.WriteByte('\t')
+		buf.WriteString(record.ref)
+		buf.WriteByte('\t')
+		buf.WriteString(record.alt)
+		buf.WriteByte('\t')
+		buf.WriteString(record.qual)
+		buf.WriteByte('\t')
+		buf.WriteString(record.filter)
+		buf.WriteByte('\t')
+		buf.WriteString(record.info)
+		buf.WriteByte('\t')
+		buf.WriteString(strings.Join(record.formatKeys, ":"))
+		for _, sample := range record.samples {
+			buf.WriteByte('\t')
+			buf.WriteString(sample)
+		}
+		buf.WriteByte('\n')
 	}
 	return os.WriteFile(path, buf.Bytes(), 0o644)
 }
@@ -674,6 +949,28 @@ func remainingBases(ref byte) []byte {
 		}
 	}
 	return out
+}
+
+func buildComplexAlt(ref string) string {
+	if len(ref) < 4 {
+		return ref
+	}
+	out := make([]byte, 0, len(ref)-1)
+	out = append(out, ref[0])
+	for i := 1; i < len(ref); i++ {
+		if i == 3 {
+			continue
+		}
+		if i%2 == 1 {
+			out = append(out, pickAltBase(ref[i])[0])
+		} else {
+			out = append(out, ref[i])
+		}
+	}
+	if string(out) == ref {
+		out[len(out)-1] = pickAltBase(out[len(out)-1])[0]
+	}
+	return string(out)
 }
 
 func addRandomErrors(seq []byte, variant demoVariant, refStart int, rng *rand.Rand) {

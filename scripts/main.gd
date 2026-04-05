@@ -11,6 +11,7 @@ const ContextPanelControllerScript = preload("res://scripts/context_panel_contro
 const SoundControllerScript = preload("res://scripts/sound_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
+const VariantControllerScript = preload("res://scripts/variant_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
 const ComparisonControllerScript = preload("res://scripts/comparison_controller.gd")
 const ReadTrackSettingsPanelScene = preload("res://scenes/ReadTrackSettingsPanel.tscn")
@@ -33,6 +34,7 @@ const TRACK_READS := "reads"
 const TRACK_AA := "aa"
 const TRACK_GC_PLOT := "gc_plot"
 const TRACK_DEPTH_PLOT := "depth_plot"
+const TRACK_VCF := "vcf"
 const TRACK_GENOME := "genome"
 const SEQ_VIEW_CONCAT := 0
 const SEQ_VIEW_SINGLE := 1
@@ -157,6 +159,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var _track_visibility_gc_plot: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowGCPlotTrack
 @onready var _track_visibility_depth_plot: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowDepthPlotTrack
 @onready var _track_visibility_map: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowMapTrack
+var _track_visibility_vcf: CheckButton = null
 @onready var _bam_cov_cutoff_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffLabel
 @onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffSpin
 @onready var _genome_cache_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/GenomeCacheSpin
@@ -189,6 +192,7 @@ var _top_bar_controller: RefCounted
 var _context_panel_controller: RefCounted
 var _annotation_cache_controller: RefCounted
 var _feature_panel_controller: RefCounted
+var _variant_controller: RefCounted
 var _session_loader: RefCounted
 var _comparison_controller: RefCounted
 var _download_panel: VBoxContainer
@@ -219,6 +223,7 @@ var _selection_end := 0
 var _has_bam_loaded := false
 var _bam_tracks: Array[Dictionary] = []
 var _bam_track_serial := 0
+var _variant_sources: Array[Dictionary] = []
 var center_strand_scroll_pending := false
 var _has_sequence_loaded := false
 var _pending_annotation_highlight: Dictionary = {}
@@ -333,6 +338,8 @@ func _ready() -> void:
 	_annotation_cache_controller.configure(self)
 	_feature_panel_controller = FeaturePanelControllerScript.new()
 	_feature_panel_controller.configure(self)
+	_variant_controller = VariantControllerScript.new()
+	_variant_controller.configure(self)
 	_session_loader = SessionLoaderScript.new()
 	_session_loader.configure(self)
 	_tile_controller.configure(Callable(self, "_compute_tile_zoom"))
@@ -736,6 +743,8 @@ func _connect_ui() -> void:
 	genome_view.feature_activated.connect(_on_feature_clicked)
 	genome_view.read_clicked.connect(_on_read_selected)
 	genome_view.read_activated.connect(_on_read_clicked)
+	genome_view.variant_clicked.connect(_on_variant_selected)
+	genome_view.variant_activated.connect(_on_variant_clicked)
 	genome_view.region_selection_changed.connect(_on_region_selection_changed)
 	genome_view.track_settings_requested.connect(_on_track_settings_requested)
 	genome_view.track_order_changed.connect(_on_track_order_changed)
@@ -1322,10 +1331,15 @@ func _setup_sequence_controls() -> void:
 func _setup_track_visibility_controls() -> void:
 	_track_order_label.text = "Track Visibility"
 	_track_visibility_box.add_theme_constant_override("separation", 4)
+	if _track_visibility_vcf == null:
+		_track_visibility_vcf = CheckButton.new()
+		_track_visibility_vcf.text = "Show VCF Track"
+		_track_visibility_box.add_child(_track_visibility_vcf)
 	_track_visibility_aa.toggled.connect(_on_track_visibility_toggled.bind(TRACK_AA))
 	_track_visibility_genome.toggled.connect(_on_track_visibility_toggled.bind(TRACK_GENOME))
 	_track_visibility_gc_plot.toggled.connect(_on_track_visibility_toggled.bind(TRACK_GC_PLOT))
 	_track_visibility_depth_plot.toggled.connect(_on_track_visibility_toggled.bind(TRACK_DEPTH_PLOT))
+	_track_visibility_vcf.toggled.connect(_on_track_visibility_toggled.bind(TRACK_VCF))
 	_track_visibility_map.toggled.connect(_on_track_visibility_toggled.bind("map"))
 	_refresh_track_visibility_controls(genome_view.get_track_order())
 
@@ -1969,6 +1983,7 @@ func _refresh_track_visibility_controls(order: PackedStringArray) -> void:
 		visible_ids[track_id] = true
 	var controls := {
 		TRACK_AA: _track_visibility_aa,
+		TRACK_VCF: _track_visibility_vcf,
 		TRACK_GENOME: _track_visibility_genome,
 		TRACK_GC_PLOT: _track_visibility_gc_plot,
 		TRACK_DEPTH_PLOT: _track_visibility_depth_plot,
@@ -1979,7 +1994,11 @@ func _refresh_track_visibility_controls(order: PackedStringArray) -> void:
 		var cb := controls[track_id] as CheckButton
 		if cb == null:
 			continue
-		cb.visible = bool(visible_ids.get(track_id, false))
+		var available := bool(visible_ids.get(track_id, false))
+		if track_id == TRACK_VCF and _variant_sources.is_empty():
+			available = false
+			genome_view.set_track_visible(track_id, false)
+		cb.visible = available
 		if not cb.visible:
 			continue
 		var is_depth: bool = track_id == TRACK_DEPTH_PLOT
@@ -2015,6 +2034,9 @@ func _on_track_visibility_toggled(checked: bool, track_id: String) -> void:
 		return
 	_play_toggle_sound(checked)
 	genome_view.set_track_visible(track_id, checked)
+	_invalidate_cache()
+	if _current_chr_len > 0:
+		_schedule_fetch()
 
 func _track_label_for_id(track_id: String) -> String:
 	if track_id.begins_with("reads:"):
@@ -2024,6 +2046,8 @@ func _track_label_for_id(track_id: String) -> String:
 			return "Reads"
 		"aa":
 			return "AA / Annotation"
+		"vcf":
+			return "VCF"
 		"gc_plot":
 			return "GC Plot"
 		"depth_plot":
@@ -2067,6 +2091,15 @@ func _existing_bam_source_id(bam_path: String) -> int:
 		if str(t.get("path", "")) == bam_path:
 			return int(t.get("source_id", 0))
 	return 0
+
+func _refresh_variant_sources() -> bool:
+	if _variant_controller != null:
+		return _variant_controller.refresh_sources()
+	return false
+
+func _sync_variant_track() -> void:
+	if _variant_controller != null:
+		_variant_controller.sync_track()
 
 func _sync_bam_read_tracks() -> void:
 	var read_ids := PackedStringArray()
@@ -2243,6 +2276,9 @@ func _on_track_settings_requested(track_id: String) -> void:
 		_track_settings_box.add_child(stop_cb)
 		_track_settings_box.add_child(max_ann_label)
 		_track_settings_box.add_child(max_ann_spin)
+	elif track_id == TRACK_VCF:
+		if _variant_controller != null:
+			_variant_controller.populate_track_settings(track_id, _track_settings_box)
 	elif track_id == "genome":
 		var seq_view_label := Label.new()
 		seq_view_label.text = "Sequence View"
@@ -3061,6 +3097,7 @@ func _reset_loaded_state() -> void:
 	_has_bam_loaded = false
 	_bam_tracks.clear()
 	_bam_track_serial = 0
+	_variant_sources.clear()
 	_has_sequence_loaded = false
 	_chromosomes.clear()
 	_annotation_counts_by_chr.clear()
@@ -3073,6 +3110,7 @@ func _reset_loaded_state() -> void:
 	_slide_feature_panel(false, false)
 	genome_view.clear_all_data()
 	_sync_bam_read_tracks()
+	_sync_variant_track()
 
 func _setup_view_slot_shortcuts() -> void:
 	for b in _view_slot_shortcut_buttons:
@@ -3370,6 +3408,14 @@ func _on_read_clicked(read: Dictionary) -> void:
 func _on_read_selected(read: Dictionary) -> void:
 	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_feature_panel_controller.on_read_selected(read)
+
+func _on_variant_clicked(variant: Dictionary) -> void:
+	if _variant_controller != null:
+		_variant_controller.on_variant_clicked(variant)
+
+func _on_variant_selected(variant: Dictionary) -> void:
+	if _variant_controller != null:
+		_variant_controller.on_variant_selected(variant)
 
 func _on_comparison_match_selected(match: Dictionary, was_double_click: bool = false) -> void:
 	if was_double_click and not _feature_panel_open:

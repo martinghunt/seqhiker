@@ -52,7 +52,7 @@ func TestInspectInputEmbeddedGFF3ReportsSequenceAndAnnotation(t *testing.T) {
 	}
 
 	e := NewEngine()
-	hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, isSession, err := e.InspectInput(path)
+	hasSequence, hasAnnotation, hasEmbeddedGFF3Sequence, isSession, hasVariants, err := e.InspectInput(path)
 	if err != nil {
 		t.Fatalf("InspectInput returned error: %v", err)
 	}
@@ -67,6 +67,9 @@ func TestInspectInputEmbeddedGFF3ReportsSequenceAndAnnotation(t *testing.T) {
 	}
 	if isSession {
 		t.Fatal("embedded GFF3 must not report comparison session")
+	}
+	if hasVariants {
+		t.Fatal("embedded GFF3 must not report variants")
 	}
 }
 
@@ -740,8 +743,8 @@ func TestGenerateTestData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateTestData returned error: %v", err)
 	}
-	if len(files) != 4 {
-		t.Fatalf("unexpected generated file count: got %d, want 4", len(files))
+	if len(files) != 5 {
+		t.Fatalf("unexpected generated file count: got %d, want %d", len(files), 5)
 	}
 	for _, path := range files {
 		if _, err := os.Stat(path); err != nil {
@@ -754,6 +757,9 @@ func TestGenerateTestData(t *testing.T) {
 	if _, err := os.Stat(files[3] + ".bai"); err != nil {
 		t.Fatalf("generated paired-end BAM index missing: %v", err)
 	}
+	if got := filepath.Ext(files[4]); got != ".vcf" {
+		t.Fatalf("expected VCF as 5th generated file, got %q", files[4])
+	}
 	if err := e.LoadGenome(files[0]); err != nil {
 		t.Fatalf("loading generated FASTA failed: %v", err)
 	}
@@ -765,6 +771,24 @@ func TestGenerateTestData(t *testing.T) {
 	}
 	if _, err := e.LoadBAM(files[3], 0); err != nil {
 		t.Fatalf("loading generated paired-end BAM failed: %v", err)
+	}
+	variantSource, err := e.LoadVariantFile(files[4])
+	if err != nil {
+		t.Fatalf("loading generated VCF failed: %v", err)
+	}
+	if !slices.Equal(variantSource.SampleNames, []string{"sample_a", "sample_b"}) {
+		t.Fatalf("unexpected generated VCF samples: %v", variantSource.SampleNames)
+	}
+	seenKinds := map[byte]bool{}
+	for _, records := range variantSource.VariantsByChr {
+		for _, record := range records {
+			seenKinds[record.Kind] = true
+		}
+	}
+	for _, kind := range []byte{variantKindSNP, variantKindInsertion, variantKindDeletion, variantKindComplex} {
+		if !seenKinds[kind] {
+			t.Fatalf("generated VCF missing variant kind %d", kind)
+		}
 	}
 	chroms := e.ListChromosomes()
 	if len(chroms) != 9 {
@@ -835,6 +859,61 @@ func TestGenerateTestDataIncludesSoftClipBoundaryReads(t *testing.T) {
 	}
 	if !foundBStart {
 		t.Fatal("missing expected ctgB soft-clip start overhang read")
+	}
+}
+
+func TestGenerateTestDataVCFSNPMaskPresent(t *testing.T) {
+	e := NewEngine()
+	root := t.TempDir()
+	files, err := e.GenerateTestData(root)
+	if err != nil {
+		t.Fatalf("GenerateTestData returned error: %v", err)
+	}
+	if err := e.LoadGenome(files[0]); err != nil {
+		t.Fatalf("loading generated FASTA failed: %v", err)
+	}
+	source, err := e.LoadVariantFile(files[4])
+	if err != nil {
+		t.Fatalf("loading generated VCF failed: %v", err)
+	}
+	ctgAID := uint16(0)
+	foundChr := false
+	for _, chr := range e.ListChromosomes() {
+		if chr.Name == "ctgA" {
+			ctgAID = chr.ID
+			foundChr = true
+			break
+		}
+	}
+	if !foundChr {
+		t.Fatal("ctgA chromosome id missing")
+	}
+	payload, err := e.GetVariantTile(source.ID, ctgAID, 5, 0)
+	if err != nil {
+		t.Fatalf("GetVariantTile returned error: %v", err)
+	}
+	_, _, records := decodeVariantTileForTest(t, payload)
+	found := false
+	for _, record := range records {
+		if record.ID != "demo_snp_1" {
+			continue
+		}
+		found = true
+		if record.Kind != variantKindSNP {
+			t.Fatalf("demo_snp_1 kind = %d, want %d", record.Kind, variantKindSNP)
+		}
+		if len(record.SampleClasses) != 2 {
+			t.Fatalf("demo_snp_1 sample classes len = %d, want 2", len(record.SampleClasses))
+		}
+		if record.SampleClasses[0] != variantGTHet || record.SampleClasses[1] != variantGTHomAlt {
+			t.Fatalf("demo_snp_1 sample classes = %v, want [%d %d]", record.SampleClasses, variantGTHet, variantGTHomAlt)
+		}
+		if len(record.SampleTexts) != 2 || record.SampleTexts[0] == "" || record.SampleTexts[1] == "" {
+			t.Fatalf("demo_snp_1 sample texts unexpectedly empty: %v", record.SampleTexts)
+		}
+	}
+	if !found {
+		t.Fatal("demo_snp_1 not found in ctgA tile")
 	}
 }
 
