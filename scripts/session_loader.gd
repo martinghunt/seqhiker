@@ -54,6 +54,11 @@ func _load_paths(files: PackedStringArray) -> Dictionary:
 		if not allow_embedded_merge_attempt and not reset_browser_state():
 			return {"ok": false, "error": str(host._last_status_message)}
 	else:
+		if not host._has_sequence_loaded:
+			host._show_missing_sequence_dialog()
+			var err_msg := "Load genome failed: no reference sequence loaded; load a sequence file first."
+			host._set_status(err_msg, true)
+			return {"ok": false, "error": err_msg}
 		host._view_slots.clear()
 	if not load_dropped_files(files):
 		var last_error := str(host._last_status_message)
@@ -157,6 +162,10 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 			if err_msg.contains("no reference sequence loaded"):
 				deferred.append(target)
 				continue
+			if err_msg.contains("annotation file does not match loaded genome"):
+				host._show_annotation_mismatch_dialog(target, err_msg)
+			elif err_msg.contains("embedded GFF3 sequence does not match loaded reference"):
+				host._show_annotation_mismatch_dialog(target, err_msg)
 			host._set_status("Load genome failed: %s" % err_msg, true)
 			return false
 		if deferred.is_empty():
@@ -183,6 +192,8 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 					host._show_bam_unsorted_dialog(bam_path)
 				elif err_msg.contains("BAM index not found"):
 					host._show_bam_missing_index_dialog(bam_path)
+				elif err_msg.contains("BAM references do not match loaded genome"):
+					host._show_bam_reference_mismatch_dialog(bam_path, err_msg)
 				host._set_status("Load BAM failed: %s" % err_msg, true)
 				return false
 			source_id = int(bam_resp.get("source_id", 0))
@@ -215,6 +226,9 @@ func load_dropped_files(files: PackedStringArray) -> bool:
 		for variant_path in variant_targets:
 			var variant_resp: Dictionary = host._zem.load_variant_file(variant_path)
 			if not variant_resp.get("ok", false):
+				var err_msg := str(variant_resp.get("error", "error"))
+				if err_msg.contains("VCF references do not match loaded genome"):
+					host._show_vcf_reference_mismatch_dialog(variant_path, err_msg)
 				host._set_status("Load VCF failed: %s" % variant_resp.get("error", "error"), true)
 				return false
 		if not host._refresh_variant_sources():

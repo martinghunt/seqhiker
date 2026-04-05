@@ -334,7 +334,18 @@ func (e *Engine) loadGenomeEntries(entries []string) error {
 	}
 
 	// Annotation-only loads merge into the current genome context.
+	remappedFeatures := make(map[string][]Feature, len(snapshot.Features))
 	for chr, feats := range snapshot.Features {
+		matchedChr, ok := e.resolveExistingChromNameLocked(chr)
+		if !ok {
+			return fmt.Errorf("annotation file does not match loaded genome: chromosome %s not found", chr)
+		}
+		for _, feat := range feats {
+			feat.SeqName = matchedChr
+			remappedFeatures[matchedChr] = append(remappedFeatures[matchedChr], feat)
+		}
+	}
+	for chr, feats := range remappedFeatures {
 		e.features[chr] = append(e.features[chr], feats...)
 		sort.Slice(e.features[chr], func(i, j int) bool {
 			if e.features[chr][i].Start == e.features[chr][j].Start {
@@ -364,6 +375,23 @@ func sameSequenceSet(current map[string]string, incoming map[string]string) bool
 		}
 	}
 	return true
+}
+
+func (e *Engine) resolveExistingChromNameLocked(name string) (string, bool) {
+	if _, ok := e.chrToID[name]; ok {
+		return name, true
+	}
+	normalized := normalizeChromAlias(name)
+	matchedName := ""
+	matchCount := 0
+	for _, chr := range e.chromOrder {
+		if normalizeChromAlias(chr) != normalized {
+			continue
+		}
+		matchedName = chr
+		matchCount++
+	}
+	return matchedName, matchCount == 1
 }
 
 func (e *Engine) ListChromosomes() []ChromInfo {

@@ -133,6 +133,34 @@ func TestGetVariantDetailVCF(t *testing.T) {
 	}
 }
 
+func TestLoadVariantFileRejectsMismatchedLoadedGenome(t *testing.T) {
+	dir := t.TempDir()
+	genomePath := filepath.Join(dir, "ref.fa")
+	if err := os.WriteFile(genomePath, []byte(">chr1\n"+strings.Repeat("A", 40000)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	vcfPath := filepath.Join(dir, "sample.vcf")
+	content := "##fileformat=VCFv4.2\n" +
+		"##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n" +
+		"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample_a\n" +
+		"other_chr\t5\tdemo1\tA\tG\t60\tPASS\tTYPE=SNP\tGT\t0/1\n"
+	if err := os.WriteFile(vcfPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(genomePath); err != nil {
+		t.Fatalf("LoadGenome returned error: %v", err)
+	}
+	_, err := e.LoadVariantFile(vcfPath)
+	if err == nil {
+		t.Fatal("expected mismatched VCF to be rejected")
+	}
+	if !strings.Contains(err.Error(), "VCF references do not match loaded genome") {
+		t.Fatalf("unexpected VCF mismatch error: %v", err)
+	}
+}
+
 type decodedVariantRecord struct {
 	Start         uint32
 	End           uint32

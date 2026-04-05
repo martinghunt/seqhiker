@@ -75,6 +75,9 @@ func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if len(e.sequences) == 0 {
+		return 0, fmt.Errorf("no reference sequence loaded; load FASTA/EMBL/GenBank first")
+	}
 
 	refByChrID := make(map[uint16]*sam.Reference, len(refs))
 	refNameToID := make(map[string]uint16, len(refs))
@@ -82,7 +85,10 @@ func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 		if ref == nil {
 			continue
 		}
-		chrID := e.resolveBAMRefChromIDLocked(ref.Name(), ref.Len())
+		chrID, ok := e.resolveLoadedBAMRefChromIDLocked(ref.Name(), ref.Len())
+		if !ok {
+			return 0, fmt.Errorf("BAM references do not match loaded genome: %s", ref.Name())
+		}
 		refByChrID[chrID] = ref
 		refNameToID[ref.Name()] = chrID
 	}
@@ -149,6 +155,26 @@ func (e *Engine) resolveBAMRefChromIDLocked(name string, length int) uint16 {
 		return e.chrToID[chr]
 	}
 	return e.ensureChromosomeLocked(name, length)
+}
+
+func (e *Engine) resolveLoadedBAMRefChromIDLocked(name string, length int) (uint16, bool) {
+	if id, ok := e.chrToID[name]; ok {
+		return id, e.chrLength[name] == length
+	}
+	normalized := normalizeChromAlias(name)
+	var matchedID uint16
+	matchCount := 0
+	for _, chr := range e.chromOrder {
+		if e.chrLength[chr] != length {
+			continue
+		}
+		if normalizeChromAlias(chr) != normalized {
+			continue
+		}
+		matchedID = e.chrToID[chr]
+		matchCount++
+	}
+	return matchedID, matchCount == 1
 }
 
 func normalizeChromAlias(name string) string {

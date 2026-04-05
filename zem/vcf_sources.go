@@ -239,7 +239,7 @@ func (e *Engine) loadVCFSource(path string) (*variantSource, error) {
 		}
 		chrID, ok := e.resolveExistingChromIDForVariants(variant.Chrom())
 		if !ok {
-			continue
+			return nil, fmt.Errorf("VCF references do not match loaded genome: %s", variant.Chrom())
 		}
 		sampleClasses, sampleTexts := variantSampleSummaries(variant.Samples, variant.Ref(), variant.Alt())
 		record := variantRecord{

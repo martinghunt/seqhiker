@@ -159,6 +159,52 @@ func TestLoadEmbeddedGFF3RejectsMismatchedLoadedGenome(t *testing.T) {
 	}
 }
 
+func TestLoadAnnotationRejectsMismatchedLoadedGenome(t *testing.T) {
+	dir := t.TempDir()
+	fastaPath := filepath.Join(dir, "ref.fa")
+	gffPath := filepath.Join(dir, "ann.gff3")
+	if err := os.WriteFile(fastaPath, []byte(">chr1\nACGTACGT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gff := "##gff-version 3\n" +
+		"other_chr\tsrc\tgene\t2\t5\t.\t+\t.\tID=gene1;Name=test\n"
+	if err := os.WriteFile(gffPath, []byte(gff), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(fastaPath); err != nil {
+		t.Fatalf("LoadGenome FASTA returned error: %v", err)
+	}
+	err := e.LoadGenome(gffPath)
+	if err == nil {
+		t.Fatal("expected mismatched annotation to be rejected")
+	}
+	if !strings.Contains(err.Error(), "annotation file does not match loaded genome") {
+		t.Fatalf("unexpected mismatch error: %v", err)
+	}
+}
+
+func TestLoadBAMRejectsMismatchedLoadedGenome(t *testing.T) {
+	dir := t.TempDir()
+	fastaPath := filepath.Join(dir, "ref.fa")
+	if err := os.WriteFile(fastaPath, []byte(">wrong_chr\n"+strings.Repeat("A", 512)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(fastaPath); err != nil {
+		t.Fatalf("LoadGenome FASTA returned error: %v", err)
+	}
+	_, err := e.LoadBAM(filepath.Join("testdata", "test_reads.bam"), 0)
+	if err == nil {
+		t.Fatal("expected mismatched BAM to be rejected")
+	}
+	if !strings.Contains(err.Error(), "BAM references do not match loaded genome") {
+		t.Fatalf("unexpected BAM mismatch error: %v", err)
+	}
+}
+
 func TestLoadGenomeFilesCombinesSequenceAndAnnotation(t *testing.T) {
 	dir := t.TempDir()
 	fastaPath := filepath.Join(dir, "ref.fa")

@@ -1514,6 +1514,30 @@ func _show_bam_missing_index_dialog(bam_path: String) -> void:
 		"BAM index not found.\n\nRun:\n\nsamtools index %s" % bam_path
 	)
 
+func _show_missing_sequence_dialog() -> void:
+	_show_native_info_dialog(
+		"No Sequence File",
+		"Drop a sequence-bearing genome file first.\n\nSupported sequence inputs include FASTA, EMBL, GenBank, or a GFF3 file with embedded sequence."
+	)
+
+func _show_annotation_mismatch_dialog(path: String, details: String = "") -> void:
+	var message := "Annotation file does not match the loaded genome.\n\n%s" % path.get_file()
+	if not details.is_empty():
+		message += "\n\n" + details
+	_show_native_info_dialog("Annotation Mismatch", message)
+
+func _show_bam_reference_mismatch_dialog(path: String, details: String = "") -> void:
+	var message := "BAM does not match the loaded genome.\n\n%s" % path.get_file()
+	if not details.is_empty():
+		message += "\n\n" + details
+	_show_native_info_dialog("BAM Mismatch", message)
+
+func _show_vcf_reference_mismatch_dialog(path: String, details: String = "") -> void:
+	var message := "VCF does not match the loaded genome.\n\n%s" % path.get_file()
+	if not details.is_empty():
+		message += "\n\n" + details
+	_show_native_info_dialog("VCF Mismatch", message)
+
 func _finish_generate_test_data(result_any: Variant) -> void:
 	_generate_test_data_in_progress = false
 	_set_generate_test_data_controls_enabled(true)
