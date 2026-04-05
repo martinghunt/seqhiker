@@ -21,6 +21,18 @@ This documentation is a quick user guide. Start here if you want to install the 
       </a>
     </td>
   </tr>
+  <tr>
+    <td width="50%">
+      <a href="_static/seqhiker_screenshot_3.png">
+        <img src="_static/seqhiker_screenshot_3.png" alt="seqhiker screenshot 3" width="100%">
+      </a>
+    </td>
+    <td width="50%">
+      <a href="_static/seqhiker_screenshot_4.png">
+        <img src="_static/seqhiker_screenshot_4.png" alt="seqhiker screenshot 4" width="100%">
+      </a>
+    </td>
+  </tr>
 </table>
 ```
 

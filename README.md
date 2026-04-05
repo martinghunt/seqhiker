@@ -19,6 +19,18 @@ Documentation: https://seqhiker.readthedocs.io/en/
       </a>
     </td>
   </tr>
+  <tr>
+    <td width="50%">
+      <a href="docs/_static/seqhiker_screenshot_3.png">
+        <img src="docs/_static/seqhiker_screenshot_3.png" alt="seqhiker screenshot 3" width="100%">
+      </a>
+    </td>
+    <td width="50%">
+      <a href="docs/_static/seqhiker_screenshot_4.png">
+        <img src="docs/_static/seqhiker_screenshot_4.png" alt="seqhiker screenshot 4" width="100%">
+      </a>
+    </td>
+  </tr>
 </table>
 
 # Quick Start
