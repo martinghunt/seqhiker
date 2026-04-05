@@ -3314,7 +3314,7 @@ func _load_or_init_config() -> void:
 	_show_full_length_regions = bool(cfg.get_value("ui", "show_full_length_regions", false))
 	_show_full_region_checkbox.button_pressed = _show_full_length_regions
 	genome_view.set_show_full_length_regions(_show_full_length_regions)
-	_show_stop_codons = bool(cfg.get_value("ui", "show_stop_codons", false))
+	_show_stop_codons = false
 	genome_view.set_show_stop_codons(_show_stop_codons)
 	_sounds_enabled = bool(cfg.get_value("ui", "sounds_enabled", false))
 	if _sounds_cb != null:
@@ -3371,7 +3371,6 @@ func _save_config() -> void:
 	cfg.set_value("ui", "concat_gap_bp", _concat_gap_bp)
 	cfg.set_value("ui", "selected_sequence_name", _selected_seq_name)
 	cfg.set_value("ui", "show_full_length_regions", _show_full_length_regions)
-	cfg.set_value("ui", "show_stop_codons", _show_stop_codons)
 	cfg.set_value("ui", "sounds_enabled", _sounds_enabled)
 	cfg.set_value("ui", "colorize_nucleotides", _colorize_nucleotides)
 	cfg.set_value("ui", "axis_coords_with_commas", _axis_coords_with_commas)
