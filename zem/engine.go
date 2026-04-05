@@ -377,20 +377,47 @@ func sameSequenceSet(current map[string]string, incoming map[string]string) bool
 	return true
 }
 
-func (e *Engine) resolveExistingChromNameLocked(name string) (string, bool) {
-	if _, ok := e.chrToID[name]; ok {
-		return name, true
+func normalizeChromAlias(name string) string {
+	dot := strings.LastIndex(name, ".")
+	if dot <= 0 || dot >= len(name)-1 {
+		return name
+	}
+	suffix := name[dot+1:]
+	for _, r := range suffix {
+		if r < '0' || r > '9' {
+			return name
+		}
+	}
+	return name[:dot]
+}
+
+func (e *Engine) resolveExistingChromMatchLocked(name string, length int, requireLength bool) (string, uint16, int) {
+	if id, ok := e.chrToID[name]; ok {
+		if !requireLength || e.chrLength[name] == length {
+			return name, id, 1
+		}
+		return "", 0, 0
 	}
 	normalized := normalizeChromAlias(name)
 	matchedName := ""
+	var matchedID uint16
 	matchCount := 0
 	for _, chr := range e.chromOrder {
+		if requireLength && e.chrLength[chr] != length {
+			continue
+		}
 		if normalizeChromAlias(chr) != normalized {
 			continue
 		}
 		matchedName = chr
+		matchedID = e.chrToID[chr]
 		matchCount++
 	}
+	return matchedName, matchedID, matchCount
+}
+
+func (e *Engine) resolveExistingChromNameLocked(name string) (string, bool) {
+	matchedName, _, matchCount := e.resolveExistingChromMatchLocked(name, 0, false)
 	return matchedName, matchCount == 1
 }
 

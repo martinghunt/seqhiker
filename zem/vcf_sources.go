@@ -267,19 +267,7 @@ func (e *Engine) loadVCFSource(path string) (*variantSource, error) {
 func (e *Engine) resolveExistingChromIDForVariants(name string) (uint16, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	if id, ok := e.chrToID[name]; ok {
-		return id, true
-	}
-	normalized := normalizeChromAlias(name)
-	var matchedID uint16
-	matchCount := 0
-	for _, chr := range e.chromOrder {
-		if normalizeChromAlias(chr) != normalized {
-			continue
-		}
-		matchedID = e.chrToID[chr]
-		matchCount++
-	}
+	_, matchedID, matchCount := e.resolveExistingChromMatchLocked(name, 0, false)
 	return matchedID, matchCount == 1
 }
 

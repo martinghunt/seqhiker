@@ -138,57 +138,18 @@ func (e *Engine) ensureChromosomeLocked(name string, length int) uint16 {
 }
 
 func (e *Engine) resolveBAMRefChromIDLocked(name string, length int) uint16 {
-	if id, ok := e.chrToID[name]; ok {
-		if e.chrLength[name] < length {
-			e.chrLength[name] = length
+	if matchedName, matchedID, matchCount := e.resolveExistingChromMatchLocked(name, length, true); matchCount == 1 {
+		if e.chrLength[matchedName] < length {
+			e.chrLength[matchedName] = length
 		}
-		return id
-	}
-	normalized := normalizeChromAlias(name)
-	for _, chr := range e.chromOrder {
-		if e.chrLength[chr] != length {
-			continue
-		}
-		if normalizeChromAlias(chr) != normalized {
-			continue
-		}
-		return e.chrToID[chr]
+		return matchedID
 	}
 	return e.ensureChromosomeLocked(name, length)
 }
 
 func (e *Engine) resolveLoadedBAMRefChromIDLocked(name string, length int) (uint16, bool) {
-	if id, ok := e.chrToID[name]; ok {
-		return id, e.chrLength[name] == length
-	}
-	normalized := normalizeChromAlias(name)
-	var matchedID uint16
-	matchCount := 0
-	for _, chr := range e.chromOrder {
-		if e.chrLength[chr] != length {
-			continue
-		}
-		if normalizeChromAlias(chr) != normalized {
-			continue
-		}
-		matchedID = e.chrToID[chr]
-		matchCount++
-	}
+	_, matchedID, matchCount := e.resolveExistingChromMatchLocked(name, length, true)
 	return matchedID, matchCount == 1
-}
-
-func normalizeChromAlias(name string) string {
-	dot := strings.LastIndex(name, ".")
-	if dot <= 0 || dot >= len(name)-1 {
-		return name
-	}
-	suffix := name[dot+1:]
-	for _, r := range suffix {
-		if r < '0' || r > '9' {
-			return name
-		}
-	}
-	return name[:dot]
 }
 
 func resolveBAMIndexPath(bamPath string) (string, error) {
