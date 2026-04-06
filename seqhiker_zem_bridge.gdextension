@@ -1,0 +1,17 @@
+[configuration]
+
+entry_symbol = "seqhiker_zem_bridge_library_init"
+compatibility_minimum = "4.4"
+
+[libraries]
+
+macos.debug = "res://native/zem_bridge/bin/libseqhiker_zem_bridge.macos.template_debug"
+macos.release = "res://native/zem_bridge/bin/libseqhiker_zem_bridge.macos.template_release"
+linux.debug.x86_64 = "res://native/zem_bridge/bin/libseqhiker_zem_bridge.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://native/zem_bridge/bin/libseqhiker_zem_bridge.linux.template_release.x86_64.so"
+linux.debug.arm64 = "res://native/zem_bridge/bin/libseqhiker_zem_bridge.linux.template_debug.arm64.so"
+linux.release.arm64 = "res://native/zem_bridge/bin/libseqhiker_zem_bridge.linux.template_release.arm64.so"
+windows.debug.x86_64 = "res://native/zem_bridge/bin/libseqhiker_zem_bridge.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://native/zem_bridge/bin/libseqhiker_zem_bridge.windows.template_release.x86_64.dll"
+windows.debug.arm64 = "res://native/zem_bridge/bin/libseqhiker_zem_bridge.windows.template_debug.arm64.dll"
+windows.release.arm64 = "res://native/zem_bridge/bin/libseqhiker_zem_bridge.windows.template_release.arm64.dll"

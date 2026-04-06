@@ -40,3 +40,122 @@ jobs:
 
       - name: Headless Godot startup smoke test
         run: /tmp/godot/Godot_v4.4.1-stable_linux.x86_64 --headless --path . --quit-after 1
+
+  native-bridge-required:
+    name: Native Bridge Required (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux/x86_64
+            target_label: linux-x86_64
+          - runner: windows-latest
+            target: windows/x86_64
+            target_label: windows-x86_64
+          - runner: macos-latest
+            target: macos/arm64
+            target_label: macos-arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: zem/go.mod
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install SCons
+        shell: bash
+        run: python -m pip install scons
+
+      - name: Check out godot-cpp
+        uses: actions/checkout@v4
+        with:
+          repository: godotengine/godot-cpp
+          ref: godot-4.4-stable
+          path: external/godot-cpp
+
+      - name: Build native backend bridge
+        shell: bash
+        env:
+          GODOT_CPP_DIR: ${{ github.workspace }}/external/godot-cpp
+        run: |
+          set -euo pipefail
+          bash ./build_zem_gdextension.sh \
+            --target "${{ matrix.target }}" \
+            --out-dir "${{ github.workspace }}/build/native-bridge/${{ matrix.target }}"
+
+      - name: Upload native bridge artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-bridge-required-${{ matrix.target_label }}
+          path: build/native-bridge/${{ matrix.target }}
+          if-no-files-found: error
+
+  native-bridge-experimental:
+    name: Native Bridge Experimental (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux/arm64
+            target_label: linux-arm64
+          - runner: windows-latest
+            target: windows/arm64
+            target_label: windows-arm64
+          - runner: macos-latest
+            target: macos/x86_64
+            target_label: macos-x86_64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: zem/go.mod
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install SCons
+        shell: bash
+        run: python -m pip install scons
+
+      - name: Check out godot-cpp
+        uses: actions/checkout@v4
+        with:
+          repository: godotengine/godot-cpp
+          ref: godot-4.4-stable
+          path: external/godot-cpp
+
+      - name: Build native backend bridge
+        shell: bash
+        env:
+          GODOT_CPP_DIR: ${{ github.workspace }}/external/godot-cpp
+        run: |
+          set -euo pipefail
+          bash ./build_zem_gdextension.sh \
+            --target "${{ matrix.target }}" \
+            --out-dir "${{ github.workspace }}/build/native-bridge/${{ matrix.target }}"
+
+      - name: Upload native bridge artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-bridge-experimental-${{ matrix.target_label }}
+          path: build/native-bridge/${{ matrix.target }}
+          if-no-files-found: error

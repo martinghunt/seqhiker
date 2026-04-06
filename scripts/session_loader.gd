@@ -12,8 +12,11 @@ func on_files_dropped(files: PackedStringArray) -> void:
 	_load_paths(files)
 
 
-func load_server_paths(files: PackedStringArray) -> Dictionary:
+func load_backend_paths(files: PackedStringArray) -> Dictionary:
 	return _load_paths(files)
+
+func load_server_paths(files: PackedStringArray) -> Dictionary:
+	return load_backend_paths(files)
 
 func apply_already_loaded_genome(files: PackedStringArray) -> void:
 	host._reset_loaded_state()
@@ -34,7 +37,7 @@ func reset_browser_state() -> bool:
 
 
 func _load_paths(files: PackedStringArray) -> Dictionary:
-	if not ensure_server_connected():
+	if not ensure_backend_connected():
 		return {"ok": false, "error": str(host._last_status_message)}
 	var drop_info: Dictionary = inspect_dropped_files(files)
 	if not drop_info.get("ok", false):
@@ -79,23 +82,16 @@ func _load_paths(files: PackedStringArray) -> Dictionary:
 	return {"ok": true}
 
 
-func ensure_server_connected() -> bool:
+func ensure_backend_connected() -> bool:
 	if host._zem.ensure_connected():
 		refresh_sequence_loaded_state()
 		host._set_status("Connected")
 		return true
-	var host_ip: String = "127.0.0.1"
-	var port: int = host.ZEM_DEFAULT_PORT
-	if host._local_zem_manager.connect_with_local_fallback(host_ip, port):
-		refresh_sequence_loaded_state()
-		host._set_status("Connected %s:%d" % [host_ip, port])
-		return true
-	var msg: String = "Disconnected"
-	var last_error: String = host._local_zem_manager.last_error()
-	if not last_error.is_empty():
-		msg = last_error
-	host._set_status(msg, true)
+	host._set_status("Backend unavailable", true)
 	return false
+
+func ensure_server_connected() -> bool:
+	return ensure_backend_connected()
 
 
 func refresh_sequence_loaded_state() -> void:
@@ -255,7 +251,7 @@ func refresh_chromosomes(reset_viewport: bool = true) -> void:
 		host._annotation_counts_by_chr = counts_resp.get("counts", {})
 	else:
 		host._annotation_counts_by_chr = {}
-		host._set_status("Annotation preload disabled: counts unavailable (restart seqhiker server)", true)
+		host._set_status("Annotation preload disabled: counts unavailable", true)
 	rebuild_concat_segments()
 	refresh_sequence_options()
 	if host._go_controller != null:

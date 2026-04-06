@@ -1,0 +1,45 @@
+#!/usr/bin/env python
+
+import os
+
+godot_cpp_dir = os.environ.get("GODOT_CPP_DIR", "/tmp/godot-cpp-4.4")
+zem_cshared_dir = os.environ.get("ZEM_CSHARED_DIR", "../../bin/cshared")
+bridge_out_dir = os.environ.get("BRIDGE_OUT_DIR", "bin")
+bridge_rpath = os.environ.get("BRIDGE_RPATH", "@loader_path/../../../bin/cshared")
+
+env = SConscript(os.path.join(godot_cpp_dir, "SConstruct"))
+env.Append(CPPPATH=["src/", zem_cshared_dir])
+env.Append(LIBPATH=[zem_cshared_dir])
+env.Append(LIBS=["zem"])
+
+if env["platform"] == "macos":
+    env.Append(LINKFLAGS=["-Wl,-rpath,{}".format(bridge_rpath)])
+elif env["platform"] == "linux":
+    env.Append(LINKFLAGS=["-Wl,-rpath,$ORIGIN/../../cshared"])
+
+sources = Glob("src/*.cpp")
+
+if env["platform"] == "macos":
+    library = env.SharedLibrary(
+        "{}/libseqhiker_zem_bridge.{}.{}".format(bridge_out_dir, env["platform"], env["target"]),
+        source=sources,
+    )
+elif env["platform"] == "ios":
+    if env["ios_simulator"]:
+        library = env.StaticLibrary(
+            "{}/libseqhiker_zem_bridge.{}.{}.simulator".format(bridge_out_dir, env["platform"], env["target"]),
+            source=sources,
+        )
+    else:
+        library = env.StaticLibrary(
+            "{}/libseqhiker_zem_bridge.{}.{}".format(bridge_out_dir, env["platform"], env["target"]),
+            source=sources,
+        )
+else:
+    library = env.SharedLibrary(
+        "{}/libseqhiker_zem_bridge{}{}".format(bridge_out_dir, env["suffix"], env["SHLIBSUFFIX"]),
+        source=sources,
+    )
+
+env.NoCache(library)
+Default(library)

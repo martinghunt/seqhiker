@@ -2,7 +2,6 @@ extends Control
 
 const ThemesLibScript = preload("res://scripts/themes.gd")
 const ZemClientScript = preload("res://scripts/zem_client.gd")
-const LocalZemManagerScript = preload("res://scripts/local_zem_manager.gd")
 const TileControllerScript = preload("res://scripts/tile_controller.gd")
 const SearchControllerScript = preload("res://scripts/search_controller.gd")
 const GoControllerScript = preload("res://scripts/go_controller.gd")
@@ -16,7 +15,6 @@ const SessionLoaderScript = preload("res://scripts/session_loader.gd")
 const ComparisonControllerScript = preload("res://scripts/comparison_controller.gd")
 const ReadTrackSettingsPanelScene = preload("res://scenes/ReadTrackSettingsPanel.tscn")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
-const ZEM_BIN_SUBDIR := "bin"
 const ZEM_DEFAULT_PORT := 9000
 const READ_DETAIL_MAX_ZOOM := 7
 const READ_RENDER_MAX_BP_PER_PX := 128.0
@@ -203,11 +201,6 @@ var _download_thread: Thread
 var _download_in_progress := false
 var _screenshot_dialog: FileDialog
 var _comparison_save_dialog: FileDialog
-var _startup_zem_prepare_thread: Thread
-var _startup_zem_connect_thread: Thread
-var _startup_zem_host := "127.0.0.1"
-var _startup_zem_port := ZEM_DEFAULT_PORT
-var _local_zem_manager: RefCounted
 var _connected_zem_version := ""
 var _current_chr_id := -1
 var _current_chr_name := ""
@@ -330,8 +323,6 @@ var _sound_controller: RefCounted
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
-	_local_zem_manager = LocalZemManagerScript.new()
-	_local_zem_manager.configure(_zem, ZEM_BIN_SUBDIR)
 	_tile_controller = TileControllerScript.new()
 	_search_controller = SearchControllerScript.new()
 	_annotation_cache_controller = AnnotationCacheControllerScript.new()
@@ -342,7 +333,7 @@ func _ready() -> void:
 	_variant_controller.configure(self)
 	_session_loader = SessionLoaderScript.new()
 	_session_loader.configure(self)
-	_tile_controller.configure(Callable(self, "_compute_tile_zoom"))
+	_tile_controller.configure(Callable(self, "_compute_tile_zoom"), Callable(self, "_spawn_background_zem_client"))
 	_themes_lib = ThemesLibScript.new()
 	_comparison_controller = ComparisonControllerScript.new()
 	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
@@ -394,7 +385,6 @@ func _ready() -> void:
 	_update_feature_panel_width()
 	_apply_feature_panel_offsets(false)
 	call_deferred("_initialize_settings_panel")
-	call_deferred("_startup_connect_local_zem")
 	if get_window().has_signal("files_dropped"):
 		get_window().files_dropped.connect(_on_files_dropped)
 	if screenshot_button != null:
@@ -555,77 +545,6 @@ func _initialize_settings_panel() -> void:
 	genome_view.set_empty_state_status("")
 	call_deferred("_update_settings_panel_width")
 	call_deferred("_update_feature_panel_width")
-
-func _startup_connect_local_zem() -> void:
-	_startup_zem_host = "127.0.0.1"
-	_startup_zem_port = ZEM_DEFAULT_PORT
-	if not _local_zem_manager.should_try_local(_startup_zem_host):
-		return
-	_set_status("Preparing seqhiker server...")
-	genome_view.set_empty_state_status("Preparing seqhiker server...")
-	_startup_zem_prepare_thread = Thread.new()
-	var err := _startup_zem_prepare_thread.start(Callable(self, "_startup_prepare_local_zem_worker"))
-	if err != OK:
-		_startup_zem_prepare_thread = null
-		_set_status("Could not start seqhiker server preparation thread: %s" % error_string(err), true)
-		genome_view.set_empty_state_status("Could not start seqhiker server preparation.")
-		return
-
-func _startup_prepare_local_zem_worker() -> Dictionary:
-	var ok: bool = _local_zem_manager.ensure_local_zem_installed()
-	return {
-		"ok": ok,
-		"error": _local_zem_manager.last_error()
-	}
-
-func _finish_startup_prepare_local_zem(result: Variant) -> void:
-	var resp: Dictionary = result if result is Dictionary else {}
-	if not bool(resp.get("ok", false)):
-		var last_error := str(resp.get("error", "")).strip_edges()
-		if not last_error.is_empty():
-			_set_status(last_error, true)
-			genome_view.set_empty_state_status(last_error)
-		else:
-			_set_status("Local seqhiker server missing and install failed.", true)
-			genome_view.set_empty_state_status("Local seqhiker server missing and install failed.")
-		return
-	genome_view.set_empty_state_status("Starting seqhiker server...")
-	_set_status("Starting seqhiker server...")
-	_startup_zem_connect_thread = Thread.new()
-	var err := _startup_zem_connect_thread.start(Callable(self, "_startup_connect_local_zem_worker").bind(_startup_zem_host, _startup_zem_port))
-	if err != OK:
-		_startup_zem_connect_thread = null
-		_set_status("Could not start seqhiker server connection thread: %s" % error_string(err), true)
-		genome_view.set_empty_state_status("Could not start seqhiker server.")
-
-func _startup_connect_local_zem_worker(host: String, port: int) -> Dictionary:
-	var ok: bool = _local_zem_manager.connect_with_local_fallback(host, port, 100, 180, 100)
-	return {
-		"ok": ok,
-		"error": _local_zem_manager.last_error()
-	}
-
-func _finish_startup_connect_local_zem(result: Variant) -> void:
-	var resp: Dictionary = result if result is Dictionary else {}
-	if not bool(resp.get("ok", false)):
-		var last_error := str(resp.get("error", "")).strip_edges()
-		if not last_error.is_empty():
-			_set_status(last_error, true)
-			genome_view.set_empty_state_status(last_error)
-		else:
-			_set_status("Unable to start seqhiker server.", true)
-			genome_view.set_empty_state_status("Unable to start seqhiker server.")
-		return
-	_zem.disconnect_from_server()
-	if not _zem.connect_to_server(_startup_zem_host, _startup_zem_port, 500):
-		_set_status("Seqhiker server started but reconnect failed.", true)
-		genome_view.set_empty_state_status("Seqhiker server started but reconnect failed.")
-		return
-	var version_resp: Dictionary = _zem.get_server_version()
-	_connected_zem_version = str(version_resp.get("version", "")).strip_edges() if bool(version_resp.get("ok", false)) else ""
-	_set_status("Connected %s:%d" % [_startup_zem_host, _startup_zem_port])
-	genome_view.set_empty_state_status("")
-	_update_debug_stats_label()
 
 func _setup_fetch_timer() -> void:
 	_fetch_timer = Timer.new()
@@ -1427,7 +1346,7 @@ func _open_user_data_dir() -> void:
 func _start_generate_test_data() -> void:
 	if _generate_test_data_in_progress:
 		return
-	if not _session_loader.ensure_server_connected():
+	if not _session_loader.ensure_backend_connected():
 		return
 	var out_dir := _generated_test_data_dir()
 	var mk_err := DirAccess.make_dir_recursive_absolute(out_dir)
@@ -1454,7 +1373,7 @@ func _start_generate_test_data() -> void:
 func _start_generate_comparison_test_data() -> void:
 	if _generate_comparison_test_data_in_progress:
 		return
-	if not _session_loader.ensure_server_connected():
+	if not _session_loader.ensure_backend_connected():
 		return
 	var out_dir := _generated_comparison_test_data_dir()
 	var mk_err := DirAccess.make_dir_recursive_absolute(out_dir)
@@ -1479,16 +1398,21 @@ func _start_generate_comparison_test_data() -> void:
 	_set_status("Generating comparison test genomes...")
 
 func _generate_test_data_thread_main(host_ip: String, port: int, out_dir: String) -> Dictionary:
-	var client = ZemClientScript.new()
+	var client = _spawn_background_zem_client()
 	if not client.connect_to_server(host_ip, port, 2000):
 		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
 	return client.generate_test_data(out_dir)
 
 func _generate_comparison_test_data_thread_main(host_ip: String, port: int, out_dir: String) -> Dictionary:
-	var client = ZemClientScript.new()
+	var client = _spawn_background_zem_client()
 	if not client.connect_to_server(host_ip, port, 2000):
 		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
 	return client.generate_comparison_test_data(out_dir)
+
+func _spawn_background_zem_client() -> RefCounted:
+	if _zem != null and _zem.has_method("spawn_peer_client"):
+		return _zem.spawn_peer_client()
+	return ZemClientScript.new()
 
 func _show_native_info_dialog(title: String, message: String) -> void:
 	if DisplayServer.has_method("dialog_show"):
@@ -1550,7 +1474,7 @@ func _finish_generate_test_data(result_any: Variant) -> void:
 		_set_status("Generate test data failed: no files returned.", true)
 		return
 	_set_app_mode(APP_MODE_BROWSER)
-	var load_resp: Dictionary = _session_loader.load_server_paths(files)
+	var load_resp: Dictionary = _session_loader.load_backend_paths(files)
 	if not load_resp.get("ok", false):
 		_set_status("Generate test data load failed: %s" % load_resp.get("error", "error"), true)
 		return
@@ -1891,7 +1815,10 @@ func _update_debug_stats_label() -> void:
 		_connected_zem_version = str(version_resp.get("version", "")).strip_edges()
 		status_prefix = "OK"
 		var conn_info: Dictionary = _zem.connection_info()
-		status_message = "Connected %s:%d" % [str(conn_info.get("host", "127.0.0.1")), int(conn_info.get("port", ZEM_DEFAULT_PORT))]
+		if conn_info.has("host") and conn_info.has("port"):
+			status_message = "Connected %s:%d" % [str(conn_info.get("host", "127.0.0.1")), int(conn_info.get("port", ZEM_DEFAULT_PORT))]
+		else:
+			status_message = "Connected %s" % str(conn_info.get("mode", "backend"))
 	var hit_pct := 0.0
 	if _dbg_ann_tile_requests > 0:
 		hit_pct = 100.0 * float(_dbg_ann_tile_cache_hits) / float(_dbg_ann_tile_requests)
@@ -1899,7 +1826,7 @@ func _update_debug_stats_label() -> void:
 	var godot_version := str(ProjectSettings.get_setting("application/config/version", "")).strip_edges()
 	var zem_version := _connected_zem_version if not _connected_zem_version.is_empty() else "unknown"
 	var versions_match := "true" if not godot_version.is_empty() and godot_version == _connected_zem_version else "false"
-	_debug_stats_label.text = "Godot version: %s\nZem version: %s\nVersions match: %s\nServer [%s]: %s\nViewport: %s\nScale: %s\nAnn tiles req=%d, cache_hit=%d (%.1f%%), queried=%d\nAnn feats in=%d, out=%d, fetch=%.2fms\nAnn draw seen=%d, drawn=%d, labels=%d, hitboxes=%d, draw=%.2fms" % [
+	_debug_stats_label.text = "Godot version: %s\nZem version: %s\nVersions match: %s\nBackend [%s]: %s\nViewport: %s\nScale: %s\nAnn tiles req=%d, cache_hit=%d (%.1f%%), queried=%d\nAnn feats in=%d, out=%d, fetch=%.2fms\nAnn draw seen=%d, drawn=%d, labels=%d, hitboxes=%d, draw=%.2fms" % [
 		godot_version,
 		zem_version,
 		versions_match,
@@ -2613,7 +2540,7 @@ func _start_download_genome() -> void:
 	if accession.is_empty():
 		_set_download_status("Enter an accession.", true)
 		return
-	if not _session_loader.ensure_server_connected():
+	if not _session_loader.ensure_backend_connected():
 		return
 	var cache_dir := _genome_cache_dir()
 	var mk_err := DirAccess.make_dir_recursive_absolute(cache_dir)
@@ -2640,7 +2567,7 @@ func _start_download_genome() -> void:
 	_set_download_status("Downloading %s..." % accession)
 
 func _download_genome_thread(accession: String, host_ip: String, port: int, cache_dir: String, max_cache_bytes: int) -> Dictionary:
-	var client = ZemClientScript.new()
+	var client = _spawn_background_zem_client()
 	if not client.connect_to_server(host_ip, port, 2000):
 		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
 	return client.download_genome(accession, cache_dir, max_cache_bytes)
@@ -2843,7 +2770,7 @@ func _apply_topbar_button_font_size() -> void:
 func _on_files_dropped(files: PackedStringArray) -> void:
 	if not files.is_empty():
 		_play_ui_sound(SoundControllerScript.SOUND_FILE_DROP)
-	if not _ensure_server_connected():
+	if not _ensure_backend_connected():
 		return
 	for file_any in files:
 		var path := str(file_any)
@@ -2867,8 +2794,11 @@ func _on_comparison_clear_pressed() -> void:
 	if _top_bar_controller != null:
 		_top_bar_controller.on_clear_pressed()
 
+func _ensure_backend_connected() -> bool:
+	return _session_loader.ensure_backend_connected()
+
 func _ensure_server_connected() -> bool:
-	return _session_loader.ensure_server_connected()
+	return _ensure_backend_connected()
 
 func _refresh_sequence_loaded_state() -> void:
 	_session_loader.refresh_sequence_loaded_state()
@@ -2888,14 +2818,6 @@ func _exit_tree() -> void:
 	if _generate_comparison_test_data_thread != null and _generate_comparison_test_data_thread.is_started():
 		_generate_comparison_test_data_thread.wait_to_finish()
 		_generate_comparison_test_data_thread = null
-	if _startup_zem_prepare_thread != null and _startup_zem_prepare_thread.is_started():
-		_startup_zem_prepare_thread.wait_to_finish()
-		_startup_zem_prepare_thread = null
-	if _startup_zem_connect_thread != null and _startup_zem_connect_thread.is_started():
-		_startup_zem_connect_thread.wait_to_finish()
-		_startup_zem_connect_thread = null
-	if _local_zem_manager != null:
-		_local_zem_manager.shutdown_on_exit()
 
 func _load_dropped_files(files: PackedStringArray) -> bool:
 	return _session_loader.load_dropped_files(files)
@@ -3525,14 +3447,6 @@ func _process(_delta: float) -> void:
 		var comparison_generate_result: Variant = _generate_comparison_test_data_thread.wait_to_finish()
 		_generate_comparison_test_data_thread = null
 		_finish_generate_comparison_test_data(comparison_generate_result)
-	if _startup_zem_prepare_thread != null and _startup_zem_prepare_thread.is_started() and not _startup_zem_prepare_thread.is_alive():
-		var prepare_result: Variant = _startup_zem_prepare_thread.wait_to_finish()
-		_startup_zem_prepare_thread = null
-		_finish_startup_prepare_local_zem(prepare_result)
-	if _startup_zem_connect_thread != null and _startup_zem_connect_thread.is_started() and not _startup_zem_connect_thread.is_alive():
-		var connect_result: Variant = _startup_zem_connect_thread.wait_to_finish()
-		_startup_zem_connect_thread = null
-		_finish_startup_connect_local_zem(connect_result)
 	if not _auto_play_enabled:
 		return
 	if _current_chr_len <= 0:

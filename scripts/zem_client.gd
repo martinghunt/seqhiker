@@ -1,6 +1,8 @@
 extends RefCounted
 class_name ZemClient
 
+const ZemNativeTransportScript = preload("res://scripts/zem_native_transport.gd")
+
 const MSG_LOAD_GENOME := 1
 const MSG_LOAD_BAM := 2
 const MSG_GET_TILE := 3
@@ -47,42 +49,32 @@ const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
 const LOAD_TIMEOUT_MS := 120000
 
-var _tcp: StreamPeerTCP = StreamPeerTCP.new()
-var _host: String = "127.0.0.1"
-var _port: int = 9000
-var _request_id: int = 1
+var _transport: RefCounted = ZemNativeTransportScript.new()
 
 func connect_to_server(host: String = "127.0.0.1", port: int = 9000, timeout_ms: int = 1200) -> bool:
-	var status := _tcp.get_status()
-	if status == StreamPeerTCP.STATUS_CONNECTED and host == _host and port == _port:
-		return true
-	if status != StreamPeerTCP.STATUS_NONE:
-		# Reset peer state to avoid ERR_ALREADY_IN_USE on reconnect attempts.
-		_tcp.disconnect_from_host()
-		_tcp = StreamPeerTCP.new()
-	_host = host
-	_port = port
-	var err: int = _tcp.connect_to_host(host, port)
-	if err != OK:
-		return false
-	var started: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - started < timeout_ms:
-		_tcp.poll()
-		if _tcp.get_status() == StreamPeerTCP.STATUS_CONNECTED:
-			return true
-		if _tcp.get_status() == StreamPeerTCP.STATUS_ERROR:
-			return false
-		OS.delay_msec(10)
-	return _tcp.get_status() == StreamPeerTCP.STATUS_CONNECTED
+	return _transport.connect_to_server(host, port, timeout_ms)
 
 func disconnect_from_server() -> void:
-	if _tcp.get_status() == StreamPeerTCP.STATUS_CONNECTED:
-		_tcp.disconnect_from_host()
+	_transport.disconnect_from_server()
 
 func ensure_connected() -> bool:
-	if _tcp.get_status() == StreamPeerTCP.STATUS_CONNECTED:
-		return true
-	return connect_to_server(_host, _port)
+	return _transport.ensure_connected()
+
+func set_transport(transport: RefCounted) -> void:
+	if transport == null:
+		return
+	_transport = transport
+
+func spawn_peer_client() -> RefCounted:
+	var client: RefCounted = get_script().new()
+	if _transport != null and _transport.has_method("spawn_peer_transport"):
+		client.set_transport(_transport.spawn_peer_transport())
+	return client
+
+func requires_server_process() -> bool:
+	if _transport != null and _transport.has_method("requires_server_process"):
+		return bool(_transport.requires_server_process())
+	return true
 
 func load_genome(path: String) -> Dictionary:
 	var path_bytes := path.to_utf8_buffer()
@@ -576,73 +568,13 @@ func generate_comparison_test_data(root_dir: String) -> Dictionary:
 	return resp
 
 func connection_info() -> Dictionary:
-	return {"host": _host, "port": _port}
+	return _transport.connection_info()
 
 func shutdown_server(timeout_ms: int = 600) -> Dictionary:
 	return _send_request(MSG_SHUTDOWN, PackedByteArray(), timeout_ms)
 
 func _send_request(msg_type: int, payload: PackedByteArray, timeout_ms: int = REQUEST_TIMEOUT_MS) -> Dictionary:
-	if not ensure_connected():
-		return {"ok": false, "error": "Unable to connect to %s:%d" % [_host, _port]}
-	var req_id := _next_request_id()
-	var frame := PackedByteArray()
-	frame.resize(8 + payload.size())
-	frame.encode_u32(0, payload.size())
-	frame.encode_u16(4, msg_type)
-	frame.encode_u16(6, req_id)
-	for i in range(payload.size()):
-		frame[8 + i] = payload[i]
-
-	var put_err := _tcp.put_data(frame)
-	if put_err != OK:
-		return {"ok": false, "error": "Write failed"}
-
-	var header_result := _read_exact(8, timeout_ms)
-	if header_result["error"] != OK:
-		return {"ok": false, "error": "Failed to read response header: %s" % _describe_stream_error(int(header_result["error"]))}
-	var hdr: PackedByteArray = header_result["data"]
-	var length := hdr.decode_u32(0)
-	var res_type := hdr.decode_u16(4)
-	var payload_result := _read_exact(length, timeout_ms)
-	if payload_result["error"] != OK:
-		return {"ok": false, "error": "Failed to read response payload: %s" % _describe_stream_error(int(payload_result["error"]))}
-	var res_payload: PackedByteArray = payload_result["data"]
-
-	if res_type == MSG_ERROR:
-		return {"ok": false, "error": _decode_error_string(res_payload)}
-	return {
-		"ok": true,
-		"type": res_type,
-		"payload": res_payload
-	}
-
-func _read_exact(bytes: int, timeout_ms: int = REQUEST_TIMEOUT_MS) -> Dictionary:
-	var out := PackedByteArray()
-	out.resize(0)
-	var started: int = Time.get_ticks_msec()
-	while out.size() < bytes:
-		_tcp.poll()
-		if _tcp.get_status() != StreamPeerTCP.STATUS_CONNECTED:
-			return {"error": ERR_CONNECTION_ERROR, "data": out}
-		if _tcp.get_available_bytes() > 0:
-			var to_read: int = mini(bytes - out.size(), _tcp.get_available_bytes())
-			var result := _tcp.get_data(to_read)
-			if result[0] != OK:
-				return {"error": result[0], "data": out}
-			out.append_array(result[1])
-			continue
-		if Time.get_ticks_msec() - started > timeout_ms:
-			return {"error": ERR_TIMEOUT, "data": out}
-		OS.delay_msec(4)
-	return {"error": OK, "data": out}
-
-func _decode_error_string(payload: PackedByteArray) -> String:
-	if payload.size() < 2:
-		return "Unknown server error"
-	var ln := payload.decode_u16(0)
-	if payload.size() < 2 + ln:
-		return "Malformed server error"
-	return _decode_wire_text(payload.slice(2, 2 + ln))
+	return _transport.send_request(msg_type, payload, timeout_ms)
 
 func _decode_ack_message(payload: PackedByteArray) -> String:
 	if payload.size() < 2:
@@ -651,17 +583,6 @@ func _decode_ack_message(payload: PackedByteArray) -> String:
 	if payload.size() < 2 + ln:
 		return ""
 	return _decode_wire_text(payload.slice(2, 2 + ln))
-
-func _describe_stream_error(err: int) -> String:
-	match err:
-		OK:
-			return "ok"
-		ERR_TIMEOUT:
-			return "timeout"
-		ERR_CONNECTION_ERROR:
-			return "connection closed"
-		_:
-			return error_string(err)
 
 func _parse_chromosomes(payload: PackedByteArray) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
@@ -1406,9 +1327,3 @@ func _trim_attr_value(value: String) -> String:
 	if out.length() >= 2 and out.begins_with("\"") and out.ends_with("\""):
 		out = out.substr(1, out.length() - 2)
 	return out
-
-func _next_request_id() -> int:
-	_request_id = (_request_id + 1) & 0xFFFF
-	if _request_id == 0:
-		_request_id = 1
-	return _request_id

@@ -15,6 +15,7 @@ const TILE_PRUNE_MARGIN := 2
 const ANNOT_TILE_BASE_BP := 1024
 
 var _compute_tile_zoom_cb: Callable
+var _client_factory_cb: Callable
 var _read_tile_cache: Dictionary = {}
 var _coverage_tile_cache: Dictionary = {}
 var _strand_coverage_tile_cache: Dictionary = {}
@@ -32,8 +33,9 @@ var _stop_requested := false
 var _pending_requests: Array[Dictionary] = []
 var _result_queue: Array[Dictionary] = []
 
-func configure(compute_tile_zoom_cb: Callable) -> void:
+func configure(compute_tile_zoom_cb: Callable, client_factory_cb: Callable = Callable()) -> void:
 	_compute_tile_zoom_cb = compute_tile_zoom_cb
+	_client_factory_cb = client_factory_cb
 
 func reset() -> void:
 	_mutex.lock()
@@ -81,7 +83,7 @@ func poll_result() -> Dictionary:
 	return result
 
 func _worker_main() -> void:
-	var zem = ZemClientScript.new()
+	var zem = _make_client()
 	while true:
 		_semaphore.wait()
 		var request: Dictionary = {}
@@ -99,6 +101,13 @@ func _worker_main() -> void:
 		_result_queue.append(result)
 		_mutex.unlock()
 	zem.disconnect_from_server()
+
+func _make_client() -> RefCounted:
+	if _client_factory_cb.is_valid():
+		var client: Variant = _client_factory_cb.call()
+		if client != null:
+			return client
+	return ZemClientScript.new()
 
 func _fetch_visible_tiles_sync(zem, request: Dictionary) -> Dictionary:
 	var host := str(request.get("host", "127.0.0.1"))
