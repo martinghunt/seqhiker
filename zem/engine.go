@@ -14,6 +14,9 @@ import (
 )
 
 const baseTileSize = 1024
+
+var ErrNilBackend = errors.New("nil backend")
+
 const (
 	readTileCacheKind      uint8 = 1
 	covTileCacheKind       uint8 = 2

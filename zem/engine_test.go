@@ -889,6 +889,20 @@ func TestDispatchGetVersion(t *testing.T) {
 	}
 }
 
+func TestBackendHandleMessageGetVersion(t *testing.T) {
+	backend := NewBackend()
+	msgType, payload, err := backend.HandleMessage(MsgGetVersion, nil)
+	if err != nil {
+		t.Fatalf("Backend.HandleMessage returned error: %v", err)
+	}
+	if msgType != MsgGetVersion {
+		t.Fatalf("unexpected message type: got %d, want %d", msgType, MsgGetVersion)
+	}
+	if got := decodeWireAckForTest(t, payload); got != ZemVersion {
+		t.Fatalf("unexpected version payload: got %q, want %q", got, ZemVersion)
+	}
+}
+
 func TestGenerateTestData(t *testing.T) {
 	e := NewEngine()
 	root := t.TempDir()
