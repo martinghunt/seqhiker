@@ -107,7 +107,7 @@ fi
 echo "Building zem c-shared ${VERSION} for ${goos}/${goarch} -> ${OUT_DIR}/${lib_name}"
 (
 	cd "${ZEM_DIR}"
-	GOOS="${goos}" GOARCH="${goarch}" go build -buildmode=c-shared -trimpath -ldflags="-s -w -X seqhiker/zem.ZemVersion=${VERSION}" -o "${OUT_DIR}/${lib_name}" ./cmd/zemcshared
+	CGO_ENABLED="${CGO_ENABLED:-1}" GOOS="${goos}" GOARCH="${goarch}" go build -buildmode=c-shared -trimpath -ldflags="-s -w -X seqhiker/zem.ZemVersion=${VERSION}" -o "${OUT_DIR}/${lib_name}" ./cmd/zemcshared
 )
 
 if [[ "${goos}" == "darwin" ]]; then
@@ -117,3 +117,6 @@ fi
 echo "Done. Outputs:"
 echo "  ${OUT_DIR}/${lib_name}"
 echo "  ${OUT_DIR}/libzem.h"
+if [[ "${goos}" == "windows" ]]; then
+	echo "  ${OUT_DIR}/libzem.lib"
+fi

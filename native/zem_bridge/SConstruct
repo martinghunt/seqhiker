@@ -10,7 +10,10 @@ bridge_rpath = os.environ.get("BRIDGE_RPATH", "@loader_path/../../../bin/cshared
 env = SConscript(os.path.join(godot_cpp_dir, "SConstruct"))
 env.Append(CPPPATH=["src/", zem_cshared_dir])
 env.Append(LIBPATH=[zem_cshared_dir])
-env.Append(LIBS=["zem"])
+if env["platform"] == "windows":
+    env.Append(LIBS=[os.path.join(zem_cshared_dir, "libzem.lib")])
+else:
+    env.Append(LIBS=["zem"])
 
 if env["platform"] == "macos":
     env.Append(LINKFLAGS=["-Wl,-rpath,{}".format(bridge_rpath)])
