@@ -877,9 +877,9 @@ func TestCoverageTailTilesUseProportionalBinCount(t *testing.T) {
 }
 
 func TestDispatchGetVersion(t *testing.T) {
-	msgType, payload, err := dispatch(NewEngine(), MsgGetVersion, nil)
+	msgType, payload, err := HandleMessage(NewEngine(), MsgGetVersion, nil)
 	if err != nil {
-		t.Fatalf("dispatch returned error: %v", err)
+		t.Fatalf("HandleMessage returned error: %v", err)
 	}
 	if msgType != MsgGetVersion {
 		t.Fatalf("unexpected message type: got %d, want %d", msgType, MsgGetVersion)

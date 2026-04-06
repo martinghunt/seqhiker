@@ -66,7 +66,7 @@ func handleConnection(conn net.Conn, engine *Engine, state *serverState) {
 			return
 		}
 
-		responseType, response, err := dispatch(engine, header.MessageType, payload)
+		responseType, response, err := HandleMessage(engine, header.MessageType, payload)
 		if err != nil {
 			sendError(conn, header.RequestID, err.Error())
 			continue
@@ -80,7 +80,7 @@ func handleConnection(conn net.Conn, engine *Engine, state *serverState) {
 	}
 }
 
-func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, error) {
+func HandleMessage(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, error) {
 	switch msgType {
 	case MsgLoadGenome:
 		path, err := decodePathPayload(payload)
