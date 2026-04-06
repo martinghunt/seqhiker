@@ -41,34 +41,41 @@ jobs:
       - name: Headless Godot startup smoke test
         run: /tmp/godot/Godot_v4.4.1-stable_linux.x86_64 --headless --path . --quit-after 1
 
-  native-bridge-required:
-    name: Native Bridge Required (${{ matrix.target }})
+  native-bridge-experimental:
+    name: Native Bridge Experimental (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
-            target: linux/x86_64
-            target_label: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            target: linux/arm64
+            target_label: linux-arm64
             cgo_cc: ""
             cgo_cxx: ""
+            scons_ar: ""
+            scons_ranlib: ""
             cgo_cflags: ""
             cgo_cxxflags: ""
             cgo_ldflags: ""
-          - runner: windows-latest
-            target: windows/x86_64
-            target_label: windows-x86_64
+          - runner: windows-11-arm
+            target: windows/arm64
+            target_label: windows-arm64
             cgo_cc: ""
             cgo_cxx: ""
+            scons_ar: ""
+            scons_ranlib: ""
             cgo_cflags: ""
             cgo_cxxflags: ""
             cgo_ldflags: ""
-          - runner: macos-latest
-            target: macos/arm64
-            target_label: macos-arm64
+          - runner: macos-15-intel
+            target: macos/x86_64
+            target_label: macos-x86_64
             cgo_cc: ""
             cgo_cxx: ""
+            scons_ar: ""
+            scons_ranlib: ""
             cgo_cflags: ""
             cgo_cxxflags: ""
             cgo_ldflags: ""
@@ -92,123 +99,13 @@ jobs:
         run: python -m pip install scons
 
       - name: Set up Windows build environment
-        if: startsWith(matrix.target, 'windows/')
+        if: matrix.target == 'windows/arm64'
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $installPath = & $vswhere -latest -products * -property installationPath
           $vsDevCmd = Join-Path $installPath "Common7\Tools\VsDevCmd.bat"
-          $arch = "amd64"
-          $envDump = cmd /c "`"$vsDevCmd`" -arch=$arch -host_arch=amd64 >nul && set"
-          $envDump | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Check out godot-cpp
-        uses: actions/checkout@v4
-        with:
-          repository: godotengine/godot-cpp
-          ref: godot-4.4-stable
-          path: external/godot-cpp
-
-      - name: Build native backend bridge
-        shell: bash
-        env:
-          GODOT_CPP_DIR: ${{ github.workspace }}/external/godot-cpp
-          CC: ${{ matrix.cgo_cc }}
-          CXX: ${{ matrix.cgo_cxx }}
-          SCONS_CC: ${{ matrix.cgo_cc }}
-          SCONS_CXX: ${{ matrix.cgo_cxx }}
-          CGO_CFLAGS: ${{ matrix.cgo_cflags }}
-          CGO_CXXFLAGS: ${{ matrix.cgo_cxxflags }}
-          CGO_LDFLAGS: ${{ matrix.cgo_ldflags }}
-        run: |
-          set -euo pipefail
-          bash ./build_zem_gdextension.sh \
-            --target "${{ matrix.target }}" \
-            --out-dir "${{ github.workspace }}/build/native-bridge/${{ matrix.target }}"
-
-      - name: Upload native bridge artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-bridge-required-${{ matrix.target_label }}
-          path: build/native-bridge/${{ matrix.target }}
-          if-no-files-found: error
-
-  native-bridge-experimental:
-    name: Native Bridge Experimental (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            target: linux/arm64
-            target_label: linux-arm64
-            cgo_cc: aarch64-linux-gnu-gcc
-            cgo_cxx: aarch64-linux-gnu-g++
-            scons_ar: aarch64-linux-gnu-gcc-ar
-            scons_ranlib: aarch64-linux-gnu-gcc-ranlib
-            cgo_cflags: ""
-            cgo_cxxflags: ""
-            cgo_ldflags: ""
-          - runner: windows-latest
-            target: windows/arm64
-            target_label: windows-arm64
-            cgo_cc: clang-cl
-            cgo_cxx: clang-cl
-            scons_ar: ""
-            scons_ranlib: ""
-            cgo_cflags: ""
-            cgo_cxxflags: ""
-            cgo_ldflags: ""
-          - runner: macos-latest
-            target: macos/x86_64
-            target_label: macos-x86_64
-            cgo_cc: clang
-            cgo_cxx: clang++
-            scons_ar: ""
-            scons_ranlib: ""
-            cgo_cflags: -arch x86_64
-            cgo_cxxflags: -arch x86_64
-            cgo_ldflags: -arch x86_64
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: zem/go.mod
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Install SCons
-        shell: bash
-        run: python -m pip install scons
-
-      - name: Install Linux arm64 cross toolchain
-        if: matrix.target == 'linux/arm64'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
-
-      - name: Set up Windows ARM64 build environment
-        if: matrix.target == 'windows/arm64'
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
-          if (-not $installPath) {
-            $installPath = & $vswhere -latest -products * -property installationPath
-          }
-          $vsDevCmd = Join-Path $installPath "Common7\Tools\VsDevCmd.bat"
-          $envDump = cmd /c "`"$vsDevCmd`" -arch=arm64 -host_arch=amd64 >nul && set"
+          $envDump = cmd /c "`"$vsDevCmd`" -arch=arm64 -host_arch=arm64 >nul && set"
           $envDump | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Check out godot-cpp
