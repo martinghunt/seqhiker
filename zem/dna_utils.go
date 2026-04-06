@@ -1,4 +1,4 @@
-package main
+package zem
 
 func reverseComplementString(seq string) string {
 	out := make([]byte, len(seq))

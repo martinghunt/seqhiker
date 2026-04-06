@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+
+	"seqhiker/zem"
 )
 
 func main() {
@@ -12,16 +14,16 @@ func main() {
 	showVersion := flag.Bool("version", false, "print zem version and exit")
 	flag.Parse()
 	if *showVersion {
-		fmt.Println(ZemVersion)
+		fmt.Println(zem.ZemVersion)
 		return
 	}
 
-	engine := NewEngine()
+	engine := zem.NewEngine()
 	if *tileCacheMB > 0 {
 		engine.SetTileCacheMaxBytes(int64(*tileCacheMB) << 20)
 	}
 
-	err := StartServer(*listenAddr, engine)
+	err := zem.StartServer(*listenAddr, engine)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -110,7 +110,7 @@ build_one() {
 	echo "Building zem ${VERSION} for ${goos}/${goarch} -> ${out}"
 	(
 		cd "${ZEM_DIR}"
-		GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.ZemVersion=${VERSION}" -o "${out}" .
+		GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X seqhiker/zem.ZemVersion=${VERSION}" -o "${out}" ./cmd/zem
 	)
 }
 

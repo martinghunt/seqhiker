@@ -1,3 +1,3 @@
-package main
+package zem
 
 var ZemVersion = "dev"
