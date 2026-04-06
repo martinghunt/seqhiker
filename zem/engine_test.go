@@ -903,6 +903,30 @@ func TestBackendHandleMessageGetVersion(t *testing.T) {
 	}
 }
 
+func TestBackendHandleRequestGetVersion(t *testing.T) {
+	backend := NewBackend()
+	resp := backend.HandleRequest(MsgGetVersion, nil)
+	if resp.MessageType != MsgGetVersion {
+		t.Fatalf("unexpected message type: got %d, want %d", resp.MessageType, MsgGetVersion)
+	}
+	if got := decodeWireAckForTest(t, resp.Payload); got != ZemVersion {
+		t.Fatalf("unexpected version payload: got %q, want %q", got, ZemVersion)
+	}
+}
+
+func TestBackendHandleRequestEncodesErrors(t *testing.T) {
+	backend := NewBackend()
+	var payload [2]byte
+	binary.LittleEndian.PutUint16(payload[:], 9999)
+	resp := backend.HandleRequest(MsgGetComparisonBlocks, payload[:])
+	if resp.MessageType != MsgError {
+		t.Fatalf("unexpected message type: got %d, want %d", resp.MessageType, MsgError)
+	}
+	if got := decodeWireAckForTest(t, resp.Payload); got == "" {
+		t.Fatal("expected non-empty encoded error message")
+	}
+}
+
 func TestGenerateTestData(t *testing.T) {
 	e := NewEngine()
 	root := t.TempDir()

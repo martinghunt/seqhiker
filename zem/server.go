@@ -508,10 +508,15 @@ func decodeLoadBAMPayload(payload []byte) (string, int, error) {
 }
 
 func sendError(conn net.Conn, requestID uint16, msg string) {
-	data := make([]byte, 2+len(msg))
-	binary.LittleEndian.PutUint16(data[:2], uint16(len(msg)))
-	copy(data[2:], []byte(msg))
+	data := errorPayload(msg)
 	if err := WriteFrame(conn, MsgError, requestID, data); err != nil {
 		log.Println("Error write failed:", err)
 	}
+}
+
+func errorPayload(msg string) []byte {
+	data := make([]byte, 2+len(msg))
+	binary.LittleEndian.PutUint16(data[:2], uint16(len(msg)))
+	copy(data[2:], []byte(msg))
+	return data
 }

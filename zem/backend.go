@@ -7,6 +7,11 @@ type Backend struct {
 	engine *Engine
 }
 
+type BackendResponse struct {
+	MessageType uint16
+	Payload     []byte
+}
+
 func NewBackend() *Backend {
 	return &Backend{engine: NewEngine()}
 }
@@ -30,4 +35,18 @@ func (b *Backend) HandleMessage(msgType uint16, payload []byte) (uint16, []byte,
 		return 0, nil, ErrNilBackend
 	}
 	return HandleMessage(b.engine, msgType, payload)
+}
+
+func (b *Backend) HandleRequest(msgType uint16, payload []byte) BackendResponse {
+	responseType, responsePayload, err := b.HandleMessage(msgType, payload)
+	if err != nil {
+		return BackendResponse{
+			MessageType: MsgError,
+			Payload:     errorPayload(err.Error()),
+		}
+	}
+	return BackendResponse{
+		MessageType: responseType,
+		Payload:     responsePayload,
+	}
 }
