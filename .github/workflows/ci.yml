@@ -98,7 +98,9 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $installPath = & $vswhere -latest -products * -property installationPath
           $vsDevCmd = Join-Path $installPath "Common7\Tools\VsDevCmd.bat"
-          cmd /c "`"$vsDevCmd`" -arch=amd64 -host_arch=amd64 && set" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $arch = "amd64"
+          $envDump = cmd /c "`"$vsDevCmd`" -arch=$arch -host_arch=amd64 >nul && set"
+          $envDump | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Check out godot-cpp
         uses: actions/checkout@v4
@@ -206,7 +208,8 @@ jobs:
             $installPath = & $vswhere -latest -products * -property installationPath
           }
           $vsDevCmd = Join-Path $installPath "Common7\Tools\VsDevCmd.bat"
-          cmd /c "`"$vsDevCmd`" -arch=arm64 -host_arch=amd64 && set" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $envDump = cmd /c "`"$vsDevCmd`" -arch=arm64 -host_arch=amd64 >nul && set"
+          $envDump | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Check out godot-cpp
         uses: actions/checkout@v4

@@ -118,28 +118,18 @@ fi
 "${ROOT_DIR}/build_zem_cshared.sh" --target "${PLATFORM}/${ARCH}" --out-dir "${cshared_dir}"
 
 echo "Building seqhiker_zem_bridge with godot-cpp from ${GODOT_CPP_DIR}"
-declare -a scons_args=(
-	"platform=${PLATFORM}"
-	"arch=${ARCH}"
-	"target=${TARGET}"
-)
-if [[ -n "${SCONS_CC}" ]]; then
-	scons_args+=("CC=${SCONS_CC}")
-fi
-if [[ -n "${SCONS_CXX}" ]]; then
-	scons_args+=("CXX=${SCONS_CXX}")
-fi
-if [[ -n "${SCONS_AR}" ]]; then
-	scons_args+=("AR=${SCONS_AR}")
-fi
-if [[ -n "${SCONS_RANLIB}" ]]; then
-	scons_args+=("RANLIB=${SCONS_RANLIB}")
-fi
 (
 	cd "${ROOT_DIR}/native/zem_bridge"
 	GODOT_CPP_DIR="${GODOT_CPP_DIR}" \
 	ZEM_CSHARED_DIR="${cshared_dir}" \
 	BRIDGE_OUT_DIR="${gdextension_out_dir}" \
 	BRIDGE_RPATH="${bridge_rpath}" \
-	scons "${scons_args[@]}"
+	CC="${SCONS_CC}" \
+	CXX="${SCONS_CXX}" \
+	AR="${SCONS_AR}" \
+	RANLIB="${SCONS_RANLIB}" \
+	scons \
+		platform="${PLATFORM}" \
+		arch="${ARCH}" \
+		target="${TARGET}"
 )
