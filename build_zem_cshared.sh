@@ -112,6 +112,26 @@ echo "Building zem c-shared ${VERSION} for ${goos}/${goarch} -> ${OUT_DIR}/${lib
 
 if [[ "${goos}" == "darwin" ]]; then
 	install_name_tool -id "@rpath/${lib_name}" "${OUT_DIR}/${lib_name}"
+elif [[ "${goos}" == "windows" ]]; then
+	def_file="${OUT_DIR}/libzem.def"
+	lib_file="${OUT_DIR}/libzem.lib"
+	machine="X64"
+	if [[ "${goarch}" == "arm64" ]]; then
+		machine="ARM64"
+	fi
+	cat > "${def_file}" <<'EOF'
+LIBRARY libzem.dll
+EXPORTS
+    ZemBackendCreate
+    ZemBackendFree
+    ZemBackendHandleRequest
+    ZemResponseFree
+EOF
+	if command -v lib.exe >/dev/null 2>&1; then
+		lib.exe /def:"${def_file}" /machine:${machine} /out:"${lib_file}"
+	else
+		echo "warning: lib.exe not found; Windows import library not generated" >&2
+	fi
 fi
 
 echo "Done. Outputs:"

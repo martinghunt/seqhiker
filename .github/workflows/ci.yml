@@ -91,6 +91,15 @@ jobs:
         shell: bash
         run: python -m pip install scons
 
+      - name: Set up Windows build environment
+        if: startsWith(matrix.target, 'windows/')
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -latest -products * -property installationPath
+          $vsDevCmd = Join-Path $installPath "Common7\Tools\VsDevCmd.bat"
+          cmd /c "`"$vsDevCmd`" -arch=amd64 -host_arch=amd64 && set" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Check out godot-cpp
         uses: actions/checkout@v4
         with:
@@ -104,6 +113,8 @@ jobs:
           GODOT_CPP_DIR: ${{ github.workspace }}/external/godot-cpp
           CC: ${{ matrix.cgo_cc }}
           CXX: ${{ matrix.cgo_cxx }}
+          SCONS_CC: ${{ matrix.cgo_cc }}
+          SCONS_CXX: ${{ matrix.cgo_cxx }}
           CGO_CFLAGS: ${{ matrix.cgo_cflags }}
           CGO_CXXFLAGS: ${{ matrix.cgo_cxxflags }}
           CGO_LDFLAGS: ${{ matrix.cgo_ldflags }}
@@ -133,6 +144,8 @@ jobs:
             target_label: linux-arm64
             cgo_cc: aarch64-linux-gnu-gcc
             cgo_cxx: aarch64-linux-gnu-g++
+            scons_ar: aarch64-linux-gnu-gcc-ar
+            scons_ranlib: aarch64-linux-gnu-gcc-ranlib
             cgo_cflags: ""
             cgo_cxxflags: ""
             cgo_ldflags: ""
@@ -141,6 +154,8 @@ jobs:
             target_label: windows-arm64
             cgo_cc: clang-cl
             cgo_cxx: clang-cl
+            scons_ar: ""
+            scons_ranlib: ""
             cgo_cflags: ""
             cgo_cxxflags: ""
             cgo_ldflags: ""
@@ -149,6 +164,8 @@ jobs:
             target_label: macos-x86_64
             cgo_cc: clang
             cgo_cxx: clang++
+            scons_ar: ""
+            scons_ranlib: ""
             cgo_cflags: -arch x86_64
             cgo_cxxflags: -arch x86_64
             cgo_ldflags: -arch x86_64
@@ -183,13 +200,12 @@ jobs:
         if: matrix.target == 'windows/arm64'
         shell: pwsh
         run: |
-          $vsDevCmd = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat"
-          if (-not (Test-Path $vsDevCmd)) {
-            $vsDevCmd = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
+          if (-not $installPath) {
+            $installPath = & $vswhere -latest -products * -property installationPath
           }
-          if (-not (Test-Path $vsDevCmd)) {
-            $vsDevCmd = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat"
-          }
+          $vsDevCmd = Join-Path $installPath "Common7\Tools\VsDevCmd.bat"
           cmd /c "`"$vsDevCmd`" -arch=arm64 -host_arch=amd64 && set" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Check out godot-cpp
@@ -205,6 +221,10 @@ jobs:
           GODOT_CPP_DIR: ${{ github.workspace }}/external/godot-cpp
           CC: ${{ matrix.cgo_cc }}
           CXX: ${{ matrix.cgo_cxx }}
+          SCONS_CC: ${{ matrix.cgo_cc }}
+          SCONS_CXX: ${{ matrix.cgo_cxx }}
+          SCONS_AR: ${{ matrix.scons_ar }}
+          SCONS_RANLIB: ${{ matrix.scons_ranlib }}
           CGO_CFLAGS: ${{ matrix.cgo_cflags }}
           CGO_CXXFLAGS: ${{ matrix.cgo_cxxflags }}
           CGO_LDFLAGS: ${{ matrix.cgo_ldflags }}
