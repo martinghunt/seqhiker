@@ -54,6 +54,8 @@ jobs:
             target_label: linux-arm64
             cgo_cc: ""
             cgo_cxx: ""
+            scons_cc: ""
+            scons_cxx: ""
             scons_ar: ""
             scons_ranlib: ""
             cgo_cflags: ""
@@ -62,18 +64,22 @@ jobs:
           - runner: windows-11-arm
             target: windows/arm64
             target_label: windows-arm64
-            cgo_cc: ""
-            cgo_cxx: ""
+            cgo_cc: clang
+            cgo_cxx: clang++
+            scons_cc: ""
+            scons_cxx: ""
             scons_ar: ""
             scons_ranlib: ""
-            cgo_cflags: ""
-            cgo_cxxflags: ""
-            cgo_ldflags: ""
+            cgo_cflags: --target=aarch64-pc-windows-msvc
+            cgo_cxxflags: --target=aarch64-pc-windows-msvc
+            cgo_ldflags: --target=aarch64-pc-windows-msvc
           - runner: macos-15-intel
             target: macos/x86_64
             target_label: macos-x86_64
             cgo_cc: ""
             cgo_cxx: ""
+            scons_cc: ""
+            scons_cxx: ""
             scons_ar: ""
             scons_ranlib: ""
             cgo_cflags: ""
@@ -121,8 +127,8 @@ jobs:
           GODOT_CPP_DIR: ${{ github.workspace }}/external/godot-cpp
           CC: ${{ matrix.cgo_cc }}
           CXX: ${{ matrix.cgo_cxx }}
-          SCONS_CC: ${{ matrix.cgo_cc }}
-          SCONS_CXX: ${{ matrix.cgo_cxx }}
+          SCONS_CC: ${{ matrix.scons_cc }}
+          SCONS_CXX: ${{ matrix.scons_cxx }}
           SCONS_AR: ${{ matrix.scons_ar }}
           SCONS_RANLIB: ${{ matrix.scons_ranlib }}
           CGO_CFLAGS: ${{ matrix.cgo_cflags }}
