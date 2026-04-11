@@ -52,22 +52,7 @@ var _region_select_dragging := false
 var _region_select_has_selection := false
 var _region_select_start_edge := 0.0
 var _region_select_end_edge := 0.0
-var _theme_colors := {
-	"text": Color.BLACK,
-	"text_muted": Color("666666"),
-	"border": Color("aaaaaa"),
-	"panel_alt": Color("efefef"),
-	"genome": Color("3f5a7a"),
-	"map_contig": Color("ffffff"),
-	"map_contig_alt": Color("efefef"),
-	"map_view_fill": Color("3f5a7a"),
-	"map_view_outline": Color.BLACK,
-	"feature": Color("dce8f7"),
-	"feature_text": Color("1e3557"),
-	"selection_outline": Color.BLACK,
-	"region_select_fill": Color("3f5a7a"),
-	"region_select_outline": Color.BLACK
-}
+var _theme_colors := ThemesLib.new().comparison_theme_colors_from_palette(ThemesLib.THEMES["Slate"])
 
 func _ready() -> void:
 	_scene_ready = true
@@ -493,13 +478,8 @@ func _draw_reference_letters(axis_rect: Rect2, target = self) -> void:
 	var font_size := maxi(11, get_theme_default_font_size())
 	var fwd_center_y := _nucleotide_center_y(axis_rect)
 	var fwd_baseline := FeatureAnnotationUtilsScript.text_baseline_for_center(fwd_center_y, font, font_size)
-	var base_colors := {
-		"A": Color("2b9348"),
-		"C": Color("1d4ed8"),
-		"G": Color("a16207"),
-		"T": Color("b91c1c"),
-		"N": _theme_colors["text"]
-	}
+	var base_colors: Dictionary = _theme_colors.get("pileup_logo_bases", {})
+	var ambiguous_color: Color = _theme_colors.get("ambiguous_base", _theme_colors["text"])
 	for i in range(i_start, i_end + 1):
 		var bp := _reference_start_bp + i
 		if not _bp_in_segment(bp):
@@ -512,7 +492,7 @@ func _draw_reference_letters(axis_rect: Rect2, target = self) -> void:
 			continue
 		var color: Color = _theme_colors["text"]
 		if _colorize_nucleotides:
-			color = base_colors.get(base, _theme_colors["text"])
+			color = base_colors.get(base, ambiguous_color)
 		var text_w := font.get_string_size(base, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		_draw_string_on(target, font, Vector2(x - text_w * 0.5, fwd_baseline), base, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 
@@ -665,7 +645,7 @@ func _draw_region_selection(axis_rect: Rect2, target = self) -> void:
 	if right <= left:
 		right = minf(axis_rect.position.x + axis_rect.size.x, left + 1.0)
 	var rect := Rect2(left, 0.0, right - left, ROW_H)
-	var fill: Color = _theme_colors.get("region_select_fill", _theme_colors.get("genome", Color("3f5a7a")))
+	var fill: Color = _theme_colors["region_select_fill"]
 	fill.a = 0.28
 	var border: Color = _theme_colors.get("region_select_outline", _theme_colors.get("text", Color.BLACK))
 	border.a = 0.55

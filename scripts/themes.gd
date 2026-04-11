@@ -4,6 +4,7 @@ class_name ThemesLib
 const ANONYMOUS_PRO_FONT := preload("res://fonts/Anonymous-Pro/Anonymous_Pro.ttf")
 const COURIER_NEW_FONT := preload("res://fonts/Courier-New/couriernew.ttf")
 const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
+const USER_THEME_CONFIG_PATH := "user://seqhiker_user_themes.cfg"
 
 
 # Key explanations:
@@ -24,7 +25,7 @@ const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 #  - field_focus: focused input/control outline
 #  - accent: primary accent color
 #  - status_error: error/status text color
-#  - aa_alt_bg: alternating AA row background
+#  - track_alt_bg: alternating track-row background
 #  - map_contig: primary contig fill in map track
 #  - map_contig_alt: alternating contig fill in map track
 #  - map_view_fill: map viewport/drag selection fill
@@ -33,19 +34,17 @@ const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 #  - region_select_outline: genome-track dragged region outline
 #  - genome: genome axis/main genome highlight color
 #  - read: default read/depth-summary color
+#  - insertion_marker: read insertion marker color
 #  - gc_plot: GC plot color
 #  - depth_plot: depth plot color
 #  - depth_plot_series: per-BAM depth plot series colors
-#  - vcf_row_bg: VCF sample-row background
-#  - vcf_row_alt_bg: alternating VCF sample-row background
 #  - vcf_gt_ref_fill/text: VCF genotype colors for 0/0 calls
 #  - vcf_gt_het_fill/text: VCF genotype colors for heterozygous calls
 #  - vcf_gt_hom_alt_fill/text: VCF genotype colors for homozygous ALT calls
 #  - pileup_logo_bases: per-base colors for pileup logo A/C/G/T/D
+#  - ambiguous_base: color for ambiguous nucleotide letters
 #  - snp: SNP marker fill
 #  - snp_text: text drawn on SNP markers
-#  - aa_forward: forward-frame AA summary/read-derived accent
-#  - aa_reverse: reverse-frame AA summary/read-derived accent
 #  - feature: annotation feature box fill
 #  - feature_accent: subtle annotation sub-feature accent
 #  - feature_text: annotation feature label/border color
@@ -53,7 +52,141 @@ const DEJAVU_SANS_FONT_PATH := "res://fonts/Dejavu-sans/DejaVuSans.ttf"
 #  - comparison_same_strand: comparison-match fill for same-strand hits
 #  - comparison_opp_strand: comparison-match fill for opposite-strand hits
 #  - comparison_selected_fill: comparison-match fill for the selected hit
+#  - comparison_match_line: comparison internal match-line color
 #  - comparison_snp: comparison-detail SNP connector color
+
+const LIVE_PALETTE_KEYS := [
+	"bg",
+	"panel",
+	"panel_alt",
+	"grid",
+	"border",
+	"text",
+	"insertion_marker",
+	"scrollbar_outline",
+	"text_muted",
+	"text_inverse",
+	"button_bg",
+	"button_hover",
+	"button_pressed",
+	"field_bg",
+	"field_border",
+	"field_focus",
+	"accent",
+	"status_error",
+	"track_alt_bg",
+	"map_contig",
+	"map_contig_alt",
+	"map_view_fill",
+	"map_view_outline",
+	"region_select_fill",
+	"region_select_outline",
+	"genome",
+	"read",
+	"gc_plot",
+	"depth_plot",
+	"depth_plot_series",
+	"vcf_gt_ref_fill",
+	"vcf_gt_ref_text",
+	"vcf_gt_het_fill",
+	"vcf_gt_het_text",
+	"vcf_gt_hom_alt_fill",
+	"vcf_gt_hom_alt_text",
+	"pileup_logo_bases",
+	"ambiguous_base",
+	"snp",
+	"comparison_snp",
+	"comparison_match_line",
+	"snp_text",
+	"feature",
+	"feature_accent",
+	"feature_text",
+	"comparison_same_strand",
+	"comparison_opp_strand",
+	"comparison_selected_fill",
+	"stop_codon"
+]
+
+const EDITOR_ROLE_GROUPS := [
+	{"title": "Core UI", "roles": [
+		{"key": "bg", "label": "Background"},
+		{"key": "track_alt_bg", "label": "Track alt bg"},
+		{"key": "panel", "label": "Panel"},
+		{"key": "panel_alt", "label": "Panel alt"},
+		{"key": "grid", "label": "Grid"},
+		{"key": "border", "label": "Border"},
+		{"key": "scrollbar_outline", "label": "Scrollbar outline"},
+		{"key": "text", "label": "Text"},
+		{"key": "text_inverse", "label": "Check mark"},
+		{"key": "text_muted", "label": "Text muted"},
+		{"key": "accent", "label": "Accent"},
+		{"key": "status_error", "label": "Error message"}
+	]},
+	{"title": "Header Controls", "roles": [
+		{"key": "button_bg", "label": "Button bg"},
+		{"key": "button_hover", "label": "Button hover"},
+		{"key": "button_pressed", "label": "Button pressed"},
+		{"key": "field_bg", "label": "Field bg"},
+		{"key": "field_border", "label": "Field border"},
+		{"key": "field_focus", "label": "Field focus"}
+	]},
+	{"title": "Plots", "roles": [
+		{"key": "gc_plot", "label": "GC plot"},
+		{"key": "depth_plot", "label": "Depth plot"}
+	]},
+	{"title": "Depth plot colours", "roles": [
+		{"key": "depth_plot_series_0", "label": "Colour 1"},
+		{"key": "depth_plot_series_1", "label": "Colour 2"},
+		{"key": "depth_plot_series_2", "label": "Colour 3"},
+		{"key": "depth_plot_series_3", "label": "Colour 4"},
+		{"key": "depth_plot_series_4", "label": "Colour 5"},
+		{"key": "depth_plot_series_5", "label": "Colour 6"}
+	]},
+	{"title": "AA / Annotation", "roles": [
+		{"key": "feature", "label": "Feature"},
+		{"key": "feature_accent", "label": "Feature border"},
+		{"key": "feature_text", "label": "Feature text"},
+		{"key": "stop_codon", "label": "Stop codon"}
+	]},
+	{"title": "Genome", "roles": [
+		{"key": "genome", "label": "Genome"},
+		{"key": "region_select_fill", "label": "Region select fill"},
+		{"key": "region_select_outline", "label": "Region select outline"},
+		{"key": "ambiguous_base", "label": "Ambiguous base"},
+		{"key": "pileup_base_a", "label": "Base A"},
+		{"key": "pileup_base_c", "label": "Base C"},
+		{"key": "pileup_base_g", "label": "Base G"},
+		{"key": "pileup_base_t", "label": "Base T"},
+		{"key": "pileup_base_d", "label": "Base D"}
+	]},
+	{"title": "Map", "roles": [
+		{"key": "map_contig", "label": "Map contig"},
+		{"key": "map_contig_alt", "label": "Map contig alt"},
+		{"key": "map_view_fill", "label": "Map view fill"},
+		{"key": "map_view_outline", "label": "Map view outline"}
+	]},
+	{"title": "Reads", "roles": [
+		{"key": "read", "label": "Read"},
+		{"key": "insertion_marker", "label": "Insertion marker"},
+		{"key": "snp", "label": "SNP in read"},
+		{"key": "snp_text", "label": "SNP text"}
+	]},
+	{"title": "VCF", "roles": [
+		{"key": "vcf_gt_ref_fill", "label": "VCF ref call"},
+		{"key": "vcf_gt_ref_text", "label": "VCF ref call text"},
+		{"key": "vcf_gt_het_fill", "label": "VCF het call"},
+		{"key": "vcf_gt_het_text", "label": "VCF het call text"},
+		{"key": "vcf_gt_hom_alt_fill", "label": "VCF hom call"},
+		{"key": "vcf_gt_hom_alt_text", "label": "VCF hom call text"}
+	]},
+	{"title": "Comparison", "roles": [
+		{"key": "comparison_same_strand", "label": "Match same strand"},
+		{"key": "comparison_opp_strand", "label": "Reverse match"},
+		{"key": "comparison_selected_fill", "label": "Selected match"},
+		{"key": "comparison_match_line", "label": "Match line"},
+		{"key": "comparison_snp", "label": "SNP line"}
+	]}
+]
 
 
 const THEMES := {
@@ -64,6 +197,7 @@ const THEMES := {
 		"grid": Color("c8c8c8"),
 		"border": Color8(115, 137, 189),
 		"text": Color("000000"),
+		"insertion_marker": Color("000000"),
 		"scrollbar_outline": Color8(115, 137, 189),
 		"text_muted": Color("7d7d7d"),
 		"text_inverse": Color("ffffff"),
@@ -75,7 +209,7 @@ const THEMES := {
 		"field_focus": Color("0000ff"),
 		"accent": Color("0000ff"),
 		"status_error": Color("ff0000"),
-		"aa_alt_bg": Color("f5f5f5"),
+		"track_alt_bg": Color("f5f5f5"),
 		"map_contig": Color8(192, 152, 107),
 		"map_contig_alt": Color8(239, 181, 70),
 		"map_view_fill": Color8(243, 178, 177),
@@ -94,20 +228,12 @@ const THEMES := {
 			Color("b5b5b5"),
 			Color("d0d0d0")
 		],
-		"vcf_row_bg": Color("ffffff"),
-		"vcf_row_alt_bg": Color("efefef"),
 		"vcf_gt_ref_fill": Color("000000"),
 		"vcf_gt_ref_text": Color("ffffff"),
 		"vcf_gt_het_fill": Color8(25, 7, 244),
 		"vcf_gt_het_text": Color("000000"),
 		"vcf_gt_hom_alt_fill": Color("ff0000"),
 		"vcf_gt_hom_alt_text": Color("ffffff"),
-		"vcf_snp_a": Color("2b9348"),
-		"vcf_snp_c": Color("1d4ed8"),
-		"vcf_snp_g": Color("a16207"),
-		"vcf_snp_t": Color("b91c1c"),
-		"vcf_snp_other": Color("4a4a4a"),
-		"vcf_snp_text": Color("ffffff"),
 		"pileup_logo_bases": {
 			"A": Color("2b9348"),
 			"C": Color("1d4ed8"),
@@ -115,11 +241,11 @@ const THEMES := {
 			"T": Color("b91c1c"),
 			"D": Color("4a4a4a")
 		},
+		"ambiguous_base": Color("000000"),
 		"snp": Color("ff0000"),
 		"comparison_snp": Color("ff00ff"),
+		"comparison_match_line": Color("000000"),
 		"snp_text": Color("ffffff"),
-		"aa_forward": Color("0000ff"),
-		"aa_reverse": Color("00aa00"),
 		"feature": Color8(116, 250, 252),
 		"feature_accent": Color8(36, 164, 166),
 		"feature_text": Color("000000"),
@@ -134,6 +260,7 @@ const THEMES := {
 		"grid": Color("cfcfcf"),
 		"border": Color("c8c8c8"),
 		"text": Color("202020"),
+		"insertion_marker": Color("202020"),
 		"scrollbar_outline": Color("7a7a7a"),
 		"text_muted": Color("6f6f6f"),
 		"text_inverse": Color("ffffff"),
@@ -145,7 +272,7 @@ const THEMES := {
 		"field_focus": Color("666666"),
 		"accent": Color("555555"),
 		"status_error": Color("444444"),
-		"aa_alt_bg": Color("f5f5f5"),
+		"track_alt_bg": Color("f5f5f5"),
 		"map_contig": Color("fafafa"),
 		"map_contig_alt": Color("ececec"),
 		"map_view_fill": Color("666666"),
@@ -164,20 +291,12 @@ const THEMES := {
 			Color("a4a4a4"),
 			Color("bcbcbc")
 		],
-		"vcf_row_bg": Color("ffffff"),
-		"vcf_row_alt_bg": Color("f0f0f0"),
 		"vcf_gt_ref_fill": Color("202020"),
 		"vcf_gt_ref_text": Color("ffffff"),
 		"vcf_gt_het_fill": Color("686868"),
 		"vcf_gt_het_text": Color("ffffff"),
 		"vcf_gt_hom_alt_fill": Color("2f2f2f"),
 		"vcf_gt_hom_alt_text": Color("ffffff"),
-		"vcf_snp_a": Color("4c4c4c"),
-		"vcf_snp_c": Color("666666"),
-		"vcf_snp_g": Color("808080"),
-		"vcf_snp_t": Color("9a9a9a"),
-		"vcf_snp_other": Color("2f2f2f"),
-		"vcf_snp_text": Color("ffffff"),
 		"pileup_logo_bases": {
 			"A": Color("4c4c4c"),
 			"C": Color("666666"),
@@ -185,11 +304,11 @@ const THEMES := {
 			"T": Color("9a9a9a"),
 			"D": Color("2f2f2f")
 		},
+		"ambiguous_base": Color("202020"),
 		"snp": Color("2f2f2f"),
 		"comparison_snp": Color("2f2f2f"),
+		"comparison_match_line": Color("202020"),
 		"snp_text": Color("ffffff"),
-		"aa_forward": Color("5f5f5f"),
-		"aa_reverse": Color("8a8a8a"),
 		"feature": Color("d9d9d9"),
 		"feature_accent": Color("8c8c8c"),
 		"feature_text": Color("242424"),
@@ -204,6 +323,7 @@ const THEMES := {
 		"grid": Color("d0d0d0"),
 		"border": Color("d0d0d0"),
 		"text": Color("111111"),
+		"insertion_marker": Color("111111"),
 		"scrollbar_outline": Color("5a5a5a"),
 		"text_muted": Color("4a4a4a"),
 		"text_inverse": Color("ffffff"),
@@ -215,7 +335,7 @@ const THEMES := {
 		"field_focus": Color("5b8def"),
 		"accent": Color("3f5a7a"),
 		"status_error": Color("8b0000"),
-		"aa_alt_bg": Color("efefef"),
+		"track_alt_bg": Color("efefef"),
 		"map_contig": Color("ffffff"),
 		"map_contig_alt": Color("efefef"),
 		"map_view_fill": Color("3f5a7a"),
@@ -234,20 +354,12 @@ const THEMES := {
 			Color("4f772d"),
 			Color("b56576")
 		],
-		"vcf_row_bg": Color("ffffff"),
-		"vcf_row_alt_bg": Color("efefef"),
 		"vcf_gt_ref_fill": Color("111111"),
 		"vcf_gt_ref_text": Color("ffffff"),
 		"vcf_gt_het_fill": Color("0f8b8d"),
 		"vcf_gt_het_text": Color("ffffff"),
 		"vcf_gt_hom_alt_fill": Color("b11f47"),
 		"vcf_gt_hom_alt_text": Color("ffffff"),
-		"vcf_snp_a": Color("2b9348"),
-		"vcf_snp_c": Color("1d4ed8"),
-		"vcf_snp_g": Color("a16207"),
-		"vcf_snp_t": Color("b91c1c"),
-		"vcf_snp_other": Color("4a5568"),
-		"vcf_snp_text": Color("ffffff"),
 		"pileup_logo_bases": {
 			"A": Color("2b9348"),
 			"C": Color("1d4ed8"),
@@ -255,11 +367,11 @@ const THEMES := {
 			"T": Color("b91c1c"),
 			"D": Color("4a5568")
 		},
+		"ambiguous_base": Color("111111"),
 		"snp": Color("b11f47"),
 		"comparison_snp": Color("7a00ff"),
+		"comparison_match_line": Color("111111"),
 		"snp_text": Color("ffffff"),
-		"aa_forward": Color("8a4fff"),
-		"aa_reverse": Color("f39237"),
 		"feature": Color("dce8f7"),
 		"feature_accent": Color("7f9cc3"),
 		"feature_text": Color("1e3557"),
@@ -274,6 +386,7 @@ const THEMES := {
 		"grid": Color("b8d1ad"),
 		"border": Color("b8d1ad"),
 		"text": Color("20301f"),
+		"insertion_marker": Color("20301f"),
 		"scrollbar_outline": Color("566653"),
 		"text_muted": Color("41513f"),
 		"text_inverse": Color("ffffff"),
@@ -285,7 +398,7 @@ const THEMES := {
 		"field_focus": Color("588157"),
 		"accent": Color("386641"),
 		"status_error": Color("8b1f1f"),
-		"aa_alt_bg": Color("dfe8d8"),
+		"track_alt_bg": Color("dfe8d8"),
 		"map_contig": Color("eaf4e5"),
 		"map_contig_alt": Color("dfe8d8"),
 		"map_view_fill": Color("386641"),
@@ -304,20 +417,12 @@ const THEMES := {
 			Color("6a994e"),
 			Color("7f5539")
 		],
-		"vcf_row_bg": Color("f6fff0"),
-		"vcf_row_alt_bg": Color("eef8e9"),
 		"vcf_gt_ref_fill": Color("20301f"),
 		"vcf_gt_ref_text": Color("f6fff0"),
 		"vcf_gt_het_fill": Color("6a994e"),
 		"vcf_gt_het_text": Color("20301f"),
 		"vcf_gt_hom_alt_fill": Color("7a143a"),
 		"vcf_gt_hom_alt_text": Color("ffffff"),
-		"vcf_snp_a": Color("4f8a3f"),
-		"vcf_snp_c": Color("2f6f99"),
-		"vcf_snp_g": Color("8f6a1b"),
-		"vcf_snp_t": Color("9a3d32"),
-		"vcf_snp_other": Color("4f5f4d"),
-		"vcf_snp_text": Color("ffffff"),
 		"pileup_logo_bases": {
 			"A": Color("4f8a3f"),
 			"C": Color("2f6f99"),
@@ -325,11 +430,11 @@ const THEMES := {
 			"T": Color("9a3d32"),
 			"D": Color("4f5f4d")
 		},
+		"ambiguous_base": Color("20301f"),
 		"snp": Color("7a143a"),
 		"comparison_snp": Color("7b2cbf"),
+		"comparison_match_line": Color("20301f"),
 		"snp_text": Color("ffffff"),
-		"aa_forward": Color("588157"),
-		"aa_reverse": Color("bc4749"),
 		"feature": Color("c8dfc0"),
 		"feature_accent": Color("6e9662"),
 		"feature_text": Color("1f3a24"),
@@ -344,6 +449,7 @@ const THEMES := {
 		"grid": Color("b6c3cf"),
 		"border": Color("b6c3cf"),
 		"text": Color("1f2933"),
+		"insertion_marker": Color("1f2933"),
 		"scrollbar_outline": Color("5f6d79"),
 		"text_muted": Color("4d5a67"),
 		"text_inverse": Color("ffffff"),
@@ -355,7 +461,7 @@ const THEMES := {
 		"field_focus": Color("2d7dd2"),
 		"accent": Color("345995"),
 		"status_error": Color("8b1f1f"),
-		"aa_alt_bg": Color("dde3ea"),
+		"track_alt_bg": Color("dde3ea"),
 		"map_contig": Color("e8edf2"),
 		"map_contig_alt": Color("dde3ea"),
 		"map_view_fill": Color("345995"),
@@ -374,20 +480,12 @@ const THEMES := {
 			Color("7d8597"),
 			Color("8d99ae")
 		],
-		"vcf_row_bg": Color("f6f9fc"),
-		"vcf_row_alt_bg": Color("edf2f6"),
 		"vcf_gt_ref_fill": Color("1f2933"),
 		"vcf_gt_ref_text": Color("f6f9fc"),
 		"vcf_gt_het_fill": Color("2d7dd2"),
 		"vcf_gt_het_text": Color("ffffff"),
 		"vcf_gt_hom_alt_fill": Color("d7263d"),
 		"vcf_gt_hom_alt_text": Color("ffffff"),
-		"vcf_snp_a": Color("2b9348"),
-		"vcf_snp_c": Color("1d4ed8"),
-		"vcf_snp_g": Color("a16207"),
-		"vcf_snp_t": Color("b91c1c"),
-		"vcf_snp_other": Color("4b5563"),
-		"vcf_snp_text": Color("ffffff"),
 		"pileup_logo_bases": {
 			"A": Color("2b9348"),
 			"C": Color("1d4ed8"),
@@ -395,11 +493,11 @@ const THEMES := {
 			"T": Color("b91c1c"),
 			"D": Color("4b5563")
 		},
+		"ambiguous_base": Color("1f2933"),
 		"snp": Color("d7263d"),
 		"comparison_snp": Color("7a00ff"),
+		"comparison_match_line": Color("1f2933"),
 		"snp_text": Color("ffffff"),
-		"aa_forward": Color("5c6784"),
-		"aa_reverse": Color("f4a259"),
 		"feature": Color("c6d6ec"),
 		"feature_accent": Color("6f93c7"),
 		"feature_text": Color("1f3654"),
@@ -414,6 +512,7 @@ const THEMES := {
 		"grid": Color("3a434f"),
 		"border": Color("3a434f"),
 		"text": Color("e6edf3"),
+		"insertion_marker": Color("e6edf3"),
 		"scrollbar_outline": Color("9fb0bc"),
 		"text_muted": Color("aab6c2"),
 		"text_inverse": Color("111111"),
@@ -425,7 +524,7 @@ const THEMES := {
 		"field_focus": Color("58a6ff"),
 		"accent": Color("58a6ff"),
 		"status_error": Color("ff7b72"),
-		"aa_alt_bg": Color("2c333d"),
+		"track_alt_bg": Color("2c333d"),
 		"map_contig": Color("1a1d22"),
 		"map_contig_alt": Color("2c333d"),
 		"map_view_fill": Color("7aa2f7"),
@@ -444,20 +543,12 @@ const THEMES := {
 			Color("ffb86b"),
 			Color("8ec07c")
 		],
-		"vcf_row_bg": Color("21262d"),
-		"vcf_row_alt_bg": Color("2a3038"),
 		"vcf_gt_ref_fill": Color("e6edf3"),
 		"vcf_gt_ref_text": Color("21262d"),
 		"vcf_gt_het_fill": Color("4fb6c2"),
 		"vcf_gt_het_text": Color("111111"),
 		"vcf_gt_hom_alt_fill": Color("ff7b72"),
 		"vcf_gt_hom_alt_text": Color("111111"),
-		"vcf_snp_a": Color("5ac26b"),
-		"vcf_snp_c": Color("73b7ff"),
-		"vcf_snp_g": Color("d3a34a"),
-		"vcf_snp_t": Color("ff7b72"),
-		"vcf_snp_other": Color("aab6c2"),
-		"vcf_snp_text": Color("111111"),
 		"pileup_logo_bases": {
 			"A": Color("5ac26b"),
 			"C": Color("73b7ff"),
@@ -465,11 +556,11 @@ const THEMES := {
 			"T": Color("ff7b72"),
 			"D": Color("aab6c2")
 		},
+		"ambiguous_base": Color("e6edf3"),
 		"snp": Color("ff7b72"),
 		"comparison_snp": Color("ffd166"),
+		"comparison_match_line": Color("e6edf3"),
 		"snp_text": Color("111111"),
-		"aa_forward": Color("b392f0"),
-		"aa_reverse": Color("ffb86b"),
 		"feature": Color("2e466e"),
 		"feature_accent": Color("6e8dbb"),
 		"feature_text": Color("eaf2ff"),
@@ -484,6 +575,7 @@ const THEMES := {
 		"grid": Color("444444"),
 		"border": Color("4b4b4b"),
 		"text": Color("e6e6e6"),
+		"insertion_marker": Color("e6e6e6"),
 		"scrollbar_outline": Color("9f9f9f"),
 		"text_muted": Color("acacac"),
 		"text_inverse": Color("111111"),
@@ -495,7 +587,7 @@ const THEMES := {
 		"field_focus": Color("9a9a9a"),
 		"accent": Color("b5b5b5"),
 		"status_error": Color("c7c7c7"),
-		"aa_alt_bg": Color("303030"),
+		"track_alt_bg": Color("303030"),
 		"map_contig": Color("1a1a1a"),
 		"map_contig_alt": Color("2c2c2c"),
 		"map_view_fill": Color("9d9d9d"),
@@ -514,20 +606,12 @@ const THEMES := {
 			Color("686868"),
 			Color("505050")
 		],
-		"vcf_row_bg": Color("202020"),
-		"vcf_row_alt_bg": Color("2b2b2b"),
 		"vcf_gt_ref_fill": Color("e6e6e6"),
 		"vcf_gt_ref_text": Color("202020"),
 		"vcf_gt_het_fill": Color("9a9a9a"),
 		"vcf_gt_het_text": Color("111111"),
 		"vcf_gt_hom_alt_fill": Color("f0f0f0"),
 		"vcf_gt_hom_alt_text": Color("111111"),
-		"vcf_snp_a": Color("d0d0d0"),
-		"vcf_snp_c": Color("b0b0b0"),
-		"vcf_snp_g": Color("909090"),
-		"vcf_snp_t": Color("707070"),
-		"vcf_snp_other": Color("f0f0f0"),
-		"vcf_snp_text": Color("111111"),
 		"pileup_logo_bases": {
 			"A": Color("d0d0d0"),
 			"C": Color("b0b0b0"),
@@ -535,11 +619,11 @@ const THEMES := {
 			"T": Color("707070"),
 			"D": Color("f0f0f0")
 		},
+		"ambiguous_base": Color("e6e6e6"),
 		"snp": Color("f0f0f0"),
 		"comparison_snp": Color("f0f0f0"),
+		"comparison_match_line": Color("e6e6e6"),
 		"snp_text": Color("111111"),
-		"aa_forward": Color("bababa"),
-		"aa_reverse": Color("727272"),
 		"feature": Color("505050"),
 		"feature_accent": Color("9a9a9a"),
 		"feature_text": Color("f0f0f0"),
@@ -554,6 +638,7 @@ const THEMES := {
 		"grid": Color("93a1a1"),
 		"border": Color("93a1a1"),
 		"text": Color("657b83"),
+		"insertion_marker": Color("657b83"),
 		"scrollbar_outline": Color("8f9ea2"),
 		"text_muted": Color("93a1a1"),
 		"text_inverse": Color("fdf6e3"),
@@ -565,7 +650,7 @@ const THEMES := {
 		"field_focus": Color("268bd2"),
 		"accent": Color("268bd2"),
 		"status_error": Color("dc322f"),
-		"aa_alt_bg": Color("eee8d5"),
+		"track_alt_bg": Color("eee8d5"),
 		"map_contig": Color("fdf6e3"),
 		"map_contig_alt": Color("eee8d5"),
 		"map_view_fill": Color("268bd2"),
@@ -584,20 +669,12 @@ const THEMES := {
 			Color("859900"),
 			Color("d33682")
 		],
-		"vcf_row_bg": Color("fdf6e3"),
-		"vcf_row_alt_bg": Color("eee8d5"),
 		"vcf_gt_ref_fill": Color("657b83"),
 		"vcf_gt_ref_text": Color("fdf6e3"),
 		"vcf_gt_het_fill": Color("2aa198"),
 		"vcf_gt_het_text": Color("073642"),
 		"vcf_gt_hom_alt_fill": Color("d33682"),
 		"vcf_gt_hom_alt_text": Color("fdf6e3"),
-		"vcf_snp_a": Color("859900"),
-		"vcf_snp_c": Color("268bd2"),
-		"vcf_snp_g": Color("b58900"),
-		"vcf_snp_t": Color("dc322f"),
-		"vcf_snp_other": Color("657b83"),
-		"vcf_snp_text": Color("fdf6e3"),
 		"pileup_logo_bases": {
 			"A": Color("859900"),
 			"C": Color("268bd2"),
@@ -605,11 +682,11 @@ const THEMES := {
 			"T": Color("dc322f"),
 			"D": Color("657b83")
 		},
+		"ambiguous_base": Color("657b83"),
 		"snp": Color("d33682"),
 		"comparison_snp": Color("6c71c4"),
+		"comparison_match_line": Color("657b83"),
 		"snp_text": Color("fdf6e3"),
-		"aa_forward": Color("6c71c4"),
-		"aa_reverse": Color("cb4b16"),
 		"feature": Color("dcecf6"),
 		"feature_accent": Color("7eb6d6"),
 		"feature_text": Color("1f5d85"),
@@ -624,6 +701,7 @@ const THEMES := {
 		"grid": Color("586e75"),
 		"border": Color("586e75"),
 		"text": Color("839496"),
+		"insertion_marker": Color("cccccc"),
 		"scrollbar_outline": Color("839193"),
 		"text_muted": Color("657b83"),
 		"text_inverse": Color("002b36"),
@@ -635,7 +713,7 @@ const THEMES := {
 		"field_focus": Color("268bd2"),
 		"accent": Color("268bd2"),
 		"status_error": Color("dc322f"),
-		"aa_alt_bg": Color("073642"),
+		"track_alt_bg": Color("073642"),
 		"map_contig": Color("002b36"),
 		"map_contig_alt": Color("073642"),
 		"map_view_fill": Color("268bd2"),
@@ -654,20 +732,12 @@ const THEMES := {
 			Color("859900"),
 			Color("d33682")
 		],
-		"vcf_row_bg": Color("002b36"),
-		"vcf_row_alt_bg": Color("073642"),
 		"vcf_gt_ref_fill": Color("839496"),
 		"vcf_gt_ref_text": Color("002b36"),
 		"vcf_gt_het_fill": Color("2aa198"),
 		"vcf_gt_het_text": Color("002b36"),
 		"vcf_gt_hom_alt_fill": Color("d33682"),
 		"vcf_gt_hom_alt_text": Color("fdf6e3"),
-		"vcf_snp_a": Color("859900"),
-		"vcf_snp_c": Color("268bd2"),
-		"vcf_snp_g": Color("b58900"),
-		"vcf_snp_t": Color("dc322f"),
-		"vcf_snp_other": Color("839496"),
-		"vcf_snp_text": Color("002b36"),
 		"pileup_logo_bases": {
 			"A": Color("859900"),
 			"C": Color("268bd2"),
@@ -675,11 +745,11 @@ const THEMES := {
 			"T": Color("dc322f"),
 			"D": Color("839496")
 		},
+		"ambiguous_base": Color("839496"),
 		"snp": Color("d33682"),
 		"comparison_snp": Color("b58900"),
+		"comparison_match_line": Color("839496"),
 		"snp_text": Color("fdf6e3"),
-		"aa_forward": Color("6c71c4"),
-		"aa_reverse": Color("cb4b16"),
 		"feature": Color("12455f"),
 		"feature_accent": Color("5190ad"),
 		"feature_text": Color("dceef8"),
@@ -701,6 +771,13 @@ const THEME_ORDER := [
 	"Classic"
 ]
 
+var _user_themes := {}
+var _user_theme_order := PackedStringArray()
+
+
+func _init() -> void:
+	_load_user_themes()
+
 func theme_names() -> PackedStringArray:
 	var names := PackedStringArray()
 	for key in THEME_ORDER:
@@ -711,22 +788,196 @@ func theme_names() -> PackedStringArray:
 		if names.has(theme_name):
 			continue
 		names.append(theme_name)
+	for theme_name in _user_theme_order:
+		if names.has(theme_name):
+			continue
+		names.append(theme_name)
+	for key in _user_themes.keys():
+		var theme_name := str(key)
+		if names.has(theme_name):
+			continue
+		names.append(theme_name)
 	return names
 
 func has_theme(theme_name: String) -> bool:
+	var resolved := _resolve_theme_name(theme_name)
+	return THEMES.has(resolved) or _user_themes.has(resolved)
+
+func is_builtin_theme(theme_name: String) -> bool:
 	return THEMES.has(_resolve_theme_name(theme_name))
+
+func is_user_theme(theme_name: String) -> bool:
+	return _user_themes.has(_resolve_theme_name(theme_name))
+
+func user_theme_names() -> PackedStringArray:
+	return _user_theme_order.duplicate()
+
+func make_unique_user_theme_name(base_name: String) -> String:
+	var trimmed := base_name.strip_edges()
+	if trimmed.is_empty():
+		trimmed = "Custom Theme"
+	var candidate := trimmed
+	var suffix := 2
+	while has_theme(candidate):
+		candidate = "%s %d" % [trimmed, suffix]
+		suffix += 1
+	return candidate
+
+func create_user_theme_from(source_theme_name: String, requested_name: String = "") -> String:
+	var source_name := source_theme_name if has_theme(source_theme_name) else "Slate"
+	var base_name := requested_name.strip_edges()
+	if base_name.is_empty():
+		base_name = "%s Copy" % source_name
+	var unique_name := make_unique_user_theme_name(base_name)
+	upsert_user_theme(unique_name, palette(source_name))
+	return unique_name
+
+func upsert_user_theme(theme_name: String, theme_palette: Dictionary) -> void:
+	var name := theme_name.strip_edges()
+	if name.is_empty():
+		return
+	var normalized := _normalize_palette(theme_palette)
+	_user_themes[name] = normalized
+	if not _user_theme_order.has(name):
+		_user_theme_order.append(name)
+	_save_user_themes()
+
+func rename_user_theme(old_name: String, new_name: String) -> String:
+	var old_trimmed := old_name.strip_edges()
+	if not _user_themes.has(old_trimmed):
+		return ""
+	var requested := new_name.strip_edges()
+	if requested.is_empty():
+		requested = old_trimmed
+	var unique_name := requested
+	if unique_name != old_trimmed:
+		unique_name = make_unique_user_theme_name(requested)
+	var existing := (_user_themes[old_trimmed] as Dictionary).duplicate(true)
+	_user_themes.erase(old_trimmed)
+	var idx := _user_theme_order.find(old_trimmed)
+	if idx >= 0:
+		_user_theme_order.remove_at(idx)
+	_user_themes[unique_name] = existing
+	_user_theme_order.append(unique_name)
+	_save_user_themes()
+	return unique_name
+
+func delete_user_theme(theme_name: String) -> void:
+	var trimmed := theme_name.strip_edges()
+	if not _user_themes.has(trimmed):
+		return
+	_user_themes.erase(trimmed)
+	var idx := _user_theme_order.find(trimmed)
+	if idx >= 0:
+		_user_theme_order.remove_at(idx)
+	_save_user_themes()
 
 func palette(theme_name: String) -> Dictionary:
 	var resolved := _resolve_theme_name(theme_name)
-	if not THEMES.has(resolved):
-		resolved = "Slate"
-	var p := (THEMES[resolved] as Dictionary).duplicate(true)
+	var raw: Dictionary
+	if THEMES.has(resolved):
+		raw = (THEMES[resolved] as Dictionary).duplicate(true)
+	elif _user_themes.has(resolved):
+		raw = (_user_themes[resolved] as Dictionary).duplicate(true)
+	else:
+		raw = (THEMES["Slate"] as Dictionary).duplicate(true)
+	return _normalize_palette(raw)
+
+func make_theme_from_palette(theme_palette: Dictionary, font_size: int, font_name: String = "Noto Sans") -> Theme:
+	var p := _normalize_palette(theme_palette)
+	var t := Theme.new()
+	var fs := maxi(8, font_size)
+	t.default_font_size = fs
+	t.default_font = ui_font(font_name)
+
+	_set_font_colors(t, p)
+	_set_panel_styles(t, p)
+	_set_button_styles(t, p)
+	_set_field_styles(t, p)
+	_set_item_list_styles(t, p)
+	_set_popup_menu_styles(t, p)
+	_set_checkbox_styles(t, p)
+	_set_check_button_styles(t, p)
+	_set_slider_styles(t, p)
+	_set_option_button_icons(t, p)
+	return t
+
+func genome_palette_from_palette(theme_palette: Dictionary) -> Dictionary:
+	var p := _normalize_palette(theme_palette)
+	return {
+		"bg": p["bg"],
+		"panel": p["panel"],
+		"border": p["border"],
+		"grid": p["grid"],
+		"text": p["text"],
+		"track_alt_bg": p["track_alt_bg"],
+		"map_contig": p["map_contig"],
+		"map_contig_alt": p["map_contig_alt"],
+		"map_view_fill": p["map_view_fill"],
+		"map_view_outline": p["map_view_outline"],
+		"region_select_fill": p["region_select_fill"],
+		"region_select_outline": p["region_select_outline"],
+		"genome": p["genome"],
+		"read": p["read"],
+		"insertion_marker": p.get("insertion_marker", p["text"]),
+		"gc_plot": p["gc_plot"],
+		"depth_plot": p["depth_plot"],
+		"depth_plot_series": p.get("depth_plot_series", [p["depth_plot"]]),
+		"vcf_gt_ref_fill": p.get("vcf_gt_ref_fill", p["text"]),
+		"vcf_gt_ref_text": p.get("vcf_gt_ref_text", p["panel"]),
+		"vcf_gt_het_fill": p.get("vcf_gt_het_fill", p["read"]),
+		"vcf_gt_het_text": p.get("vcf_gt_het_text", p["text"]),
+		"vcf_gt_hom_alt_fill": p.get("vcf_gt_hom_alt_fill", p["snp"]),
+		"vcf_gt_hom_alt_text": p.get("vcf_gt_hom_alt_text", p["snp_text"]),
+		"pileup_logo_bases": p.get("pileup_logo_bases", {}),
+		"ambiguous_base": p.get("ambiguous_base", p["text"]),
+		"snp": p["snp"],
+		"snp_text": p["snp_text"],
+		"feature": p["feature"],
+		"feature_accent": p["feature_accent"],
+		"feature_text": p["feature_text"],
+		"stop_codon": p.get("stop_codon", p["text"])
+	}
+
+
+func comparison_theme_colors_from_palette(theme_palette: Dictionary) -> Dictionary:
+	var p := _normalize_palette(theme_palette)
+	return {
+		"text": p["text"],
+		"text_muted": p["text_muted"],
+		"border": p["border"],
+		"panel_alt": p["panel_alt"],
+		"genome": p["genome"],
+		"map_contig": p["map_contig"],
+		"map_contig_alt": p["map_contig_alt"],
+		"map_view_fill": p["map_view_fill"],
+		"map_view_outline": p["map_view_outline"],
+		"feature": p["feature"],
+		"feature_text": p["feature_text"],
+		"same_strand": p["comparison_same_strand"],
+		"opp_strand": p["comparison_opp_strand"],
+		"selected_fill": p["comparison_selected_fill"],
+		"selection_outline": p["text"],
+		"snp": p["comparison_snp"],
+		"region_select_fill": p["region_select_fill"],
+		"region_select_outline": p["region_select_outline"]
+	}
+
+func palette_role_keys() -> PackedStringArray:
+	return PackedStringArray(LIVE_PALETTE_KEYS)
+
+
+func editor_role_groups() -> Array:
+	return EDITOR_ROLE_GROUPS.duplicate(true)
+
+func _normalize_palette(raw_palette: Dictionary) -> Dictionary:
+	var p := raw_palette.duplicate(true)
 	if not p.has("stop_codon"):
 		p["stop_codon"] = p.get("text", Color.BLACK)
-	if not p.has("vcf_row_bg"):
-		p["vcf_row_bg"] = p.get("panel", Color.WHITE)
-	if not p.has("vcf_row_alt_bg"):
-		p["vcf_row_alt_bg"] = p.get("aa_alt_bg", p.get("panel_alt", Color("efefef")))
+	if not p.has("track_alt_bg"):
+		p["track_alt_bg"] = p.get("panel_alt", Color("efefef"))
+	if not p.has("insertion_marker"):
+		p["insertion_marker"] = p.get("text", Color.BLACK)
 	if not p.has("vcf_gt_ref_fill"):
 		p["vcf_gt_ref_fill"] = p.get("text", Color.BLACK)
 	if not p.has("vcf_gt_ref_text"):
@@ -739,64 +990,22 @@ func palette(theme_name: String) -> Dictionary:
 		p["vcf_gt_hom_alt_fill"] = p.get("snp", Color("d7263d"))
 	if not p.has("vcf_gt_hom_alt_text"):
 		p["vcf_gt_hom_alt_text"] = p.get("snp_text", p.get("text_inverse", Color.WHITE))
-	var pileup_bases: Dictionary = p.get("pileup_logo_bases", {})
-	if not p.has("vcf_snp_a"):
-		p["vcf_snp_a"] = pileup_bases.get("A", p.get("read", Color("2b9348")))
-	if not p.has("vcf_snp_c"):
-		p["vcf_snp_c"] = pileup_bases.get("C", p.get("read", Color("1d4ed8")))
-	if not p.has("vcf_snp_g"):
-		p["vcf_snp_g"] = pileup_bases.get("G", p.get("read", Color("a16207")))
-	if not p.has("vcf_snp_t"):
-		p["vcf_snp_t"] = pileup_bases.get("T", p.get("read", Color("b91c1c")))
-	if not p.has("vcf_snp_other"):
-		p["vcf_snp_other"] = pileup_bases.get("D", p.get("read", Color("6b7280")))
-	if not p.has("vcf_snp_text"):
-		p["vcf_snp_text"] = p.get("text_inverse", Color.WHITE)
+	if not p.has("pileup_logo_bases"):
+		p["pileup_logo_bases"] = {
+			"A": Color("2b9348"),
+			"C": Color("1d4ed8"),
+			"G": Color("a16207"),
+			"T": Color("b91c1c"),
+			"D": p.get("read", Color("6b7280"))
+		}
+	if not p.has("ambiguous_base"):
+		p["ambiguous_base"] = p.get("text", Color.BLACK)
+	if not p.has("comparison_match_line"):
+		p["comparison_match_line"] = p.get("text", Color.BLACK)
 	return p
 
 func genome_palette(theme_name: String) -> Dictionary:
-	var p := palette(theme_name)
-	return {
-		"bg": p["bg"],
-		"panel": p["panel"],
-		"grid": p["grid"],
-		"text": p["text"],
-		"aa_alt_bg": p["aa_alt_bg"],
-		"map_contig": p["map_contig"],
-		"map_contig_alt": p["map_contig_alt"],
-		"map_view_fill": p["map_view_fill"],
-		"map_view_outline": p["map_view_outline"],
-		"region_select_fill": p["region_select_fill"],
-		"region_select_outline": p["region_select_outline"],
-		"genome": p["genome"],
-		"read": p["read"],
-		"gc_plot": p["gc_plot"],
-		"depth_plot": p["depth_plot"],
-		"depth_plot_series": p.get("depth_plot_series", [p["depth_plot"]]),
-		"vcf_row_bg": p.get("vcf_row_bg", p["panel"]),
-		"vcf_row_alt_bg": p.get("vcf_row_alt_bg", p["aa_alt_bg"]),
-		"vcf_gt_ref_fill": p.get("vcf_gt_ref_fill", p["text"]),
-		"vcf_gt_ref_text": p.get("vcf_gt_ref_text", p["panel"]),
-		"vcf_gt_het_fill": p.get("vcf_gt_het_fill", p["read"]),
-		"vcf_gt_het_text": p.get("vcf_gt_het_text", p["text"]),
-		"vcf_gt_hom_alt_fill": p.get("vcf_gt_hom_alt_fill", p["snp"]),
-		"vcf_gt_hom_alt_text": p.get("vcf_gt_hom_alt_text", p["snp_text"]),
-		"vcf_snp_a": p.get("vcf_snp_a", p["read"]),
-		"vcf_snp_c": p.get("vcf_snp_c", p["read"]),
-		"vcf_snp_g": p.get("vcf_snp_g", p["read"]),
-		"vcf_snp_t": p.get("vcf_snp_t", p["read"]),
-		"vcf_snp_other": p.get("vcf_snp_other", p["read"]),
-		"vcf_snp_text": p.get("vcf_snp_text", p["text_inverse"]),
-		"pileup_logo_bases": p.get("pileup_logo_bases", {}),
-		"snp": p["snp"],
-		"snp_text": p["snp_text"],
-		"aa_forward": p["aa_forward"],
-		"aa_reverse": p["aa_reverse"],
-		"feature": p["feature"],
-		"feature_accent": p["feature_accent"],
-		"feature_text": p["feature_text"],
-		"stop_codon": p.get("stop_codon", p["text"])
-	}
+	return genome_palette_from_palette(palette(theme_name))
 
 func depth_plot_series(theme_name: String) -> Array:
 	var p := palette(theme_name)
@@ -806,6 +1015,55 @@ func depth_plot_series(theme_name: String) -> Array:
 		if color_any is Color:
 			colors.append(color_any)
 	return colors
+
+func export_theme_json(theme_name: String) -> Dictionary:
+	var resolved := _resolve_theme_name(theme_name)
+	return {
+		"format": "seqhiker-theme",
+		"version": 1,
+		"name": resolved,
+		"palette": _theme_value_to_json(palette(resolved))
+	}
+
+func export_theme_json_string(theme_name: String) -> String:
+	return JSON.stringify(export_theme_json(theme_name), "\t")
+
+func export_theme_json_file(theme_name: String, path: String) -> bool:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return false
+	file.store_string(export_theme_json_string(theme_name))
+	return true
+
+func import_user_theme_from_json_text(json_text: String, fallback_name: String = "") -> String:
+	var parsed: Variant = JSON.parse_string(json_text)
+	if not (parsed is Dictionary):
+		return ""
+	var data: Dictionary = parsed
+	if str(data.get("format", "")) != "seqhiker-theme":
+		return ""
+	if int(data.get("version", 0)) < 1:
+		return ""
+	var palette_any: Variant = data.get("palette", null)
+	if not (palette_any is Dictionary):
+		return ""
+	var imported_palette: Dictionary = _theme_value_from_json(palette_any)
+	if not (imported_palette is Dictionary):
+		return ""
+	var raw_name := str(data.get("name", fallback_name)).strip_edges()
+	if raw_name.is_empty():
+		raw_name = fallback_name.strip_edges()
+	if raw_name.is_empty():
+		raw_name = "Imported Theme"
+	var unique_name := make_unique_user_theme_name(raw_name)
+	upsert_user_theme(unique_name, imported_palette)
+	return unique_name
+
+func import_user_theme_from_json_file(path: String) -> String:
+	if not FileAccess.file_exists(path):
+		return ""
+	var text := FileAccess.get_file_as_string(path)
+	return import_user_theme_from_json_text(text, path.get_file().get_basename())
 
 func ui_font(font_name: String) -> Font:
 	match font_name:
@@ -829,25 +1087,61 @@ func _load_dejavu_sans_font() -> Font:
 	_dejavu_sans_font = font
 	return _dejavu_sans_font
 
+func _theme_value_to_json(value: Variant) -> Variant:
+	match typeof(value):
+		TYPE_COLOR:
+			return "#" + (value as Color).to_html(true)
+		TYPE_DICTIONARY:
+			var out: Dictionary = {}
+			var dict: Dictionary = value
+			for key in dict.keys():
+				out[str(key)] = _theme_value_to_json(dict[key])
+			return out
+		TYPE_ARRAY:
+			var out_arr: Array = []
+			for item in value:
+				out_arr.append(_theme_value_to_json(item))
+			return out_arr
+		_:
+			return value
+
+func _theme_value_from_json(value: Variant) -> Variant:
+	match typeof(value):
+		TYPE_STRING:
+			var text := str(value).strip_edges()
+			if _is_json_color_string(text):
+				return Color.from_string(text if text.begins_with("#") else "#%s" % text, Color())
+			return text
+		TYPE_DICTIONARY:
+			var out: Dictionary = {}
+			var dict: Dictionary = value
+			for key in dict.keys():
+				out[str(key)] = _theme_value_from_json(dict[key])
+			return out
+		TYPE_ARRAY:
+			var out_arr: Array = []
+			for item in value:
+				out_arr.append(_theme_value_from_json(item))
+			return out_arr
+		_:
+			return value
+
+func _is_json_color_string(text: String) -> bool:
+	var s := text.strip_edges()
+	if s.begins_with("#"):
+		s = s.substr(1)
+	if s.length() != 6 and s.length() != 8:
+		return false
+	for ch in s:
+		var c := str(ch)
+		var lc := c.to_lower()
+		if not (lc >= "0" and lc <= "9") and not (lc >= "a" and lc <= "f"):
+			return false
+	return true
+
 
 func make_theme(theme_name: String, font_size: int, font_name: String = "Noto Sans") -> Theme:
-	var p := palette(theme_name)
-	var t := Theme.new()
-	var fs := maxi(8, font_size)
-	t.default_font_size = fs
-	t.default_font = ui_font(font_name)
-
-	_set_font_colors(t, p)
-	_set_panel_styles(t, p)
-	_set_button_styles(t, p)
-	_set_field_styles(t, p)
-	_set_item_list_styles(t, p)
-	_set_popup_menu_styles(t, p)
-	_set_checkbox_styles(t, p)
-	_set_check_button_styles(t, p)
-	_set_slider_styles(t, p)
-	_set_option_button_icons(t, p)
-	return t
+	return make_theme_from_palette(palette(theme_name), font_size, font_name)
 
 func _set_font_colors(theme: Theme, p: Dictionary) -> void:
 	var text: Color = p["text"]
@@ -1139,7 +1433,47 @@ func _set_slider_styles(theme: Theme, p: Dictionary) -> void:
 func _resolve_theme_name(theme_name: String) -> String:
 	if THEMES.has(theme_name):
 		return theme_name
+	if _user_themes.has(theme_name):
+		return theme_name
 	return theme_name
+
+func _load_user_themes() -> void:
+	_user_themes.clear()
+	_user_theme_order = PackedStringArray()
+	if not FileAccess.file_exists(USER_THEME_CONFIG_PATH):
+		return
+	var cfg := ConfigFile.new()
+	var err := cfg.load(USER_THEME_CONFIG_PATH)
+	if err != OK:
+		return
+	var order_any: Variant = cfg.get_value("meta", "order", PackedStringArray())
+	if order_any is PackedStringArray:
+		_user_theme_order = order_any
+	elif order_any is Array:
+		for name_any in order_any:
+			_user_theme_order.append(str(name_any))
+	for section in cfg.get_sections():
+		var section_name := str(section)
+		if not section_name.begins_with("theme:"):
+			continue
+		var theme_name := section_name.trim_prefix("theme:")
+		if theme_name.is_empty():
+			continue
+		var stored_palette: Variant = cfg.get_value(section_name, "palette", {})
+		if not (stored_palette is Dictionary):
+			continue
+		_user_themes[theme_name] = _normalize_palette(stored_palette)
+		if not _user_theme_order.has(theme_name):
+			_user_theme_order.append(theme_name)
+
+func _save_user_themes() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("meta", "order", _user_theme_order)
+	for theme_name in _user_theme_order:
+		if not _user_themes.has(theme_name):
+			continue
+		cfg.set_value("theme:%s" % theme_name, "palette", _user_themes[theme_name])
+	cfg.save(USER_THEME_CONFIG_PATH)
 
 func _make_flat_texture(color: Color, size: int) -> ImageTexture:
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)

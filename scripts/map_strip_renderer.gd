@@ -39,7 +39,7 @@ static func draw_strip(target, strip_rect: Rect2, total_len: float, segments: Ar
 		return
 	var bounded_total := maxf(1.0, total_len)
 	var base_seq_color: Color = palette.get("map_contig", palette.get("bg", Color.WHITE))
-	var alt_seq_color: Color = palette.get("map_contig_alt", palette.get("aa_alt_bg", base_seq_color))
+	var alt_seq_color: Color = palette.get("map_contig_alt", palette.get("track_alt_bg", base_seq_color))
 	if base_seq_color.is_equal_approx(alt_seq_color):
 		alt_seq_color = base_seq_color.darkened(0.08) if base_seq_color.get_luminance() > 0.5 else base_seq_color.lightened(0.12)
 	if segments.is_empty():
@@ -75,7 +75,7 @@ static func draw_strip(target, strip_rect: Rect2, total_len: float, segments: Ar
 	if view_start < 0.0 or visible_span <= 0.0 or visible_span >= bounded_total - 0.5:
 		return
 	var view_rect := viewport_rect(strip_rect, bounded_total, view_start, visible_span, min_view_px, view_extra_h)
-	var fill: Color = palette.get("map_view_fill", palette.get("genome", Color(0.25, 0.45, 0.75)))
+	var fill: Color = palette["map_view_fill"]
 	fill.a = 0.5
 	draw_rect_fn.call(target, view_rect, fill, true, 1.0)
 	draw_rect_fn.call(target, view_rect, palette.get("map_view_outline", palette.get("text", Color.BLACK)), false, 1.5)

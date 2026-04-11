@@ -109,29 +109,20 @@ func _render_read_end_bp(read: Dictionary) -> int:
 
 
 func _soft_clip_color(read_color: Color) -> Color:
-	var snp_col: Color = view.palette.get("snp", Color(0.86, 0.14, 0.14))
+	var snp_col: Color = view.palette["snp"]
 	var out := read_color.lerp(snp_col, 0.65)
 	out.a = maxf(out.a, 0.95)
 	return out
 
 
 func _soft_clip_marker_color() -> Color:
-	var out: Color = view.palette.get("text", view._axis_text_color())
+	var out: Color = view.palette["insertion_marker"]
 	out.a = maxf(out.a, 0.95)
 	return out
 
 
 func _pileup_logo_colors() -> Dictionary:
-	var colors: Dictionary = view.palette.get("pileup_logo_bases", {})
-	if colors is Dictionary and not colors.is_empty():
-		return colors
-	return {
-		"A": Color("2b9348"),
-		"C": Color("1d4ed8"),
-		"G": Color("a16207"),
-		"T": Color("b91c1c"),
-		"D": view.palette.get("text_muted", view.palette.get("text", Color("444444")))
-	}
+	return view.palette["pileup_logo_bases"]
 
 
 func _reference_base_at(bp: int) -> String:
@@ -371,11 +362,10 @@ func _distinct_mate_palette() -> Array[Color]:
 	var read_col: Color = view.palette["read"]
 	var monochrome_base := read_col.s < 0.08
 	var candidates: Array[Color] = [
-		view.palette.get("aa_reverse", read_col.darkened(0.35)),
-		view.palette.get("aa_forward", read_col.lightened(0.35)),
 		view.palette.get("depth_plot", read_col.darkened(0.20)),
 		view.palette.get("accent", read_col.lightened(0.20)),
-		view.palette.get("gc_plot", read_col)
+		view.palette.get("gc_plot", read_col),
+		view.palette.get("snp", read_col.darkened(0.30))
 	]
 	var out: Array[Color] = []
 	for cand in candidates:
@@ -590,7 +580,9 @@ func _draw_read_tracks_to(target, area: Rect2, collect_hitboxes: bool) -> void:
 	if view._read_view_mode == view.READ_VIEW_STRAND:
 		strand_split_y = view._strand_split_y_for_area(area, view._reads_scrollbar.value)
 		if strand_split_y >= content_top and strand_split_y <= content_bottom:
-			_draw_line_on(target, Vector2(0.0, strand_split_y), Vector2(view.size.x, strand_split_y), Color(0, 0, 0, 0.9), view.STRAND_SPLIT_LINE_WIDTH)
+			var split_color: Color = view.palette["border"]
+			split_color.a = maxf(split_color.a, 0.9)
+			_draw_line_on(target, Vector2(0.0, strand_split_y), Vector2(view.size.x, strand_split_y), split_color, view.STRAND_SPLIT_LINE_WIDTH)
 	var drawn_pairs: Dictionary = {}
 	var mate_lookup := {}
 	if view._read_view_mode == view.READ_VIEW_PAIRED or view._read_view_mode == view.READ_VIEW_FRAGMENT:
@@ -687,7 +679,7 @@ func _draw_read_tracks_to(target, area: Rect2, collect_hitboxes: bool) -> void:
 					base_text = "N" if b.is_empty() else b
 					var base_w := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x + 2.0
 					snp_w = maxf(snp_w, base_w)
-				_draw_rect_on(target, Rect2(sx - snp_w * 0.5, y, snp_w, row_h), view.palette.get("snp", Color(0.86, 0.14, 0.14)), true)
+				_draw_rect_on(target, Rect2(sx - snp_w * 0.5, y, snp_w, row_h), view.palette["snp"], true)
 				if draw_snp_text and not base_text.is_empty():
 					var tw := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x
 					var tx := sx - tw * 0.5
@@ -719,7 +711,9 @@ func draw_detailed_reads_to(target, area: Rect2, render_start_bp: float, render_
 	if view._read_view_mode == view.READ_VIEW_STRAND:
 		strand_split_y = view._strand_split_y_for_area(area, view._reads_scrollbar.value)
 		if strand_split_y >= content_top and strand_split_y <= content_bottom:
-			_draw_line_on(target, Vector2(0.0, strand_split_y), Vector2(view.size.x, strand_split_y), Color(0, 0, 0, 0.9), view.STRAND_SPLIT_LINE_WIDTH)
+			var split_color: Color = view.palette["border"]
+			split_color.a = maxf(split_color.a, 0.9)
+			_draw_line_on(target, Vector2(0.0, strand_split_y), Vector2(view.size.x, strand_split_y), split_color, view.STRAND_SPLIT_LINE_WIDTH)
 	var drawn_pairs: Dictionary = {}
 	var inferred_ids := _inferred_mate_contig_ids(view._laid_out_reads)
 	var mate_contig_colors := _mate_contig_colors(view._laid_out_reads)
@@ -790,7 +784,7 @@ func draw_detailed_reads_to(target, area: Rect2, render_start_bp: float, render_
 					base_text = "N" if b.is_empty() else b
 					var base_w := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x + 1.0
 					snp_w = maxf(snp_w, base_w)
-				_draw_rect_on(target, Rect2(sx - snp_w * 0.5, y, snp_w, row_h), view.palette.get("snp", Color(0.86, 0.14, 0.14)), true)
+				_draw_rect_on(target, Rect2(sx - snp_w * 0.5, y, snp_w, row_h), view.palette["snp"], true)
 				if not base_text.is_empty():
 					var tw := snp_font.get_string_size(base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size).x
 					var tx := sx - tw * 0.5
@@ -873,7 +867,9 @@ func draw_indel_markers(read: Dictionary, y: float) -> void:
 		if trim_h > 0.0 and dx1 > dx0:
 			view.draw_rect(Rect2(dx0, y, dx1 - dx0, trim_h), view.palette["bg"], true)
 			view.draw_rect(Rect2(dx0, y + row_h - trim_h, dx1 - dx0, trim_h), view.palette["bg"], true)
-		view.draw_line(Vector2(dx0, mid_y), Vector2(dx1, mid_y), Color(0.08, 0.08, 0.08, 0.95), 1.0)
+		var deletion_color: Color = view.palette["text"]
+		deletion_color.a = maxf(deletion_color.a, 0.95)
+		view.draw_line(Vector2(dx0, mid_y), Vector2(dx1, mid_y), deletion_color, 1.0)
 	var ins_positions: PackedInt32Array = read.get("ins_positions", PackedInt32Array())
 	for pos in ins_positions:
 		var ip := int(pos)
@@ -885,7 +881,8 @@ func draw_indel_markers(read: Dictionary, y: float) -> void:
 		var cap_w := maxf(4.0, row_h * 0.7)
 		var cap_line_w := maxf(1.0, row_h * 0.15)
 		var stem_line_w := maxf(1.0, row_h * 0.3)
-		var col := Color(0.05, 0.05, 0.05, 0.98)
+		var col: Color = view.palette["insertion_marker"]
+		col.a = maxf(col.a, 0.98)
 		view.draw_line(Vector2(ix, y0), Vector2(ix, y1), col, stem_line_w)
 		view.draw_line(Vector2(ix - cap_w * 0.5, y0), Vector2(ix + cap_w * 0.5, y0), col, cap_line_w)
 		view.draw_line(Vector2(ix - cap_w * 0.5, y1), Vector2(ix + cap_w * 0.5, y1), col, cap_line_w)
@@ -913,7 +910,9 @@ func _draw_indel_markers_to(target, read: Dictionary, y: float, render_start_bp:
 		if trim_h > 0.0 and dx1 > dx0:
 			_draw_rect_on(target, Rect2(dx0, y, dx1 - dx0, trim_h), view.palette["bg"], true)
 			_draw_rect_on(target, Rect2(dx0, y + row_h - trim_h, dx1 - dx0, trim_h), view.palette["bg"], true)
-		_draw_line_on(target, Vector2(dx0, mid_y), Vector2(dx1, mid_y), Color(0.08, 0.08, 0.08, 0.95), 1.0)
+		var deletion_color: Color = view.palette["text"]
+		deletion_color.a = maxf(deletion_color.a, 0.95)
+		_draw_line_on(target, Vector2(dx0, mid_y), Vector2(dx1, mid_y), deletion_color, 1.0)
 	var ins_positions: PackedInt32Array = read.get("ins_positions", PackedInt32Array())
 	for pos in ins_positions:
 		var ip := int(pos)
@@ -925,7 +924,8 @@ func _draw_indel_markers_to(target, read: Dictionary, y: float, render_start_bp:
 		var cap_w := maxf(4.0, row_h * 0.7)
 		var cap_line_w := maxf(1.0, row_h * 0.15)
 		var stem_line_w := maxf(1.0, row_h * 0.3)
-		var col := Color(0.05, 0.05, 0.05, 0.98)
+		var col: Color = view.palette["insertion_marker"]
+		col.a = maxf(col.a, 0.98)
 		_draw_line_on(target, Vector2(ix, y0), Vector2(ix, y1), col, stem_line_w)
 		_draw_line_on(target, Vector2(ix - cap_w * 0.5, y0), Vector2(ix + cap_w * 0.5, y0), col, cap_line_w)
 		_draw_line_on(target, Vector2(ix - cap_w * 0.5, y1), Vector2(ix + cap_w * 0.5, y1), col, cap_line_w)
