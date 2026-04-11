@@ -959,6 +959,8 @@ func comparison_theme_colors_from_palette(theme_palette: Dictionary) -> Dictiona
 		"selected_fill": p["comparison_selected_fill"],
 		"selection_outline": p["text"],
 		"snp": p["comparison_snp"],
+		"pileup_logo_bases": p.get("pileup_logo_bases", {}),
+		"ambiguous_base": p.get("ambiguous_base", p["text"]),
 		"region_select_fill": p["region_select_fill"],
 		"region_select_outline": p["region_select_outline"]
 	}

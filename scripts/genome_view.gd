@@ -2294,14 +2294,16 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float, target = self) -> vo
 		if fwd == " ":
 			continue
 		var rev := _complement_base(fwd)
-		var color: Color = palette["text"]
+		var fwd_color: Color = palette["text"]
+		var rev_color: Color = palette["text"]
 		if _colorize_nucleotides:
-			color = base_colors.get(fwd, ambiguous_color)
+			fwd_color = base_colors.get(fwd, ambiguous_color)
+			rev_color = base_colors.get(rev, ambiguous_color)
 		var x := _bp_to_screen_center(float(bp))
 		var fwd_w := font.get_string_size(fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		var rev_w := font.get_string_size(rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		_draw_string_on(target, font, Vector2(x - fwd_w * 0.5, fwd_y), fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
-		_draw_string_on(target, font, Vector2(x - rev_w * 0.5, rev_y), rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+		_draw_string_on(target, font, Vector2(x - fwd_w * 0.5, fwd_y), fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, fwd_color)
+		_draw_string_on(target, font, Vector2(x - rev_w * 0.5, rev_y), rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, rev_color)
 
 func _complement_base(base: String) -> String:
 	return COMPLEMENT_MAP.get(base, "N")
