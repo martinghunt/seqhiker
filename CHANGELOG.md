@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Bug where genomes in comparison mode couldn't be reordered, press button and drag did nothing
+- Reverse complement nucleotide colours were wrong, and now nucleotide colours work in comparison mode
 
 
 ## [1.0.0] - "Total Perspective" - 2026-04-05
