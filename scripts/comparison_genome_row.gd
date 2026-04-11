@@ -139,6 +139,15 @@ func get_axis_rect_in_parent() -> Rect2:
 		return Rect2(position, axis_bar.size)
 	return Rect2(axis_bar.global_position - parent_ctrl.global_position, axis_bar.size)
 
+func is_drag_handle_point_in_parent(point_parent: Vector2) -> bool:
+	if drag_button == null:
+		return false
+	var parent_ctrl := get_parent() as Control
+	if parent_ctrl == null:
+		return false
+	var drag_rect := Rect2(drag_button.global_position - parent_ctrl.global_position, drag_button.size)
+	return drag_rect.has_point(point_parent)
+
 
 func get_match_band_top_in_parent() -> float:
 	if axis_bar == null:

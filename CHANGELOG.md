@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Theme editor with live preview, and JSON import/export of themes
 
+### Fixed
+- Bug where genomes in comparison mode couldn't be reordered, press button and drag did nothing
+
 
 ## [1.0.0] - "Total Perspective" - 2026-04-05
 

@@ -610,7 +610,9 @@ func _input(event: InputEvent) -> void:
 			return
 	if not _drag_active:
 		return
-	_finish_row_drag(_drag_target_index)
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_finish_row_drag(_drag_target_index)
+		accept_event()
 
 
 func _emit_ui_sound_throttled(sound_id: String, min_interval_ms: int) -> void:
@@ -663,6 +665,9 @@ func _gui_input(event: InputEvent) -> void:
 			var row_hit := _row_hit_for_point(mb.position)
 			if row_hit.is_empty():
 				_clear_region_selection(true)
+				return
+			var row = _rows.get(int(row_hit.get("genome_id", -1)))
+			if row != null and row.has_method("is_drag_handle_point_in_parent") and row.is_drag_handle_point_in_parent(mb.position):
 				return
 			_begin_pending_region_selection(int(row_hit.get("genome_id", -1)), float(row_hit.get("bp", 0.0)), mb.position)
 			accept_event()
