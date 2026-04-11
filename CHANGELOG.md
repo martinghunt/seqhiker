@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Theme editor with live preview, and JSON import/export of themes
+
+
 ## [1.0.0] - "Total Perspective" - 2026-04-05
 
 ### Added

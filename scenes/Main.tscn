@@ -1,10 +1,11 @@
-[gd_scene load_steps=24 format=3 uid="uid://b8x31srh18cqr"]
+[gd_scene load_steps=25 format=3 uid="uid://b8x31srh18cqr"]
 
 [ext_resource type="Script" uid="uid://blioyr3uu4r8n" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="FontFile" uid="uid://c7lxavioxfnbo" path="res://fonts/magrathea.ttf" id="2_0bbpv"]
 [ext_resource type="Script" uid="uid://d2jyou0mxekd6" path="res://scripts/genome_view.gd" id="2_view"]
 [ext_resource type="PackedScene" uid="uid://q40rq7ikp5jf" path="res://scenes/FeaturePanel.tscn" id="3_30wbj"]
 [ext_resource type="PackedScene" path="res://scenes/ComparisonView.tscn" id="4_cmp"]
+[ext_resource type="PackedScene" path="res://scenes/ThemePreview.tscn" id="5_theme_preview"]
 
 [sub_resource type="InputEventAction" id="InputEventAction_toggle_settings"]
 action = &"seqhiker_toggle_settings"
@@ -108,6 +109,12 @@ theme_override_fonts/font = ExtResource("2_0bbpv")
 shortcut = SubResource("Shortcut_toggle_settings")
 shortcut_in_tooltip = false
 text = "C"
+
+[node name="ThemeEditorTitle" type="Label" parent="Root/TopBar"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Theme Editor"
 
 [node name="ActionClipper" type="Control" parent="Root/TopBar"]
 clip_contents = true
@@ -267,6 +274,15 @@ text = "N"
 custom_minimum_size = Vector2(2, 0)
 layout_mode = 2
 
+[node name="ThemeEditorCloseButton" type="Button" parent="Root/TopBar"]
+visible = false
+layout_mode = 2
+text = "Back to App"
+
+[node name="ThemeEditorRightInset" type="Control" parent="Root/TopBar"]
+custom_minimum_size = Vector2(12, 0)
+layout_mode = 2
+
 [node name="ContentMargin" type="MarginContainer" parent="Root"]
 layout_mode = 2
 size_flags_horizontal = 3
@@ -292,6 +308,10 @@ grow_vertical = 2
 script = ExtResource("2_view")
 
 [node name="ComparisonView" parent="Root/ContentMargin/ViewportLayer" instance=ExtResource("4_cmp")]
+visible = false
+layout_mode = 1
+
+[node name="ThemePreview" parent="Root/ContentMargin/ViewportLayer" instance=ExtResource("5_theme_preview")]
 visible = false
 layout_mode = 1
 
@@ -412,6 +432,11 @@ text = "Theme"
 
 [node name="ThemeOption" type="OptionButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
+
+[node name="OpenThemeEditorButton" type="Button" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Open Theme Editor"
 
 [node name="UIFontLabel" type="Label" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2

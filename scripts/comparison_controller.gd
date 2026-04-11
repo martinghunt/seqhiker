@@ -187,26 +187,7 @@ func refresh_view(theme_name: String) -> void:
 		return
 	var palette: Dictionary = themes_lib.palette(theme_name)
 	if comparison_view.has_method("set_theme_colors"):
-		comparison_view.set_theme_colors({
-			"text": palette.get("text", Color.BLACK),
-			"text_muted": palette.get("text_muted", Color("666666")),
-			"border": palette.get("border", Color("aaaaaa")),
-			"panel_alt": palette.get("panel_alt", Color("efefef")),
-			"genome": palette.get("genome", Color("3f5a7a")),
-			"map_contig": palette.get("map_contig", Color("ffffff")),
-			"map_contig_alt": palette.get("map_contig_alt", Color("efefef")),
-			"map_view_fill": palette.get("map_view_fill", Color("3f5a7a")),
-			"map_view_outline": palette.get("map_view_outline", palette.get("text", Color.BLACK)),
-			"feature": palette.get("feature", Color("dce8f7")),
-			"feature_text": palette.get("feature_text", Color("1e3557")),
-			"same_strand": palette.get("comparison_same_strand", Color("cb4934")),
-			"opp_strand": palette.get("comparison_opp_strand", Color("2c7fb8")),
-			"selected_fill": palette.get("comparison_selected_fill", Color("ffd84d")),
-			"selection_outline": palette.get("text", Color.BLACK),
-			"snp": palette.get("comparison_snp", palette.get("snp", Color("f59e0b"))),
-			"region_select_fill": palette.get("region_select_fill", palette.get("genome", Color("3f5a7a"))),
-			"region_select_outline": palette.get("region_select_outline", palette.get("text", Color.BLACK))
-		})
+		comparison_view.set_theme_colors(themes_lib.comparison_theme_colors_from_palette(palette))
 	if comparison_view.has_method("set_genomes"):
 		comparison_view.set_genomes(_comparison_genomes)
 	var order := PackedInt32Array()

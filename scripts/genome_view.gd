@@ -138,31 +138,7 @@ var reference_start_bp := 0
 var reference_sequence := ""
 var concat_segments: Array[Dictionary] = []
 
-var palette: Dictionary = {
-	"bg": Color("f7efe4"),
-	"panel": Color("fff7eb"),
-	"grid": Color("d4c6b4"),
-	"text": Color("2b2520"),
-	"aa_alt_bg": Color("ececec"),
-	"genome": Color("3f5a7a"),
-	"read": Color("0f8b8d"),
-	"gc_plot": Color("2aa198"),
-	"depth_plot": Color("345995"),
-	"vcf_row_bg": Color("ffffff"),
-	"vcf_row_alt_bg": Color("efefef"),
-	"vcf_gt_ref_fill": Color("2b2520"),
-	"vcf_gt_ref_text": Color("fff7eb"),
-	"vcf_gt_het_fill": Color("0f8b8d"),
-	"vcf_gt_het_text": Color("2b2520"),
-	"vcf_gt_hom_alt_fill": Color("d7263d"),
-	"vcf_gt_hom_alt_text": Color("ffffff"),
-	"snp": Color("d7263d"),
-	"snp_text": Color("ffffff"),
-	"aa_forward": Color("8a4fff"),
-	"aa_reverse": Color("f39237"),
-	"feature": Color("dce8f7"),
-	"feature_text": Color("1e3557")
-}
+var palette: Dictionary = ThemesLib.new().genome_palette("Slate")
 
 var _pan_tween: Tween
 var _zoom_tween: Tween
@@ -1257,7 +1233,9 @@ func _draw_view_to(target) -> void:
 		if track_rects.has(target_id):
 			var target_rect: Rect2 = track_rects[target_id]
 			var y := target_rect.position.y - 2.0
-			_draw_line_on(target, Vector2(2.0, y), Vector2(size.x - 2.0, y), Color(0.05, 0.05, 0.05, 0.9), 2.0)
+			var drag_line_color: Color = palette["border"]
+			drag_line_color.a = maxf(drag_line_color.a, 0.9)
+			_draw_line_on(target, Vector2(2.0, y), Vector2(size.x - 2.0, y), drag_line_color, 2.0)
 	_draw_file_status(target)
 
 func _input(event: InputEvent) -> void:
@@ -1279,7 +1257,7 @@ func _draw_region_selection(track_rects: Dictionary) -> void:
 	var x0 := clampf(_bp_to_screen_edge(bp0), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
 	var x1 := clampf(_bp_to_screen_edge(bp1), TRACK_LEFT_PAD, size.x - TRACK_RIGHT_PAD)
 	var w := maxf(1.0, x1 - x0)
-	var fill: Color = palette.get("region_select_fill", palette.get("genome", Color(0.25, 0.45, 0.75)))
+	var fill: Color = palette["region_select_fill"]
 	fill.a = 0.28
 	var border: Color = palette.get("region_select_outline", palette["text"])
 	border.a = 0.55
@@ -1358,12 +1336,12 @@ func _vcf_genotype_colors(gt_class: int) -> Dictionary:
 			}
 		2:
 			return {
-				"fill": palette.get("vcf_gt_het_fill", palette.get("read", Color("0f8b8d"))),
+				"fill": palette["vcf_gt_het_fill"],
 				"text": palette.get("vcf_gt_het_text", palette.get("text", Color.BLACK))
 			}
 		3:
 			return {
-				"fill": palette.get("vcf_gt_hom_alt_fill", palette.get("snp", Color("d7263d"))),
+				"fill": palette["vcf_gt_hom_alt_fill"],
 				"text": palette.get("vcf_gt_hom_alt_text", palette.get("snp_text", Color.WHITE))
 			}
 		_:
@@ -1440,8 +1418,7 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 		var row_index := int(row.get("row_index", 0))
 		var row_y := area.position.y + row_index * (VCF_ROW_H + VCF_ROW_GAP)
 		var row_rect := Rect2(0.0, row_y, area.size.x, VCF_ROW_H)
-		var bg_key := "vcf_row_alt_bg" if (row_index % 2) == 1 else "vcf_row_bg"
-		var bg_col: Color = palette.get(bg_key, palette.get("panel", Color.WHITE))
+		var bg_col: Color = palette["track_alt_bg"] if (row_index % 2) == 1 else palette["bg"]
 		_draw_rect_on(target, row_rect, bg_col, true)
 		var label_text := str(row.get("sample_name", "sample"))
 		var baseline_y := _text_baseline_for_center(row_rect.position.y + row_rect.size.y * 0.5, label_font, label_font_size)
@@ -1535,14 +1512,13 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 				var block_rect := Rect2(center_x - draw_w * 0.5, row_y + 2.0, draw_w, VCF_ROW_H - 4.0)
 				var site_px := clampf(maxf(raw_w, 1.0 / maxf(bp_per_px, 0.000001)), 0.75, float(VCF_ROW_H - 4.0))
 				var gt_colors := _vcf_genotype_colors(gt_class)
-				var fill: Color = gt_colors.get("fill", palette.get("read", Color("0f8b8d")))
+				var fill: Color = gt_colors["fill"]
 				var text_color: Color = gt_colors.get("text", palette.get("text", Color.BLACK))
 				if not is_insertion and not is_complex:
 					_draw_rect_on(target, block_rect, fill, true)
 				if is_deletion:
 					var trim_h := maxf(0.0, block_rect.size.y * 0.25)
-					var row_bg_key := "vcf_row_alt_bg" if (row_index % 2) == 1 else "vcf_row_bg"
-					var row_bg: Color = palette.get(row_bg_key, palette.get("panel", Color.WHITE))
+					var row_bg: Color = palette["track_alt_bg"] if (row_index % 2) == 1 else palette["bg"]
 					if trim_h > 0.0 and block_rect.size.x > 0.0:
 						_draw_rect_on(target, Rect2(block_rect.position.x, block_rect.position.y, block_rect.size.x, trim_h), row_bg, true)
 						_draw_rect_on(target, Rect2(block_rect.position.x, block_rect.position.y + block_rect.size.y - trim_h, block_rect.size.x, trim_h), row_bg, true)
@@ -1556,8 +1532,7 @@ func _draw_variant_track(area: Rect2, target = null) -> void:
 					_draw_line_on(target, Vector2(block_rect.position.x + block_rect.size.x, y0), Vector2(block_rect.position.x + block_rect.size.x, y1), fill, del_end_w)
 				elif is_complex:
 					var trim_h := maxf(0.0, block_rect.size.y * 0.25)
-					var row_bg_key := "vcf_row_alt_bg" if (row_index % 2) == 1 else "vcf_row_bg"
-					var row_bg: Color = palette.get(row_bg_key, palette.get("panel", Color.WHITE))
+					var row_bg: Color = palette["track_alt_bg"] if (row_index % 2) == 1 else palette["bg"]
 					if trim_h > 0.0 and block_rect.size.x > 0.0:
 						_draw_rect_on(target, Rect2(block_rect.position.x, block_rect.position.y, block_rect.size.x, trim_h), row_bg, true)
 						_draw_rect_on(target, Rect2(block_rect.position.x, block_rect.position.y + block_rect.size.y - trim_h, block_rect.size.x, trim_h), row_bg, true)
@@ -1605,7 +1580,9 @@ func _draw_read_tracks(area: Rect2) -> void:
 		var content_bottom := read_content_bottom_for_area(area)
 		var strand_split_y := _strand_split_y_for_area(area, _reads_scrollbar.value)
 		if strand_split_y >= content_top and strand_split_y <= content_bottom:
-			draw_line(Vector2(0.0, strand_split_y), Vector2(size.x, strand_split_y), Color(0, 0, 0, 0.9), STRAND_SPLIT_LINE_WIDTH)
+			var split_color: Color = palette["border"]
+			split_color.a = maxf(split_color.a, 0.9)
+			draw_line(Vector2(0.0, strand_split_y), Vector2(size.x, strand_split_y), split_color, STRAND_SPLIT_LINE_WIDTH)
 
 
 func is_motion_read_layer_active() -> bool:
@@ -2309,13 +2286,8 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float, target = self) -> vo
 	var rev_center_y := _text_center_y(font, font_size, line_y + 38.0)
 	var fwd_y := _text_baseline_for_center(fwd_center_y, font, font_size)
 	var rev_y := _text_baseline_for_center(rev_center_y, font, font_size)
-	var base_colors := {
-		"A": Color("2b9348"),
-		"C": Color("1d4ed8"),
-		"G": Color("a16207"),
-		"T": Color("b91c1c"),
-		"N": palette["text"]
-	}
+	var base_colors: Dictionary = palette.get("pileup_logo_bases", {})
+	var ambiguous_color: Color = palette.get("ambiguous_base", palette["text"])
 	for i in range(i_start, i_end + 1):
 		var bp := reference_start_bp + i
 		var fwd := reference_sequence.substr(i, 1).to_upper()
@@ -2324,7 +2296,7 @@ func _draw_nucleotide_letters(_top_y: float, line_y: float, target = self) -> vo
 		var rev := _complement_base(fwd)
 		var color: Color = palette["text"]
 		if _colorize_nucleotides:
-			color = base_colors.get(fwd, palette["text"])
+			color = base_colors.get(fwd, ambiguous_color)
 		var x := _bp_to_screen_center(float(bp))
 		var fwd_w := font.get_string_size(fwd, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		var rev_w := font.get_string_size(rev, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x

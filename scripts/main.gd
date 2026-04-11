@@ -14,6 +14,7 @@ const FeaturePanelControllerScript = preload("res://scripts/feature_panel_contro
 const VariantControllerScript = preload("res://scripts/variant_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
 const ComparisonControllerScript = preload("res://scripts/comparison_controller.gd")
+const ThemeEditorControllerScript = preload("res://scripts/theme_editor_controller.gd")
 const ReadTrackSettingsPanelScene = preload("res://scenes/ReadTrackSettingsPanel.tscn")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const ZEM_BIN_SUBDIR := "bin"
@@ -234,7 +235,7 @@ var _cache_mode := -1
 var _cache_need_reference := false
 var _cache_scope_key := ""
 var _theme_text_color: Color = Color.BLACK
-var _theme_error_color: Color = Color("8b0000")
+var _theme_error_color: Color = ThemesLib.THEMES["Slate"]["status_error"]
 var _themes_lib: RefCounted
 var _auto_play_enabled := false
 var _auto_play_direction := 1.0
@@ -327,6 +328,7 @@ var _settings_shared_box: VBoxContainer
 var _shared_colorize_nucleotides_cb: CheckButton
 var _sounds_enabled := false
 var _sound_controller: RefCounted
+var _theme_editor_controller: RefCounted
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -344,6 +346,8 @@ func _ready() -> void:
 	_session_loader.configure(self)
 	_tile_controller.configure(Callable(self, "_compute_tile_zoom"))
 	_themes_lib = ThemesLibScript.new()
+	_theme_editor_controller = ThemeEditorControllerScript.new()
+	_theme_editor_controller.configure(self, _themes_lib)
 	_comparison_controller = ComparisonControllerScript.new()
 	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
 	_top_bar_controller = TopBarControllerScript.new()
@@ -352,10 +356,12 @@ func _ready() -> void:
 	_context_panel_controller.configure(self)
 	_sound_controller = SoundControllerScript.new()
 	_sound_controller.configure(self)
-	_disable_button_focus()
 	_top_bar_controller.setup()
 	_sound_controller.setup()
 	_setup_theme_selector()
+	if _theme_editor_controller != null:
+		_theme_editor_controller.setup()
+	_disable_button_focus()
 	_setup_ui_font_selector()
 	_setup_sequence_letter_font_selector()
 	_setup_font_size_control()
@@ -508,6 +514,8 @@ func _refresh_settings_sections() -> void:
 		_comparison_controller.refresh_settings(_app_mode)
 
 func _toggle_comparison_mode() -> void:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		return
 	_play_ui_sound(SoundControllerScript.SOUND_CHANGE_VIEW)
 	if _top_bar_controller != null:
 		_top_bar_controller.toggle_comparison_mode()
@@ -642,7 +650,6 @@ func _setup_theme_selector() -> void:
 		if theme_option.get_item_text(i) == "Slate":
 			theme_option.select(i)
 			break
-
 
 func _setup_ui_font_selector() -> void:
 	ui_font_option.clear()
@@ -850,6 +857,9 @@ func _disable_button_focus() -> void:
 		play_speed_slider,
 		animate_pan_zoom_slider
 	]
+	if _theme_editor_controller != null:
+		for control in _theme_editor_controller.focus_controls():
+			controls.append(control)
 	for c in controls:
 		if c != null:
 			c.focus_mode = Control.FOCUS_NONE
@@ -1009,6 +1019,8 @@ func _on_region_selection_changed(active: bool, start_bp: int, end_bp: int) -> v
 		_update_debug_stats_label()
 
 func _toggle_settings() -> void:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		return
 	_play_ui_sound(SoundControllerScript.SOUND_SETTINGS_TOGGLE)
 	_settings_open = not _settings_open
 	_slide_settings(_settings_open, true)
@@ -1016,10 +1028,62 @@ func _toggle_settings() -> void:
 		_save_config()
 
 func _close_settings() -> void:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		return
 	_play_ui_sound(SoundControllerScript.SOUND_SETTINGS_TOGGLE)
 	_settings_open = false
 	_slide_settings(false, true)
 	_save_config()
+
+func _refresh_main_view_visibility() -> void:
+	var theme_preview: Control = get_node_or_null("Root/ContentMargin/ViewportLayer/ThemePreview")
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		genome_view.visible = false
+		comparison_view.visible = false
+		if theme_preview != null:
+			theme_preview.visible = true
+		return
+	if theme_preview != null:
+		theme_preview.visible = false
+	genome_view.visible = _app_mode != APP_MODE_COMPARISON
+	comparison_view.visible = _app_mode == APP_MODE_COMPARISON
+
+func _build_comparison_theme_colors(palette: Dictionary) -> Dictionary:
+	return _themes_lib.comparison_theme_colors_from_palette(palette)
+
+func _apply_palette(palette: Dictionary, theme_name: String = "") -> void:
+	var effective_name := theme_name
+	if effective_name.is_empty() and theme_option.item_count > 0 and theme_option.selected >= 0:
+		effective_name = theme_option.get_item_text(theme_option.selected)
+	self.theme = _themes_lib.make_theme_from_palette(palette, _ui_font_size, _ui_font_name)
+	_theme_text_color = palette["text"]
+	_theme_error_color = palette["status_error"]
+	background.color = palette["bg"]
+	genome_view.set_palette(_themes_lib.genome_palette_from_palette(palette))
+	genome_view.set_base_font_size(_ui_font_size)
+	feature_name_label.add_theme_color_override("default_color", palette["text"])
+	feature_type_label.add_theme_color_override("default_color", palette["text"])
+	feature_range_label.add_theme_color_override("default_color", palette["text"])
+	feature_strand_label.add_theme_color_override("default_color", palette["text"])
+	feature_source_label.add_theme_color_override("default_color", palette["text"])
+	feature_seq_label.add_theme_color_override("default_color", palette["text"])
+	_apply_panel_style(settings_panel, palette)
+	_apply_panel_style(feature_panel, palette)
+	_apply_search_theme(palette)
+	if _debug_stats_label != null:
+		_debug_stats_label.add_theme_color_override("font_color", palette["text"])
+	if _debug_loaded_files_label != null:
+		_debug_loaded_files_label.add_theme_color_override("font_color", palette["text"])
+	_apply_topbar_button_font_size()
+	call_deferred("_update_settings_toggle_icon_pivot")
+	_apply_settings_scrollbar_style()
+	if comparison_view != null and comparison_view.has_method("set_theme_colors"):
+		comparison_view.set_theme_colors(_build_comparison_theme_colors(palette))
+	var theme_preview: Control = get_node_or_null("Root/ContentMargin/ViewportLayer/ThemePreview")
+	if theme_preview != null and theme_preview.has_method("set_palette"):
+		theme_preview.set_palette(palette, effective_name)
+	call_deferred("_update_settings_panel_width")
+	call_deferred("_update_feature_panel_width")
 
 func _slide_settings(open: bool, animated: bool) -> void:
 	if _settings_tween and _settings_tween.is_running():
@@ -2106,7 +2170,7 @@ func _depth_plot_color_for_track(track_id: String) -> Color:
 			break
 	var series_colors: Array = _themes_lib.depth_plot_series(theme_option.get_item_text(theme_option.selected))
 	if series_colors.is_empty():
-		return genome_view.palette.get("depth_plot", genome_view.palette.get("read", Color("808080")))
+		return genome_view.palette["depth_plot"]
 	return series_colors[idx % series_colors.size()]
 
 func _existing_bam_source_id(bam_path: String) -> int:
@@ -2433,16 +2497,22 @@ func _on_track_settings_requested(track_id: String) -> void:
 	_slide_feature_panel(true, true)
 
 func _toggle_search_panel() -> void:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		return
 	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	if _context_panel_controller != null:
 		_context_panel_controller.toggle_search_panel()
 
 func _toggle_go_panel() -> void:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		return
 	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	if _context_panel_controller != null:
 		_context_panel_controller.toggle_go_panel()
 
 func _toggle_download_panel() -> void:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		return
 	_play_ui_sound(SoundControllerScript.SOUND_DOWNLOAD)
 	if _context_panel_controller != null:
 		_context_panel_controller.toggle_download_panel()
@@ -2697,32 +2767,9 @@ func _apply_theme(theme_name: String) -> void:
 	if not _themes_lib.has_theme(theme_name):
 		return
 	var palette: Dictionary = _themes_lib.palette(theme_name)
-	self.theme = _themes_lib.make_theme(theme_name, _ui_font_size, _ui_font_name)
-	_theme_text_color = palette["text"]
-	_theme_error_color = palette["status_error"]
-	background.color = palette["bg"]
-	genome_view.set_palette(_themes_lib.genome_palette(theme_name))
-	genome_view.set_base_font_size(_ui_font_size)
-	feature_name_label.add_theme_color_override("default_color", palette["text"])
-	feature_type_label.add_theme_color_override("default_color", palette["text"])
-	feature_range_label.add_theme_color_override("default_color", palette["text"])
-	feature_strand_label.add_theme_color_override("default_color", palette["text"])
-	feature_source_label.add_theme_color_override("default_color", palette["text"])
-	feature_seq_label.add_theme_color_override("default_color", palette["text"])
-	_apply_panel_style(settings_panel, palette)
-	_apply_panel_style(feature_panel, palette)
-	_apply_search_theme(palette)
-	if _debug_stats_label != null:
-		_debug_stats_label.add_theme_color_override("font_color", palette["text"])
-	if _debug_loaded_files_label != null:
-		_debug_loaded_files_label.add_theme_color_override("font_color", palette["text"])
-	_apply_topbar_button_font_size()
-	call_deferred("_update_settings_toggle_icon_pivot")
-	_apply_settings_scrollbar_style()
+	_apply_palette(palette, theme_name)
 	if _comparison_controller != null:
 		_comparison_controller.refresh_view(theme_name)
-	call_deferred("_update_settings_panel_width")
-	call_deferred("_update_feature_panel_width")
 
 func _update_settings_panel_width() -> void:
 	if settings_panel == null or _settings_layout == null or _settings_margin == null or _viewport_layer == null or _settings_header == null:
@@ -2806,6 +2853,8 @@ func _update_feature_panel_width(apply_offsets: bool = true) -> void:
 	feature_panel.custom_minimum_size.x = target_w
 	if apply_offsets and (_feature_tween == null or not _feature_tween.is_running()):
 		_apply_feature_panel_offsets(_feature_panel_open)
+	if _theme_editor_controller != null and _theme_editor_controller.is_open() and _theme_editor_controller.has_method("refresh_layout"):
+		_theme_editor_controller.refresh_layout()
 
 func _apply_settings_scrollbar_style() -> void:
 	_apply_scrollbar_width(settings_scroll)
@@ -2843,6 +2892,22 @@ func _apply_topbar_button_font_size() -> void:
 func _on_files_dropped(files: PackedStringArray) -> void:
 	if not files.is_empty():
 		_play_ui_sound(SoundControllerScript.SOUND_FILE_DROP)
+	for file_any in files:
+		var path := str(file_any)
+		if path.is_empty():
+			continue
+		if _themes_lib != null and path.get_extension().to_lower() == "json":
+			var imported_name: String = _themes_lib.import_user_theme_from_json_file(path)
+			if imported_name.is_empty():
+				_set_status("Could not import theme JSON.", true)
+				return
+			_setup_theme_selector()
+			_select_theme_option(imported_name)
+			_apply_theme(imported_name)
+			if _theme_editor_controller != null and _theme_editor_controller.is_open():
+				_theme_editor_controller.open_for(imported_name)
+			_set_status("Imported theme: %s" % imported_name)
+			return
 	if not _ensure_server_connected():
 		return
 	for file_any in files:
@@ -3483,6 +3548,10 @@ func _format_read_flags(flags: int) -> String:
 	return _feature_panel_controller.format_read_flags(flags)
 
 func _close_feature_panel() -> void:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		_play_ui_sound(SoundControllerScript.SOUND_CLOSE_RIGHT_PANEL)
+		_theme_editor_controller.close()
+		return
 	if _context_panel_mode == CONTEXT_PANEL_SELECTED_MATCHES and _comparison_controller != null:
 		_comparison_controller.clear_region_selection()
 	if _feature_panel_open:

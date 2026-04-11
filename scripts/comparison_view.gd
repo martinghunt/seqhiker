@@ -80,20 +80,7 @@ var _invert_mouse_wheel_zoom := false
 var _mouse_wheel_pan_sensitivity := 1.0
 var _loading_message := ""
 var _last_ui_sound_ms := {}
-var _theme_colors := {
-	"text": Color.BLACK,
-	"text_muted": Color("666666"),
-	"border": Color("aaaaaa"),
-	"panel_alt": Color("efefef"),
-	"genome": Color("3f5a7a"),
-	"feature": Color("dce8f7"),
-	"feature_text": Color("1e3557"),
-	"same_strand": Color("cb4934"),
-	"opp_strand": Color("2c7fb8"),
-	"selected_fill": Color("ffd84d"),
-	"selection_outline": Color.BLACK,
-	"snp": Color("f59e0b")
-}
+var _theme_colors := ThemesLib.new().comparison_theme_colors_from_palette(ThemesLib.THEMES["Slate"])
 
 
 func _ready() -> void:
@@ -1213,7 +1200,7 @@ func _draw_detail_block(target, block: Dictionary, top_genome_id: int, bottom_ge
 		t_pos = int(detail.get("target_end", 0)) - 1
 	var match_color: Color = _theme_colors["selection_outline"]
 	match_color.a = 1.0
-	var snp_color: Color = _theme_colors.get("snp", Color("f59e0b"))
+	var snp_color: Color = _theme_colors["snp"]
 	var line_width := 1.0
 	var x_tolerance := 8.0
 	var bp_px := minf(_pixels_per_bp(top_axis), _pixels_per_bp(bottom_axis))
@@ -1679,7 +1666,7 @@ func _line_intersection(a0: Vector2, a1: Vector2, b0: Vector2, b1: Vector2) -> V
 func _block_color(block: Dictionary, top_genome_id: int = -1, bottom_genome_id: int = -1) -> Color:
 	if top_genome_id >= 0 and bottom_genome_id >= 0:
 		if _match_key_for_display_block(block, top_genome_id, bottom_genome_id) == _selected_match_key:
-			var selected_fill: Color = _theme_colors.get("selected_fill", Color("ffd84d"))
+			var selected_fill: Color = _theme_colors["selected_fill"]
 			selected_fill.a = 0.78
 			return selected_fill
 	var base: Color = _theme_colors["same_strand"] if bool(block.get("same_strand", true)) else _theme_colors["opp_strand"]
@@ -2045,7 +2032,7 @@ func _pair_pending_active(key: String) -> bool:
 func _draw_loading_overlay() -> void:
 	if _loading_message.is_empty():
 		return
-	var overlay_color: Color = _theme_colors.get("panel_alt", Color(0.95, 0.95, 0.95, 1.0))
+	var overlay_color: Color = _theme_colors["panel_alt"]
 	overlay_color.a = 0.82
 	draw_rect(Rect2(Vector2.ZERO, size), overlay_color, true)
 	var font := get_theme_default_font()

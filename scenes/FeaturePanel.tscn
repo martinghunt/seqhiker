@@ -104,3 +104,9 @@ text = "Sequence: -"
 fit_content = true
 scroll_active = false
 selection_enabled = true
+
+[node name="FeatureCustomContent" type="VBoxContainer" parent="FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8

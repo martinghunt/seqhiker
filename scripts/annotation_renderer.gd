@@ -74,13 +74,15 @@ func draw_aa_tracks(area: Rect2, target = null) -> void:
 		var track_rect := Rect2(0.0, y, area.size.x, view.AA_ROW_H)
 		var bg_col: Color = view.palette["bg"]
 		if i == 1 or i == 4:
-			bg_col = view.palette.get("aa_alt_bg", bg_col)
+			bg_col = view.palette.get("track_alt_bg", bg_col)
 		_draw_rect_on(target, track_rect, bg_col, true)
 		view._draw_grid(track_rect, target)
 	if view.needs_stop_codon_overview(true):
 		_draw_aa_stop_codon_lines(area_start, target)
 	var split_y := area_start + 3.0 * (view.AA_ROW_H + view.AA_ROW_GAP) - view.AA_ROW_GAP * 0.5
-	_draw_line_on(target, Vector2(0.0, split_y), Vector2(view.size.x, split_y), Color(0.15, 0.15, 0.15, 0.45), 1.0)
+	var split_color: Color = view.palette["border"]
+	split_color.a *= 0.45
+	_draw_line_on(target, Vector2(0.0, split_y), Vector2(view.size.x, split_y), split_color, 1.0)
 
 	for feature in view.features:
 		seen += 1
