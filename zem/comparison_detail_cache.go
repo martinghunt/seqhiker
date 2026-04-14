@@ -64,30 +64,13 @@ func (e *Engine) ensureComparisonPairDetailCacheLocked(pair *comparisonPair, que
 	if pair == nil || query == nil || target == nil {
 		return nil
 	}
-	if len(pair.Blocks) == 0 {
+	if len(pair.CanonicalBlocks) == 0 {
 		pair.DetailPath = ""
 		pair.DetailIndex = nil
 		return nil
 	}
 	cachePath := comparisonDetailCachePath(e.comparisonCacheDir, query, target)
-	if idx, err := loadComparisonDetailIndex(cachePath); err == nil {
-		pair.DetailPath = cachePath
-		pair.DetailIndex = idx
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
-		return err
-	}
 	pair.DetailPath = cachePath
-	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
-		details := buildComparisonBlockDetails(query, target)
-		idx, err := writeComparisonDetailCache(cachePath, details)
-		if err != nil {
-			return err
-		}
-		pair.DetailIndex = idx
-		return nil
-	}
 	if idx, err := loadComparisonDetailIndex(cachePath); err == nil {
 		pair.DetailIndex = idx
 		return nil

@@ -42,6 +42,10 @@ const MSG_GET_VARIANT_TILE := 38
 const MSG_GET_VARIANT_DETAIL := 39
 const MSG_LOAD_GENOME_FILES := 40
 const MSG_RESET_BROWSER_STATE := 41
+const MSG_SET_CHROMOSOME_ORIENTATION := 42
+const MSG_SET_ALL_CHROMOSOME_ORIENTATIONS := 43
+const MSG_SET_COMPARISON_SEGMENT_ORIENTATION := 44
+const MSG_SET_COMPARISON_GENOME_ORIENTATION := 45
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -562,6 +566,50 @@ func reset_comparison_state() -> Dictionary:
 func reset_browser_state() -> Dictionary:
 	return _send_request(MSG_RESET_BROWSER_STATE, PackedByteArray(), LOAD_TIMEOUT_MS)
 
+func set_chromosome_orientation(chr_id: int, reversed: bool) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(3)
+	payload.encode_u16(0, chr_id)
+	payload[2] = 1 if reversed else 0
+	var resp := _send_request(MSG_SET_CHROMOSOME_ORIENTATION, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["chromosomes"] = _parse_chromosomes(resp.get("payload", PackedByteArray()))
+	return resp
+
+func set_all_chromosome_orientations(reversed: bool) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(1)
+	payload[0] = 1 if reversed else 0
+	var resp := _send_request(MSG_SET_ALL_CHROMOSOME_ORIENTATIONS, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["chromosomes"] = _parse_chromosomes(resp.get("payload", PackedByteArray()))
+	return resp
+
+func set_comparison_segment_orientation(genome_id: int, segment_start_bp: int, reversed: bool) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(7)
+	payload.encode_u16(0, genome_id)
+	payload.encode_u32(2, segment_start_bp)
+	payload[6] = 1 if reversed else 0
+	var resp := _send_request(MSG_SET_COMPARISON_SEGMENT_ORIENTATION, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["genomes"] = _parse_comparison_genomes(resp.get("payload", PackedByteArray()))
+	return resp
+
+func set_comparison_genome_orientation(genome_id: int, reversed: bool) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(3)
+	payload.encode_u16(0, genome_id)
+	payload[2] = 1 if reversed else 0
+	var resp := _send_request(MSG_SET_COMPARISON_GENOME_ORIENTATION, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["genomes"] = _parse_comparison_genomes(resp.get("payload", PackedByteArray()))
+	return resp
+
 func generate_comparison_test_data(root_dir: String) -> Dictionary:
 	var root_bytes := root_dir.to_utf8_buffer()
 	var payload := PackedByteArray()
@@ -674,13 +722,25 @@ func _parse_chromosomes(payload: PackedByteArray) -> Array[Dictionary]:
 			break
 		var chr_id := payload.decode_u16(off)
 		var length := payload.decode_u32(off + 2)
-		var name_len := payload.decode_u16(off + 6)
-		off += 8
+		var reversed := false
+		var name_len := 0
+		var header_len := 8
+		if off + 9 <= payload.size():
+			var candidate_name_len := payload.decode_u16(off + 7)
+			if off + 9 + candidate_name_len <= payload.size():
+				reversed = payload[off + 6] != 0
+				name_len = candidate_name_len
+				header_len = 9
+			else:
+				name_len = payload.decode_u16(off + 6)
+		else:
+			name_len = payload.decode_u16(off + 6)
+		off += header_len
 		if off + name_len > payload.size():
 			break
 		var name := _decode_wire_text(payload.slice(off, off + name_len))
 		off += name_len
-		out.append({"id": chr_id, "length": length, "name": name})
+		out.append({"id": chr_id, "length": length, "name": name, "reversed": reversed})
 	return out
 
 func _parse_string_list(payload: PackedByteArray) -> PackedStringArray:
@@ -747,8 +807,20 @@ func _parse_comparison_genomes(payload: PackedByteArray) -> Array[Dictionary]:
 			var seg_start := payload.decode_u32(off)
 			var seg_end := payload.decode_u32(off + 4)
 			var seg_feature_count := payload.decode_u32(off + 8)
-			var seg_name_len := payload.decode_u16(off + 12)
-			off += 14
+			var seg_reversed := false
+			var seg_name_len := 0
+			var seg_header_len := 14
+			if off + 15 <= payload.size():
+				var candidate_seg_name_len := payload.decode_u16(off + 13)
+				if off + 15 + candidate_seg_name_len <= payload.size():
+					seg_reversed = payload[off + 12] != 0
+					seg_name_len = candidate_seg_name_len
+					seg_header_len = 15
+				else:
+					seg_name_len = payload.decode_u16(off + 12)
+			else:
+				seg_name_len = payload.decode_u16(off + 12)
+			off += seg_header_len
 			if off + seg_name_len > payload.size():
 				break
 			var seg_name := _decode_wire_text(payload.slice(off, off + seg_name_len))
@@ -757,7 +829,8 @@ func _parse_comparison_genomes(payload: PackedByteArray) -> Array[Dictionary]:
 				"name": seg_name,
 				"start": int(seg_start),
 				"end": int(seg_end),
-				"feature_count": int(seg_feature_count)
+				"feature_count": int(seg_feature_count),
+				"reversed": seg_reversed
 			})
 		out.append({
 			"id": int(genome_id),
@@ -1287,6 +1360,7 @@ func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:
 	for _i in range(count):
 		if off + 12 > payload.size():
 			break
+		var feature_off := off
 		var start_bp := int(payload.decode_u32(off))
 		var end_bp := int(payload.decode_u32(off + 4))
 		var strand := char(payload[off + 8])
@@ -1323,12 +1397,16 @@ func _parse_annotations(payload: PackedByteArray) -> Array[Dictionary]:
 		var name := _extract_first_attr(attrs, DISPLAY_NAME_KEYS)
 		var feature_id := _extract_first_attr(attrs, ["ID="])
 		var parent_id := _extract_first_attr(attrs, ["Parent="])
+		var phase := int(payload[feature_off + 9])
+		if phase == 0xFF:
+			phase = -1
 		if name.is_empty():
 			name = _extract_name(attrs, feature_type)
 		out.append({
 			"start": start_bp,
 			"end": end_bp,
 			"strand": strand,
+			"phase": phase,
 			"seq_name": seq_name,
 			"source": source,
 			"type": feature_type,

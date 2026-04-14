@@ -12,6 +12,7 @@ signal offset_changed(genome_id: int, value: float)
 signal pan_step_requested(genome_id: int, fraction: float)
 signal feature_clicked(genome_id: int, feature: Dictionary, was_double_click: bool)
 signal axis_center_requested(genome_id: int, click_x_in_parent: float)
+signal axis_contig_context_requested(genome_id: int, segment: Dictionary)
 
 const ROW_H := 96.0
 const FEATURE_H := 14.0
@@ -212,8 +213,23 @@ func _refresh_if_ready() -> void:
 	if not _scene_ready:
 		return
 	_apply_axis_range()
-	name_label.text = str(_genome.get("name", "Genome %d" % _genome_id))
+	name_label.text = "%s%s" % [str(_genome.get("name", "Genome %d" % _genome_id)), _orientation_suffix()]
 	queue_redraw()
+
+func _orientation_suffix() -> String:
+	var segments: Array = _genome.get("segments", [])
+	if segments.is_empty():
+		return ""
+	var reversed_count := 0
+	for seg_any in segments:
+		var seg: Dictionary = seg_any
+		if bool(seg.get("reversed", false)):
+			reversed_count += 1
+	if reversed_count <= 0:
+		return ""
+	if reversed_count >= segments.size():
+		return " [RC]"
+	return " [%d RC]" % reversed_count
 
 func _apply_axis_range() -> void:
 	if axis_bar == null:
@@ -412,6 +428,12 @@ func _on_axis_gui_input(event: InputEvent) -> void:
 	var strip_rect := Rect2(Vector2.ZERO, axis_input.size)
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+			var segment := MapStripRendererScript.segment_at_x(mb.position.x, strip_rect, genome_len, _genome.get("segments", []))
+			if not segment.is_empty():
+				emit_signal("axis_contig_context_requested", _genome_id, segment)
+				accept_event()
+				return
 		if mb.button_index != MOUSE_BUTTON_LEFT:
 			return
 		if mb.pressed:

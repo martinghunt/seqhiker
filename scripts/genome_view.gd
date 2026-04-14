@@ -30,6 +30,7 @@ signal region_selected(start_bp: int, end_bp: int)
 signal region_selection_changed(active: bool, start_bp: int, end_bp: int)
 signal map_jump_requested(bp_center: float)
 signal center_jump_requested(bp_center: float)
+signal map_contig_context_requested(contig: Dictionary)
 signal ui_sound_requested(sound_id: String)
 
 const AA_ROW_H := 26.0
@@ -137,6 +138,8 @@ var loaded_files: PackedStringArray = PackedStringArray()
 var reference_start_bp := 0
 var reference_sequence := ""
 var concat_segments: Array[Dictionary] = []
+var current_chromosome_id := -1
+var current_chromosome_reversed := false
 
 var palette: Dictionary = ThemesLib.new().genome_palette("Slate")
 
@@ -629,6 +632,10 @@ func set_concat_segments(segments: Array) -> void:
 			concat_segments.append(seg)
 	_recompute_display_padding()
 	queue_redraw()
+
+func set_chromosome_context(chr_id: int, reversed: bool) -> void:
+	current_chromosome_id = chr_id
+	current_chromosome_reversed = reversed
 
 func clear_all_data() -> void:
 	if _pan_tween and _pan_tween.is_running():
@@ -1353,14 +1360,21 @@ func _vcf_genotype_colors(gt_class: int) -> Dictionary:
 func _vcf_deletion_span(variant: Dictionary) -> Vector2:
 	var ref := str(variant.get("ref", ""))
 	var alt_summary := str(variant.get("alt_summary", ""))
-	if ref.length() <= 1 or alt_summary.length() != 1:
-		return Vector2(-1.0, -1.0)
-	if ref[0] != alt_summary[0]:
+	if ref.length() <= alt_summary.length() or alt_summary.is_empty() or alt_summary.contains(","):
 		return Vector2(-1.0, -1.0)
 	var base_start := int(variant.get("start", 0))
 	var base_end := int(variant.get("end", base_start + ref.length()))
-	var del_start := base_start + 1
-	var del_end := maxi(del_start + 1, base_end)
+	var del_start := -1
+	var del_end := -1
+	if ref.begins_with(alt_summary):
+		del_start = base_start + alt_summary.length()
+		del_end = base_end
+	elif ref.ends_with(alt_summary):
+		del_start = base_start
+		del_end = base_end - alt_summary.length()
+	else:
+		return Vector2(-1.0, -1.0)
+	del_end = maxi(del_start + 1, del_end)
 	if del_end <= del_start:
 		return Vector2(-1.0, -1.0)
 	return Vector2(del_start, del_end)
@@ -1372,10 +1386,12 @@ func _vcf_insertion_bp(variant: Dictionary) -> float:
 		return -1.0
 	if alt_summary.length() <= ref.length():
 		return -1.0
-	if not alt_summary.begins_with(ref):
-		return -1.0
 	var base_start := int(variant.get("start", 0))
-	return float(base_start + ref.length())
+	if alt_summary.begins_with(ref):
+		return float(base_start + ref.length())
+	if alt_summary.ends_with(ref):
+		return float(base_start)
+	return -1.0
 
 func _vcf_render_kind(variant: Dictionary) -> int:
 	var kind := int(variant.get("kind", 0))
@@ -2066,19 +2082,10 @@ func _draw_map_track(area: Rect2, target = self) -> void:
 		return
 	var total_len: int = max(chromosome_length, 1)
 	var has_loaded_genome := not loaded_files.is_empty()
-	var viewport_rect := Rect2()
-	if has_loaded_genome:
-		viewport_rect = _map_view_rect(area, total_len)
-	var seq_center_y := viewport_rect.get_center().y
-	if not has_loaded_genome:
-		seq_center_y = area.position.y + area.size.y * 0.5
-	var seq_top := seq_center_y - MAP_SEQUENCE_H * 0.5
 	var seq_font := get_theme_default_font()
 	var seq_font_size := _font_size_small
-	var seq_rect := Rect2(axis_left, seq_top, axis_right - axis_left, MAP_SEQUENCE_H)
-	var strip_segments: Array = concat_segments
-	if strip_segments.is_empty():
-		strip_segments = [{"name": chromosome_name.strip_edges(), "start": 0, "end": total_len}]
+	var seq_rect := _map_sequence_strip_rect(area)
+	var strip_segments: Array = _map_display_segments()
 	MapStripRendererScript.draw_strip(
 		target,
 		seq_rect,
@@ -2368,6 +2375,19 @@ func _gui_input(event: InputEvent) -> void:
 		_emit_ui_sound_throttled("zoom_in" if zoom_in else "zoom_out", 130)
 		accept_event()
 		return
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+		var mb_right := event as InputEventMouseButton
+		if loaded_files.is_empty():
+			return
+		var map_rect_right := _map_track_rect()
+		if map_rect_right.size.x > 0.0 and map_rect_right.size.y > 0.0 and map_rect_right.has_point(mb_right.position):
+			var strip_rect := _map_sequence_strip_rect(map_rect_right)
+			if strip_rect.has_point(mb_right.position):
+				var seg := MapStripRendererScript.segment_at_x(mb_right.position.x, strip_rect, float(max(chromosome_length, 1)), _map_display_segments())
+				if not seg.is_empty():
+					emit_signal("map_contig_context_requested", seg)
+					accept_event()
+					return
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		var mb := event as InputEventMouseButton
 		var mouse_pos: Vector2 = mb.position
@@ -2882,6 +2902,30 @@ func _map_view_rect(area: Rect2, total_len: int) -> Rect2:
 
 func _map_track_rect() -> Rect2:
 	return _track_rect(TRACK_ID_MAP)
+
+func _map_sequence_strip_rect(area: Rect2) -> Rect2:
+	var axis_left := TRACK_LEFT_PAD
+	var axis_right := area.position.x + area.size.x - TRACK_RIGHT_PAD
+	var viewport_rect := Rect2()
+	if not loaded_files.is_empty():
+		viewport_rect = _map_view_rect(area, max(chromosome_length, 1))
+	var seq_center_y := viewport_rect.get_center().y
+	if loaded_files.is_empty():
+		seq_center_y = area.position.y + area.size.y * 0.5
+	var seq_top := seq_center_y - MAP_SEQUENCE_H * 0.5
+	return Rect2(axis_left, seq_top, axis_right - axis_left, MAP_SEQUENCE_H)
+
+func _map_display_segments() -> Array:
+	if not concat_segments.is_empty():
+		return concat_segments
+	return [{
+		"id": current_chromosome_id,
+		"name": chromosome_name.strip_edges(),
+		"start": 0,
+		"end": max(chromosome_length, 1),
+		"length": max(chromosome_length, 1),
+		"reversed": current_chromosome_reversed
+	}]
 
 func _jump_map_view_to(bp_center: float) -> void:
 	emit_signal("map_jump_requested", bp_center)

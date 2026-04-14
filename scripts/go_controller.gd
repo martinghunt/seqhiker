@@ -132,7 +132,7 @@ func _refresh_browser_chromosomes() -> void:
 	var chromosomes := _chromosomes()
 	for chr_any in chromosomes:
 		var chromosome: Dictionary = chr_any
-		_go_chr_option.add_item(str(chromosome.get("name", "chr")), int(chromosome.get("id", -1)))
+		_go_chr_option.add_item(_display_sequence_name(chromosome), int(chromosome.get("id", -1)))
 	var target_id := int(_call0("get_browser_target_chr_id"))
 	if target_id < 0 and not chromosomes.is_empty():
 		target_id = int(chromosomes[0].get("id", -1))
@@ -157,12 +157,19 @@ func _refresh_comparison_contigs() -> void:
 			continue
 		for seg_any in genome.get("segments", []):
 			var seg: Dictionary = seg_any
-			_go_chr_option.add_item(str(seg.get("name", "chr")), int(seg.get("start", 0)))
+			_go_chr_option.add_item(_display_sequence_name(seg), int(seg.get("start", 0)))
 			var idx := _go_chr_option.item_count - 1
 			_go_chr_option.set_item_metadata(idx, seg)
 		break
 	if _go_chr_option.item_count > 0:
 		_go_chr_option.select(0)
+
+
+func _display_sequence_name(item: Dictionary) -> String:
+	var name := str(item.get("name", "chr"))
+	if bool(item.get("reversed", false)):
+		return "%s [RC]" % name
+	return name
 
 
 func _apply_go_request() -> void:

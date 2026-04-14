@@ -1,6 +1,11 @@
 extends RefCounted
 class_name ComparisonController
 
+const CONTEXT_MENU_REVERSE_SEGMENT := 1
+const CONTEXT_MENU_RESTORE_SEGMENT := 2
+const CONTEXT_MENU_REVERSE_GENOME := 3
+const CONTEXT_MENU_RESTORE_GENOME := 4
+
 var host: Node = null
 var zem: RefCounted = null
 var themes_lib: RefCounted = null
@@ -21,6 +26,9 @@ var _min_identity_spin: SpinBox
 var _max_identity_label: Label
 var _max_identity_spin: SpinBox
 var _generate_test_genomes_button: Button
+var _contig_context_menu: PopupMenu = null
+var _contig_context_genome_id := -1
+var _contig_context_segment: Dictionary = {}
 
 
 func configure(next_host: Node, next_zem: RefCounted, next_themes_lib: RefCounted, next_view: Control) -> void:
@@ -53,6 +61,21 @@ func setup() -> void:
 		comparison_view.comparison_region_cleared.connect(_on_comparison_region_cleared)
 	if comparison_view.has_signal("detail_requested") and not comparison_view.detail_requested.is_connected(_on_detail_requested):
 		comparison_view.detail_requested.connect(_on_detail_requested)
+	if comparison_view.has_signal("comparison_contig_context_requested") and not comparison_view.comparison_contig_context_requested.is_connected(_on_comparison_contig_context_requested):
+		comparison_view.comparison_contig_context_requested.connect(_on_comparison_contig_context_requested)
+	_ensure_contig_context_menu()
+
+
+func _ensure_contig_context_menu() -> void:
+	if _contig_context_menu != null and is_instance_valid(_contig_context_menu):
+		return
+	if host == null:
+		return
+	_contig_context_menu = PopupMenu.new()
+	_contig_context_menu.name = "ComparisonContigContextMenu"
+	_contig_context_menu.id_pressed.connect(_on_contig_context_menu_id_pressed)
+	host.add_child(_contig_context_menu)
+
 
 func has_genomes() -> bool:
 	return not _comparison_genomes.is_empty()
@@ -83,6 +106,7 @@ func apply_view_slot_state(state: Dictionary) -> void:
 	if comparison_view == null or not comparison_view.has_method("apply_view_slot_state"):
 		return
 	comparison_view.apply_view_slot_state(state)
+	_ensure_blocks_for_current_order()
 
 
 func setup_settings(view_box: VBoxContainer) -> void:
@@ -196,8 +220,7 @@ func refresh_view(theme_name: String) -> void:
 	if order.is_empty():
 		for genome in _comparison_genomes:
 			order.append(int(genome.get("id", -1)))
-	for i in range(order.size() - 1):
-		call_deferred("_ensure_pair_blocks", int(order[i]), int(order[i + 1]))
+	_queue_pair_fetches_for_order(order)
 
 
 func reset_view_to_full_genomes() -> void:
@@ -236,6 +259,116 @@ func clear_region_selection() -> void:
 	if comparison_view == null or not comparison_view.has_method("clear_region_selection"):
 		return
 	comparison_view.clear_region_selection()
+
+
+func _on_comparison_contig_context_requested(genome_id: int, segment: Dictionary) -> void:
+	_ensure_contig_context_menu()
+	if _contig_context_menu == null:
+		return
+	_contig_context_genome_id = genome_id
+	_contig_context_segment = segment.duplicate(true)
+	var genome := _genome_by_id(genome_id)
+	var segments: Array = genome.get("segments", [])
+	var has_segments := not segments.is_empty()
+	var all_reversed := has_segments
+	var any_reversed := false
+	for seg_any in segments:
+		var seg: Dictionary = seg_any
+		if bool(seg.get("reversed", false)):
+			any_reversed = true
+		if not bool(seg.get("reversed", false)):
+			all_reversed = false
+	_contig_context_menu.clear()
+	_contig_context_menu.add_item("Reverse complement contig", CONTEXT_MENU_REVERSE_SEGMENT)
+	_contig_context_menu.set_item_disabled(_contig_context_menu.item_count - 1, bool(segment.get("reversed", false)))
+	_contig_context_menu.add_item("Restore contig forward", CONTEXT_MENU_RESTORE_SEGMENT)
+	_contig_context_menu.set_item_disabled(_contig_context_menu.item_count - 1, not bool(segment.get("reversed", false)))
+	_contig_context_menu.add_separator()
+	_contig_context_menu.add_item("Reverse complement all contigs", CONTEXT_MENU_REVERSE_GENOME)
+	_contig_context_menu.set_item_disabled(_contig_context_menu.item_count - 1, not has_segments or all_reversed)
+	_contig_context_menu.add_item("Restore all contigs forward", CONTEXT_MENU_RESTORE_GENOME)
+	_contig_context_menu.set_item_disabled(_contig_context_menu.item_count - 1, not has_segments or not any_reversed)
+	if host != null and host.has_method("_popup_menu_at_mouse"):
+		host._popup_menu_at_mouse(_contig_context_menu)
+	else:
+		_contig_context_menu.popup()
+
+
+func _on_contig_context_menu_id_pressed(action_id: int) -> void:
+	if _contig_context_genome_id < 0 or _contig_context_segment.is_empty():
+		return
+	var view_state := get_view_slot_state()
+	var segment_name := str(_contig_context_segment.get("name", "contig"))
+	match action_id:
+		CONTEXT_MENU_REVERSE_SEGMENT:
+			var reverse_resp: Dictionary = zem.set_comparison_segment_orientation(_contig_context_genome_id, int(_contig_context_segment.get("start", 0)), true)
+			if not bool(reverse_resp.get("ok", false)):
+				host._set_status("Reverse complement failed: %s" % str(reverse_resp.get("error", "error")), true)
+				return
+			_apply_orientation_response(reverse_resp.get("genomes", []), [_contig_context_genome_id], view_state)
+			host._set_status("Reversed %s." % segment_name)
+		CONTEXT_MENU_RESTORE_SEGMENT:
+			var restore_resp: Dictionary = zem.set_comparison_segment_orientation(_contig_context_genome_id, int(_contig_context_segment.get("start", 0)), false)
+			if not bool(restore_resp.get("ok", false)):
+				host._set_status("Restore forward failed: %s" % str(restore_resp.get("error", "error")), true)
+				return
+			_apply_orientation_response(restore_resp.get("genomes", []), [_contig_context_genome_id], view_state)
+			host._set_status("Restored %s forward." % segment_name)
+		CONTEXT_MENU_REVERSE_GENOME:
+			var reverse_genome_resp: Dictionary = zem.set_comparison_genome_orientation(_contig_context_genome_id, true)
+			if not bool(reverse_genome_resp.get("ok", false)):
+				host._set_status("Reverse complement all failed: %s" % str(reverse_genome_resp.get("error", "error")), true)
+				return
+			_apply_orientation_response(reverse_genome_resp.get("genomes", []), [_contig_context_genome_id], view_state)
+			host._set_status("Reversed all contigs in %s." % str(_genome_by_id(_contig_context_genome_id).get("name", "genome")))
+		CONTEXT_MENU_RESTORE_GENOME:
+			var restore_genome_resp: Dictionary = zem.set_comparison_genome_orientation(_contig_context_genome_id, false)
+			if not bool(restore_genome_resp.get("ok", false)):
+				host._set_status("Restore all forward failed: %s" % str(restore_genome_resp.get("error", "error")), true)
+				return
+			_apply_orientation_response(restore_genome_resp.get("genomes", []), [_contig_context_genome_id], view_state)
+			host._set_status("Restored all contigs in %s forward." % str(_genome_by_id(_contig_context_genome_id).get("name", "genome")))
+
+
+func _apply_orientation_response(genomes: Array, refetch_ids: Array, view_state: Dictionary) -> void:
+	if genomes.is_empty():
+		host._set_status("Orientation update failed: no genomes returned.", true)
+		return
+	var existing_features := {}
+	for genome_any in _comparison_genomes:
+		var genome: Dictionary = genome_any
+		existing_features[int(genome.get("id", -1))] = genome.get("features", [])
+	var refetch_lookup := {}
+	for genome_id_any in refetch_ids:
+		refetch_lookup[int(genome_id_any)] = true
+	_comparison_pair_cache.clear()
+	_comparison_detail_cache.clear()
+	_comparison_reference_cache.clear()
+	_comparison_genomes.clear()
+	for genome_any in genomes:
+		if typeof(genome_any) != TYPE_DICTIONARY:
+			continue
+		var genome: Dictionary = (genome_any as Dictionary).duplicate(true)
+		var genome_id := int(genome.get("id", -1))
+		if refetch_lookup.has(genome_id) or not existing_features.has(genome_id):
+			var feature_resp: Dictionary = zem.get_comparison_annotations(genome_id, 0, int(genome.get("length", 0)), 50000, 1)
+			genome["features"] = feature_resp.get("features", []) if bool(feature_resp.get("ok", false)) else []
+		else:
+			genome["features"] = existing_features.get(genome_id, [])
+		_comparison_genomes.append(genome)
+	if comparison_view != null and comparison_view.has_method("clear_view"):
+		comparison_view.clear_view()
+	refresh_view(host.theme_option.get_item_text(host.theme_option.selected))
+	if not view_state.is_empty():
+		apply_view_slot_state(view_state)
+
+
+func _genome_by_id(genome_id: int) -> Dictionary:
+	for genome_any in _comparison_genomes:
+		var genome: Dictionary = genome_any
+		if int(genome.get("id", -1)) == genome_id:
+			return genome
+	return {}
 
 
 func _ensure_empty_state_ready() -> bool:
@@ -512,6 +645,25 @@ func _ensure_pair_blocks(query_genome_id: int, target_genome_id: int) -> void:
 
 
 func _on_comparison_genome_order_changed(order: PackedInt32Array) -> void:
+	_comparison_pair_cache.clear()
+	_comparison_detail_cache.clear()
+	if comparison_view != null and comparison_view.has_method("clear_pair_data"):
+		comparison_view.clear_pair_data()
+	_queue_pair_fetches_for_order(order)
+
+
+func _ensure_blocks_for_current_order() -> void:
+	if comparison_view == null or not comparison_view.has_method("get_order"):
+		return
+	var order: PackedInt32Array = comparison_view.get_order()
+	if order.is_empty():
+		for genome_any in _comparison_genomes:
+			var genome: Dictionary = genome_any
+			order.append(int(genome.get("id", -1)))
+	_queue_pair_fetches_for_order(order)
+
+
+func _queue_pair_fetches_for_order(order: PackedInt32Array) -> void:
 	for i in range(order.size() - 1):
 		call_deferred("_ensure_pair_blocks", int(order[i]), int(order[i + 1]))
 

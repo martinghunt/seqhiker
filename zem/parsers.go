@@ -179,6 +179,13 @@ func parseGFF3(path string) (map[string]string, map[string][]Feature, error) {
 		if cols[6] != "" {
 			strand = cols[6][0]
 		}
+		phase := int8(-1)
+		if cols[7] != "" && cols[7] != "." {
+			phaseValue, err := strconv.Atoi(cols[7])
+			if err == nil && phaseValue >= 0 && phaseValue <= 2 {
+				phase = int8(phaseValue)
+			}
+		}
 		feat := Feature{
 			SeqName:    cols[0],
 			Source:     cols[1],
@@ -186,6 +193,7 @@ func parseGFF3(path string) (map[string]string, map[string][]Feature, error) {
 			Start:      start - 1,
 			End:        end,
 			Strand:     strand,
+			Phase:      phase,
 			Attributes: cols[8],
 		}
 		out[feat.SeqName] = append(out[feat.SeqName], feat)

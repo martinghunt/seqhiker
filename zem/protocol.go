@@ -7,47 +7,51 @@ import (
 )
 
 const (
-	MsgLoadGenome                   uint16 = 1
-	MsgLoadBAM                      uint16 = 2
-	MsgGetTile                      uint16 = 3
-	MsgGetCoverageTile              uint16 = 4
-	MsgGetAnnotations               uint16 = 5
-	MsgGetReferenceSlice            uint16 = 6
-	MsgAck                          uint16 = 7
-	MsgError                        uint16 = 8
-	MsgShutdown                     uint16 = 9
-	MsgGetChromosomes               uint16 = 10
-	MsgGetGCPlotTile                uint16 = 11
-	MsgGetAnnotationCounts          uint16 = 12
-	MsgGetLoadState                 uint16 = 13
-	MsgInspectInput                 uint16 = 14
-	MsgGetAnnotationTile            uint16 = 15
-	MsgSearchDNAExact               uint16 = 16
-	MsgGetStrandCoverageTile        uint16 = 17
-	MsgDownloadGenome               uint16 = 18
-	MsgGetVersion                   uint16 = 19
-	MsgGenerateTestData             uint16 = 20
-	MsgAddComparisonGenome          uint16 = 21
-	MsgListComparisonGenomes        uint16 = 22
-	MsgListComparisonPairs          uint16 = 23
-	MsgGetComparisonBlocks          uint16 = 24
-	MsgGetComparisonBlocksByGenomes uint16 = 25
-	MsgGetComparisonAnnotations     uint16 = 26
-	MsgSaveComparisonSession        uint16 = 27
-	MsgLoadComparisonSession        uint16 = 28
-	MsgResetComparisonState         uint16 = 29
-	MsgGenerateComparisonTestData   uint16 = 30
-	MsgGetComparisonReferenceSlice  uint16 = 31
-	MsgGetComparisonBlockDetail     uint16 = 32
-	MsgAddComparisonGenomeFiles     uint16 = 33
-	MsgSearchComparisonDNAExact     uint16 = 34
-	MsgGetStopCodonTile             uint16 = 35
-	MsgLoadVariantFile              uint16 = 36
-	MsgListVariantSources           uint16 = 37
-	MsgGetVariantTile               uint16 = 38
-	MsgGetVariantDetail             uint16 = 39
-	MsgLoadGenomeFiles              uint16 = 40
-	MsgResetBrowserState            uint16 = 41
+	MsgLoadGenome                      uint16 = 1
+	MsgLoadBAM                         uint16 = 2
+	MsgGetTile                         uint16 = 3
+	MsgGetCoverageTile                 uint16 = 4
+	MsgGetAnnotations                  uint16 = 5
+	MsgGetReferenceSlice               uint16 = 6
+	MsgAck                             uint16 = 7
+	MsgError                           uint16 = 8
+	MsgShutdown                        uint16 = 9
+	MsgGetChromosomes                  uint16 = 10
+	MsgGetGCPlotTile                   uint16 = 11
+	MsgGetAnnotationCounts             uint16 = 12
+	MsgGetLoadState                    uint16 = 13
+	MsgInspectInput                    uint16 = 14
+	MsgGetAnnotationTile               uint16 = 15
+	MsgSearchDNAExact                  uint16 = 16
+	MsgGetStrandCoverageTile           uint16 = 17
+	MsgDownloadGenome                  uint16 = 18
+	MsgGetVersion                      uint16 = 19
+	MsgGenerateTestData                uint16 = 20
+	MsgAddComparisonGenome             uint16 = 21
+	MsgListComparisonGenomes           uint16 = 22
+	MsgListComparisonPairs             uint16 = 23
+	MsgGetComparisonBlocks             uint16 = 24
+	MsgGetComparisonBlocksByGenomes    uint16 = 25
+	MsgGetComparisonAnnotations        uint16 = 26
+	MsgSaveComparisonSession           uint16 = 27
+	MsgLoadComparisonSession           uint16 = 28
+	MsgResetComparisonState            uint16 = 29
+	MsgGenerateComparisonTestData      uint16 = 30
+	MsgGetComparisonReferenceSlice     uint16 = 31
+	MsgGetComparisonBlockDetail        uint16 = 32
+	MsgAddComparisonGenomeFiles        uint16 = 33
+	MsgSearchComparisonDNAExact        uint16 = 34
+	MsgGetStopCodonTile                uint16 = 35
+	MsgLoadVariantFile                 uint16 = 36
+	MsgListVariantSources              uint16 = 37
+	MsgGetVariantTile                  uint16 = 38
+	MsgGetVariantDetail                uint16 = 39
+	MsgLoadGenomeFiles                 uint16 = 40
+	MsgResetBrowserState               uint16 = 41
+	MsgSetChromosomeOrientation        uint16 = 42
+	MsgSetAllChromosomeOrientations    uint16 = 43
+	MsgSetComparisonSegmentOrientation uint16 = 44
+	MsgSetComparisonGenomeOrientation  uint16 = 45
 )
 
 type FrameHeader struct {
@@ -57,9 +61,10 @@ type FrameHeader struct {
 }
 
 type ChromInfo struct {
-	ID     uint16
-	Name   string
-	Length uint32
+	ID       uint16
+	Name     string
+	Length   uint32
+	Reversed bool
 }
 
 type AnnotationCountInfo struct {
@@ -134,7 +139,7 @@ func decodeDownloadGenomePayload(payload []byte) (string, string, uint32, error)
 func encodeChromosomes(chroms []ChromInfo) []byte {
 	total := 2
 	for _, c := range chroms {
-		total += 8 + len(c.Name)
+		total += 9 + len(c.Name)
 	}
 	buf := make([]byte, total)
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(chroms)))
@@ -142,9 +147,13 @@ func encodeChromosomes(chroms []ChromInfo) []byte {
 	for _, c := range chroms {
 		binary.LittleEndian.PutUint16(buf[off:off+2], c.ID)
 		binary.LittleEndian.PutUint32(buf[off+2:off+6], c.Length)
-		binary.LittleEndian.PutUint16(buf[off+6:off+8], uint16(len(c.Name)))
-		copy(buf[off+8:off+8+len(c.Name)], c.Name)
-		off += 8 + len(c.Name)
+		buf[off+6] = 0
+		if c.Reversed {
+			buf[off+6] = 1
+		}
+		binary.LittleEndian.PutUint16(buf[off+7:off+9], uint16(len(c.Name)))
+		copy(buf[off+9:off+9+len(c.Name)], c.Name)
+		off += 9 + len(c.Name)
 	}
 	return buf
 }

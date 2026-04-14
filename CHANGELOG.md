@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Theme editor with live preview, and JSON import/export of themes
+- Option to reverse complement contigs via right-click menu
 
 ### Fixed
-- Bug where genomes in comparison mode couldn't be reordered, press button and drag did nothing
-- Reverse complement nucleotide colours were wrong, and now nucleotide colours work in comparison mode
-
+- Bug where genomes in comparison mode couldn't be reordered, press button and drag did nothing.
+- Reverse complement nucleotide colours were wrong, and now nucleotide colours work in comparison mode.
+- Improved matches in comparison mode, previously very low percent identity matches are now split into more accurate higher percent identity matches.
+- Some matches incorrectly reported as low, when actually high. Zooming in showed no match lines in these cases, but now also fixed.
 
 ## [1.0.0] - "Total Perspective" - 2026-04-05
 

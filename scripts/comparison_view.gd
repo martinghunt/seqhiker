@@ -12,6 +12,7 @@ signal comparison_feature_selected(feature: Dictionary, was_double_click: bool)
 signal comparison_region_selected(selection: Dictionary)
 signal comparison_region_cleared()
 signal detail_requested(request: Dictionary)
+signal comparison_contig_context_requested(genome_id: int, segment: Dictionary)
 signal ui_sound_requested(sound_id: String)
 
 const ROW_SCENE = preload("res://scenes/ComparisonGenomeRow.tscn")
@@ -25,7 +26,7 @@ const LOCK_BTN_SIZE := Vector2(30.0, 30.0)
 const LOCK_BTN_X := 18.0
 const MIN_VIEW_SPAN_BP := 50.0
 const DEFAULT_VIEW_SPAN_BP := 10000.0
-const DETAIL_MAX_BLOCKS_PER_PAIR := 24
+const DETAIL_MAX_BLOCKS_PER_PAIR := 96
 const REGION_SELECT_DRAG_THRESHOLD_PX := 6.0
 
 var _genomes_by_id := {}
@@ -142,6 +143,17 @@ func clear_view() -> void:
 		_zoom_tween.kill()
 		_zoom_tween = null
 	_emit_viewport_changed()
+	queue_redraw()
+
+
+func clear_pair_data() -> void:
+	_pair_blocks.clear()
+	_pending_pair_keys.clear()
+	_detail_blocks.clear()
+	_drawn_match_hitboxes.clear()
+	_selected_match_key = ""
+	_hovered_match_key = ""
+	_schedule_detail_request()
 	queue_redraw()
 
 func export_current_view_svg(path: String) -> bool:
@@ -335,6 +347,7 @@ func set_block_filters(min_block_len_bp: int, max_block_len_bp: int, min_percent
 
 func set_genomes(genomes: Array) -> void:
 	var had_no_genomes := _order.is_empty()
+	var previous_order := _order
 	var next_by_id := {}
 	var next_order := PackedInt32Array()
 	for genome_any in genomes:
@@ -367,7 +380,8 @@ func set_genomes(genomes: Array) -> void:
 	_layout_rows_and_locks()
 	_schedule_post_layout_refresh()
 	_schedule_detail_request()
-	emit_signal("genome_order_changed", _order)
+	if previous_order != _order:
+		emit_signal("genome_order_changed", _order)
 	_emit_viewport_changed()
 	queue_redraw()
 
@@ -430,6 +444,9 @@ func set_reference_slice(genome_id: int, slice_data: Dictionary) -> void:
 		row.set_reference_slice(int(slice_data.get("slice_start", 0)), str(slice_data.get("sequence", "")))
 
 func set_block_detail(query_genome_id: int, target_genome_id: int, block: Dictionary, detail: Dictionary) -> void:
+	if detail.is_empty():
+		_detail_blocks.erase(_detail_block_key(query_genome_id, target_genome_id, block))
+		return
 	_detail_blocks[_detail_block_key(query_genome_id, target_genome_id, block)] = detail.duplicate(true)
 	queue_redraw()
 
@@ -825,6 +842,8 @@ func _draw_pair_block(target, block: Dictionary, top_id: int, bottom_id: int, to
 			_draw_polyline_on(target, poly, _theme_colors["selection_outline"], 2.0)
 	else:
 		_draw_reverse_block(target, block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, fill)
+	if _detail_mode_active():
+		_draw_fallback_detail_guides(target, block, top_row, bottom_row, top_axis, bottom_axis, detail_top_y, detail_bottom_y)
 
 
 func _sync_row_instances() -> void:
@@ -844,6 +863,8 @@ func _sync_row_instances() -> void:
 			row.feature_clicked.connect(_on_row_feature_clicked)
 		if not row.axis_center_requested.is_connected(_on_row_axis_center_requested):
 			row.axis_center_requested.connect(_on_row_axis_center_requested)
+		if not row.axis_contig_context_requested.is_connected(_on_row_axis_contig_context_requested):
+			row.axis_contig_context_requested.connect(_on_row_axis_contig_context_requested)
 		if row.get_parent() != self:
 			add_child(row)
 		row.visible = true
@@ -1150,7 +1171,8 @@ func _detail_block_key(query_genome_id: int, target_genome_id: int, block: Dicti
 
 
 func _has_block_detail(query_genome_id: int, target_genome_id: int, block: Dictionary) -> bool:
-	return _detail_blocks.has(_detail_block_key(query_genome_id, target_genome_id, block))
+	var detail: Dictionary = _detail_blocks.get(_detail_block_key(query_genome_id, target_genome_id, block), {})
+	return not detail.is_empty() and not str(detail.get("ops", "")).is_empty()
 
 
 func _aligned_block_from_detail(block: Dictionary, detail: Dictionary) -> Dictionary:
@@ -1228,6 +1250,37 @@ func _draw_detail_block(target, block: Dictionary, top_genome_id: int, bottom_ge
 				q_pos += 1
 			"D":
 				t_pos += 1 if same else -1
+
+
+func _draw_fallback_detail_guides(target, block: Dictionary, top_row, bottom_row, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float) -> void:
+	var query_start := int(block.get("query_start", 0))
+	var query_end := int(block.get("query_end", 0))
+	var target_start := int(block.get("target_start", 0))
+	var target_end := int(block.get("target_end", 0))
+	var query_span := maxi(0, query_end - query_start)
+	var target_span := maxi(0, target_end - target_start)
+	if query_span <= 0 or target_span <= 0:
+		return
+	var axis_bp_px := minf(_pixels_per_bp(top_axis), _pixels_per_bp(bottom_axis))
+	if axis_bp_px <= 0.0:
+		return
+	var visual_span_bp := float(mini(query_span, target_span))
+	var visual_span_px := visual_span_bp * axis_bp_px
+	if visual_span_px < 8.0:
+		return
+	var guide_count := clampi(int(floor(visual_span_px / 14.0)), 2, 48)
+	var same := bool(block.get("same_strand", true))
+	var guide_color: Color = _theme_colors["selection_outline"]
+	guide_color.a = 0.45
+	for i in range(guide_count):
+		var frac := (float(i) + 0.5) / float(guide_count)
+		var q_bp := float(query_start) + frac * float(query_span)
+		var t_bp := float(target_start) + frac * float(target_span) if same else float(target_end) - frac * float(target_span)
+		var qx := float(top_row.get_bp_center_x_in_parent(q_bp))
+		var tx := float(bottom_row.get_bp_center_x_in_parent(t_bp))
+		if not _x_within_axis(qx, top_axis, 4.0) or not _x_within_axis(tx, bottom_axis, 4.0):
+			continue
+		_draw_line_on(target, Vector2(qx, top_y), Vector2(tx, bottom_y), guide_color, 1.0)
 
 func _draw_snp_connector(target, start_pt: Vector2, end_pt: Vector2, color: Color, bp_px: float) -> void:
 	var delta := end_pt - start_pt
@@ -1810,6 +1863,10 @@ func _on_row_axis_center_requested(genome_id: int, click_x_in_parent: float) -> 
 	_animate_offsets_to(_targets_with_locked_propagation({genome_id: next_offset}))
 
 
+func _on_row_axis_contig_context_requested(genome_id: int, segment: Dictionary) -> void:
+	emit_signal("comparison_contig_context_requested", genome_id, segment)
+
+
 func _on_lock_button_pressed(key: String) -> void:
 	_pair_locks[key] = not bool(_pair_locks.get(key, false))
 	emit_signal("ui_sound_requested", "toggle_on" if bool(_pair_locks.get(key, false)) else "toggle_off")
@@ -1874,6 +1931,9 @@ func _finish_row_drag(target_index: int) -> void:
 		var moved := int(_order[from_index])
 		_order.remove_at(from_index)
 		_order.insert(target_index, moved)
+		_selected_match_key = ""
+		_hovered_match_key = ""
+		_drawn_match_hitboxes.clear()
 		_layout_rows_and_locks()
 		emit_signal("genome_order_changed", _order)
 	_drag_active = false

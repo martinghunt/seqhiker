@@ -88,6 +88,10 @@ func draw_aa_tracks(area: Rect2, target = null) -> void:
 		seen += 1
 		if is_hidden_full_length_region(feature):
 			continue
+		var frame_feature: Dictionary = feature
+		var paired_cds_any: Variant = feature.get("paired_cds", {})
+		if paired_cds_any is Dictionary and not (paired_cds_any as Dictionary).is_empty():
+			frame_feature = paired_cds_any
 		var cds_parts_any: Variant = feature.get("cds_parts", [])
 		if cds_parts_any is Array and (cds_parts_any as Array).size() > 1:
 			var cds_parts: Array = cds_parts_any
@@ -182,11 +186,11 @@ func draw_aa_tracks(area: Rect2, target = null) -> void:
 					"feature": feature
 				})
 			continue
-		var frame := feature_to_frame(feature)
+		var frame := feature_to_frame(frame_feature)
 		if frame < 0 or frame > 5:
 			continue
-		var f_start: int = feature["start"]
-		var f_end: int = feature["end"]
+		var f_start: int = int(frame_feature.get("start", feature.get("start", 0)))
+		var f_end: int = int(frame_feature.get("end", feature.get("end", f_start)))
 		if f_end < visible_start_bp or f_start > visible_end_bp:
 			continue
 		var row_center_y := aa_frame_row_center_y(area_start, frame)
@@ -614,10 +618,13 @@ func feature_to_frame(feature: Dictionary) -> int:
 	var strand: String = str(feature.get("strand", "+"))
 	var start: int = int(feature.get("start", 0))
 	var end: int = int(feature.get("end", 0))
+	var phase: int = int(feature.get("phase", -1))
+	if phase < 0 or phase > 2:
+		phase = 0
 	if strand == "-":
-		var reverse_phase := ((2 - ((end - 1) % 3)) + 3) % 3
-		return 3 + reverse_phase
-	return ((start % 3) + 3) % 3
+		var reverse_codon_start := end - phase - 3
+		return 3 + posmod(reverse_codon_start, 3)
+	return posmod(start + phase, 3)
 
 
 func feature_uses_frame(feature: Dictionary) -> bool:
