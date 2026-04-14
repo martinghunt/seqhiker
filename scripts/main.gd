@@ -62,6 +62,10 @@ const MAX_UI_FONT_SIZE := 26
 const VIEW_SLOT_COUNT := 9
 const APP_MODE_BROWSER := 0
 const APP_MODE_COMPARISON := 1
+const BROWSER_CONTIG_MENU_REVERSE_CONTIG := 1
+const BROWSER_CONTIG_MENU_RESTORE_CONTIG := 2
+const BROWSER_CONTIG_MENU_REVERSE_ALL := 3
+const BROWSER_CONTIG_MENU_RESTORE_ALL := 4
 const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
 const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 const SAM_FLAG_LABELS := [
@@ -178,6 +182,8 @@ var _settings_tween: Tween
 var _settings_toggle_icon_label: Label
 var _feature_panel_open := false
 var _context_panel_mode := CONTEXT_PANEL_NONE
+var _browser_contig_context_menu: PopupMenu = null
+var _browser_contig_context_segment: Dictionary = {}
 var _feature_tween: Tween
 var _fetch_timer: Timer
 var _fetch_in_progress := false
@@ -746,6 +752,7 @@ func _connect_ui() -> void:
 	comparison_view.viewport_changed.connect(_on_comparison_viewport_changed)
 	genome_view.map_jump_requested.connect(_on_map_jump_requested)
 	genome_view.center_jump_requested.connect(_on_center_jump_requested)
+	genome_view.map_contig_context_requested.connect(_on_map_contig_context_requested)
 	genome_view.feature_clicked.connect(_on_feature_selected)
 	genome_view.feature_activated.connect(_on_feature_clicked)
 	genome_view.read_clicked.connect(_on_read_selected)
@@ -2976,6 +2983,130 @@ func _refresh_sequence_options() -> void:
 
 func _apply_sequence_view(reset_viewport: bool) -> void:
 	_session_loader.apply_sequence_view(reset_viewport)
+
+func _ensure_browser_contig_context_menu() -> void:
+	if _browser_contig_context_menu != null and is_instance_valid(_browser_contig_context_menu):
+		return
+	_browser_contig_context_menu = PopupMenu.new()
+	_browser_contig_context_menu.name = "BrowserContigContextMenu"
+	_browser_contig_context_menu.id_pressed.connect(_on_browser_contig_context_menu_id_pressed)
+	add_child(_browser_contig_context_menu)
+
+func _popup_menu_at_mouse(menu: PopupMenu) -> void:
+	if menu == null:
+		return
+	var viewport := get_viewport()
+	if viewport == null:
+		menu.popup()
+		return
+	menu.reset_size()
+	var visible_rect: Rect2 = viewport.get_visible_rect()
+	var menu_size := menu.get_contents_minimum_size()
+	var mouse_pos := viewport.get_mouse_position()
+	var pos_x := mouse_pos.x
+	var pos_y := mouse_pos.y
+	if pos_x + menu_size.x > visible_rect.position.x + visible_rect.size.x:
+		pos_x = visible_rect.position.x + visible_rect.size.x - menu_size.x
+	if pos_y + menu_size.y > visible_rect.position.y + visible_rect.size.y:
+		pos_y = visible_rect.position.y + visible_rect.size.y - menu_size.y
+	pos_x = maxf(pos_x, visible_rect.position.x)
+	pos_y = maxf(pos_y, visible_rect.position.y)
+	menu.popup(Rect2i(int(round(pos_x)), int(round(pos_y)), int(ceil(menu_size.x)), int(ceil(menu_size.y))))
+
+func _on_map_contig_context_requested(segment: Dictionary) -> void:
+	_ensure_browser_contig_context_menu()
+	if _browser_contig_context_menu == null:
+		return
+	_browser_contig_context_segment = segment.duplicate(true)
+	var all_reversed := not _chromosomes.is_empty()
+	var any_reversed := false
+	for chr_any in _chromosomes:
+		var chr: Dictionary = chr_any
+		if bool(chr.get("reversed", false)):
+			any_reversed = true
+		if not bool(chr.get("reversed", false)):
+			all_reversed = false
+	_browser_contig_context_menu.clear()
+	_browser_contig_context_menu.add_item("Reverse complement contig", BROWSER_CONTIG_MENU_REVERSE_CONTIG)
+	_browser_contig_context_menu.set_item_disabled(_browser_contig_context_menu.item_count - 1, bool(segment.get("reversed", false)))
+	_browser_contig_context_menu.add_item("Restore contig forward", BROWSER_CONTIG_MENU_RESTORE_CONTIG)
+	_browser_contig_context_menu.set_item_disabled(_browser_contig_context_menu.item_count - 1, not bool(segment.get("reversed", false)))
+	_browser_contig_context_menu.add_separator()
+	_browser_contig_context_menu.add_item("Reverse complement all contigs", BROWSER_CONTIG_MENU_REVERSE_ALL)
+	_browser_contig_context_menu.set_item_disabled(_browser_contig_context_menu.item_count - 1, _chromosomes.is_empty() or all_reversed)
+	_browser_contig_context_menu.add_item("Restore all contigs forward", BROWSER_CONTIG_MENU_RESTORE_ALL)
+	_browser_contig_context_menu.set_item_disabled(_browser_contig_context_menu.item_count - 1, _chromosomes.is_empty() or not any_reversed)
+	_popup_menu_at_mouse(_browser_contig_context_menu)
+
+func _on_browser_contig_context_menu_id_pressed(action_id: int) -> void:
+	if _browser_contig_context_segment.is_empty():
+		return
+	var segment_name := str(_browser_contig_context_segment.get("raw_name", _browser_contig_context_segment.get("name", "contig")))
+	var resp: Dictionary = {}
+	match action_id:
+		BROWSER_CONTIG_MENU_REVERSE_CONTIG:
+			resp = _zem.set_chromosome_orientation(int(_browser_contig_context_segment.get("id", -1)), true)
+			if not bool(resp.get("ok", false)):
+				_set_status("Reverse complement failed: %s" % str(resp.get("error", "error")), true)
+				return
+			_refresh_browser_after_orientation_change()
+			_set_status("Reversed %s." % segment_name)
+		BROWSER_CONTIG_MENU_RESTORE_CONTIG:
+			resp = _zem.set_chromosome_orientation(int(_browser_contig_context_segment.get("id", -1)), false)
+			if not bool(resp.get("ok", false)):
+				_set_status("Restore forward failed: %s" % str(resp.get("error", "error")), true)
+				return
+			_refresh_browser_after_orientation_change()
+			_set_status("Restored %s forward." % segment_name)
+		BROWSER_CONTIG_MENU_REVERSE_ALL:
+			resp = _zem.set_all_chromosome_orientations(true)
+			if not bool(resp.get("ok", false)):
+				_set_status("Reverse complement all failed: %s" % str(resp.get("error", "error")), true)
+				return
+			_refresh_browser_after_orientation_change()
+			_set_status("Reversed all contigs.")
+		BROWSER_CONTIG_MENU_RESTORE_ALL:
+			resp = _zem.set_all_chromosome_orientations(false)
+			if not bool(resp.get("ok", false)):
+				_set_status("Restore all forward failed: %s" % str(resp.get("error", "error")), true)
+				return
+			_refresh_browser_after_orientation_change()
+			_set_status("Restored all contigs forward.")
+
+func _refresh_browser_after_orientation_change() -> void:
+	var empty_dicts: Array[Dictionary] = []
+	_refresh_chromosomes(false)
+	_invalidate_cache()
+	if _annotation_cache_controller != null:
+		_annotation_cache_controller.cancel_all_requests()
+	genome_view.clear_selected_variant()
+	genome_view.clear_selected_feature()
+	genome_view.set_reference_slice(_last_start, "")
+	genome_view.set_features(empty_dicts)
+	genome_view.set_variant_tiles(empty_dicts)
+	genome_view.set_stop_codon_tiles(empty_dicts)
+	genome_view.set_gc_plot_tiles(empty_dicts)
+	genome_view.set_depth_plot_tiles(empty_dicts)
+	genome_view.set_depth_plot_series(empty_dicts)
+	for track_any in _bam_tracks:
+		var track: Dictionary = track_any
+		genome_view.set_read_track_payload(
+			str(track.get("track_id", "")),
+			{"reads": [], "coverage": []},
+			int(track.get("view_mode", 0)),
+			bool(track.get("fragment_log", true)),
+			float(track.get("thickness", DEFAULT_READ_THICKNESS)),
+			int(track.get("max_rows", DEFAULT_READ_MAX_ROWS)),
+			bool(track.get("auto_expand_snp_text", true)),
+			bool(track.get("show_soft_clips", false)),
+			bool(track.get("show_pileup_logo", false)),
+			bool(track.get("color_by_mate_contig", false))
+			)
+	_refresh_visible_data()
+	_schedule_fetch()
+	if _annotation_cache_controller != null and _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
+		_annotation_cache_controller.update_detailed_read_strips(_last_start, _last_end, _last_bp_per_px)
+	genome_view.queue_redraw()
 
 func _apply_pending_annotation_highlight(features: Array[Dictionary]) -> void:
 	if _pending_annotation_highlight.is_empty():

@@ -137,6 +137,11 @@ func (e *Engine) GetVariantTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 		e.mu.Unlock()
 		return nil, err
 	}
+	chrName, ok := e.idToChr[chrID]
+	if !ok {
+		e.mu.Unlock()
+		return nil, fmt.Errorf("unknown chromosome id %d", chrID)
+	}
 	window := tileWindow(zoom, tileIndex)
 	key := tileCacheKey{
 		Generation: src.Generation,
@@ -153,10 +158,24 @@ func (e *Engine) GetVariantTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 	records := src.VariantsByChr[chrID]
 	generation := src.Generation
 	selectedSourceID := src.ID
+	chromLen := e.rawChrLength[chrName]
+	if chromLen <= 0 {
+		chromLen = e.chrLength[chrName]
+	}
+	reversed := e.chrReverse[chrName]
 	e.mu.Unlock()
 
-	filtered := variantRecordsInWindow(records, window.start, window.end)
-	payload := encodeVariantTile(window.start, window.end, filtered)
+	orientedStart, orientedEnd := clampWindowToLength(window.start, window.end, chromLen)
+	rawStart, rawEnd := rawWindowForOrientation(window.start, window.end, chromLen, reversed)
+	filtered := variantRecordsInWindow(records, rawStart, rawEnd)
+	if reversed {
+		transformed := make([]variantRecord, 0, len(filtered))
+		for i := len(filtered) - 1; i >= 0; i-- {
+			transformed = append(transformed, transformVariantRecordForLength(filtered[i], chromLen))
+		}
+		filtered = transformed
+	}
+	payload := encodeVariantTile(orientedStart, orientedEnd, filtered)
 
 	e.mu.Lock()
 	if src2, ok := e.variantSources[selectedSourceID]; ok && src2.Generation == generation {
@@ -174,17 +193,34 @@ func (e *Engine) GetVariantDetail(sourceID uint16, chrID uint16, start uint32, r
 		return nil, err
 	}
 	chrName := e.idToChr[chrID]
+	chromLen := e.rawChrLength[chrName]
+	if chromLen <= 0 {
+		chromLen = e.chrLength[chrName]
+	}
+	reversed := e.chrReverse[chrName]
 	e.mu.RUnlock()
 	if chrName == "" {
 		return nil, fmt.Errorf("unknown chromosome id %d", chrID)
 	}
-	detail, err := loadVariantDetailFromPath(src.Path, chrName, start, ref, altSummary)
+	rawStart := start
+	rawRef := ref
+	rawAltSummary := altSummary
+	if reversed {
+		rawRef = reverseComplementFlexible(ref)
+		rawAltSummary = reverseComplementAltSummary(altSummary)
+		rawEnd := int(start) + len(ref)
+		rawStart = uint32(chromLen - rawEnd)
+	}
+	detail, err := loadVariantDetailFromPath(src.Path, chrName, rawStart, rawRef, rawAltSummary)
 	if err != nil {
 		return nil, err
 	}
 	detail.SourceID = src.ID
 	detail.SourceName = src.Name
 	detail.SourcePath = src.Path
+	if reversed {
+		detail = transformVariantDetailForLength(detail, chromLen)
+	}
 	return encodeVariantDetail(detail), nil
 }
 

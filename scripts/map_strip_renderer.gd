@@ -34,6 +34,24 @@ static func centered_offset_for_bp(bp_center: float, total_len: float, visible_s
 	return clampf(bp_center - bounded_span * 0.5, 0.0, max_offset)
 
 
+static func segment_at_x(local_x: float, strip_rect: Rect2, total_len: float, segments: Array) -> Dictionary:
+	if segments.is_empty():
+		return {}
+	var bp := clicked_bp(local_x, strip_rect, total_len)
+	for i in range(segments.size()):
+		var seg: Dictionary = segments[i]
+		var seg_start := float(seg.get("start", 0))
+		var seg_end := float(seg.get("end", seg_start))
+		if seg_end <= seg_start:
+			continue
+		var is_last := i == segments.size() - 1
+		if bp < seg_start:
+			continue
+		if bp < seg_end or (is_last and bp <= seg_end):
+			return seg.duplicate(true)
+	return {}
+
+
 static func draw_strip(target, strip_rect: Rect2, total_len: float, segments: Array, palette: Dictionary, font: Font, font_size: int, draw_rect_fn: Callable, draw_string_fn: Callable, truncate_label_fn: Callable, text_baseline_fn: Callable, show_labels: bool = true, view_start: float = -1.0, visible_span: float = -1.0, min_view_px: float = 6.0, view_extra_h: float = 4.0) -> void:
 	if strip_rect.size.x <= 0.0 or strip_rect.size.y <= 0.0:
 		return

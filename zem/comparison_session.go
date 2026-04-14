@@ -9,7 +9,9 @@ import (
 	"os"
 )
 
-var comparisonSessionMagic = []byte{'S', 'H', 'C', 'M', 'P', 0x01}
+var comparisonSessionMagicV1 = []byte{'S', 'H', 'C', 'M', 'P', 0x01}
+var comparisonSessionMagicV2 = []byte{'S', 'H', 'C', 'M', 'P', 0x02}
+var comparisonSessionMagic = []byte{'S', 'H', 'C', 'M', 'P', 0x03}
 
 func isComparisonSessionFile(path string) (bool, error) {
 	f, err := os.Open(path)
@@ -25,7 +27,7 @@ func isComparisonSessionFile(path string) (bool, error) {
 		}
 		return false, err
 	}
-	return n == len(comparisonSessionMagic) && bytes.Equal(header, comparisonSessionMagic), nil
+	return n == len(comparisonSessionMagic) && (bytes.Equal(header, comparisonSessionMagic) || bytes.Equal(header, comparisonSessionMagicV2) || bytes.Equal(header, comparisonSessionMagicV1)), nil
 }
 
 func (e *Engine) SaveComparisonSession(path string) error {
@@ -69,7 +71,15 @@ func (e *Engine) LoadComparisonSession(path string) error {
 	if _, err := io.ReadFull(r, header); err != nil {
 		return err
 	}
-	if !bytes.Equal(header, comparisonSessionMagic) {
+	sessionVersion := 0
+	switch {
+	case bytes.Equal(header, comparisonSessionMagic):
+		sessionVersion = 3
+	case bytes.Equal(header, comparisonSessionMagicV2):
+		sessionVersion = 2
+	case bytes.Equal(header, comparisonSessionMagicV1):
+		sessionVersion = 1
+	default:
 		return fmt.Errorf("not a seqhiker comparison session file")
 	}
 
@@ -81,7 +91,7 @@ func (e *Engine) LoadComparisonSession(path string) error {
 	order := make([]uint16, 0, int(genomeCount))
 	var maxGenomeID uint16
 	for i := 0; i < int(genomeCount); i++ {
-		genome, err := readComparisonGenome(r)
+		genome, err := readComparisonGenome(r, sessionVersion)
 		if err != nil {
 			return err
 		}
@@ -104,7 +114,7 @@ func (e *Engine) LoadComparisonSession(path string) error {
 		seenGenomeIDs[genome.ID] = true
 	}
 	for i := 0; i < int(pairCount); i++ {
-		pair, err := readComparisonPair(r)
+		pair, err := readComparisonPair(r, sessionVersion)
 		if err != nil {
 			return err
 		}
@@ -143,25 +153,57 @@ func (e *Engine) LoadComparisonSession(path string) error {
 }
 
 func writeComparisonGenome(w io.Writer, genome *comparisonGenome) {
-	writeU16(w, genome.ID)
-	writeString(w, genome.Name)
-	writeString(w, genome.Path)
-	writeString(w, genome.Sequence)
-	writeU32(w, uint32(genome.Length))
-	writeU16(w, uint16(len(genome.Segments)))
-	for _, segment := range genome.Segments {
+	serialGenome := genome
+	if comparisonGenomeNeedsRawMaterial(genome) {
+		clone := *genome
+		clone.Segments = append([]comparisonSegment(nil), genome.Segments...)
+		populateRawComparisonSegments(&clone)
+		serialGenome = &clone
+	}
+	writeU16(w, serialGenome.ID)
+	writeString(w, serialGenome.Name)
+	writeString(w, serialGenome.Path)
+	writeString(w, serialGenome.Sequence)
+	writeU32(w, uint32(serialGenome.Length))
+	writeU16(w, uint16(len(serialGenome.Segments)))
+	for _, segment := range serialGenome.Segments {
 		writeString(w, segment.Name)
 		writeU32(w, uint32(segment.Start))
 		writeU32(w, uint32(segment.End))
 		writeU32(w, uint32(segment.FeatureCount))
 	}
-	writeU32(w, uint32(len(genome.Features)))
-	for _, feature := range genome.Features {
+	writeU32(w, uint32(len(serialGenome.Features)))
+	for _, feature := range serialGenome.Features {
 		writeFeature(w, feature)
+	}
+	writeU16(w, uint16(len(serialGenome.Segments)))
+	for _, segment := range serialGenome.Segments {
+		writeString(w, segment.RawSequence)
+		if segment.Reversed {
+			writeU8(w, 1)
+		} else {
+			writeU8(w, 0)
+		}
+		writeU32(w, uint32(len(segment.RawFeatures)))
+		for _, feature := range segment.RawFeatures {
+			writeFeature(w, feature)
+		}
 	}
 }
 
-func readComparisonGenome(r io.Reader) (*comparisonGenome, error) {
+func comparisonGenomeNeedsRawMaterial(genome *comparisonGenome) bool {
+	if genome == nil {
+		return false
+	}
+	for _, segment := range genome.Segments {
+		if segment.RawSequence == "" && segment.End > segment.Start {
+			return true
+		}
+	}
+	return false
+}
+
+func readComparisonGenome(r io.Reader, sessionVersion int) (*comparisonGenome, error) {
 	id, err := readU16(r)
 	if err != nil {
 		return nil, err
@@ -223,7 +265,7 @@ func readComparisonGenome(r io.Reader) (*comparisonGenome, error) {
 		}
 		features = append(features, feature)
 	}
-	return &comparisonGenome{
+	genome := &comparisonGenome{
 		ID:       id,
 		Name:     name,
 		Path:     path,
@@ -231,7 +273,75 @@ func readComparisonGenome(r io.Reader) (*comparisonGenome, error) {
 		Sequence: sequence,
 		Segments: segments,
 		Features: features,
-	}, nil
+	}
+	if sessionVersion >= 2 {
+		rawSegmentCount, err := readU16(r)
+		if err != nil {
+			return nil, err
+		}
+		if int(rawSegmentCount) != len(genome.Segments) {
+			return nil, fmt.Errorf("comparison session raw segment count mismatch")
+		}
+		for i := range genome.Segments {
+			rawSeq, err := readString(r)
+			if err != nil {
+				return nil, err
+			}
+			reversed, err := readU8(r)
+			if err != nil {
+				return nil, err
+			}
+			rawFeatureCount, err := readU32(r)
+			if err != nil {
+				return nil, err
+			}
+			rawFeatures := make([]Feature, 0, int(rawFeatureCount))
+			for j := 0; j < int(rawFeatureCount); j++ {
+				feature, err := readFeature(r)
+				if err != nil {
+					return nil, err
+				}
+				rawFeatures = append(rawFeatures, feature)
+			}
+			genome.Segments[i].RawSequence = rawSeq
+			genome.Segments[i].RawFeatures = rawFeatures
+			genome.Segments[i].Reversed = reversed != 0
+		}
+	} else {
+		populateRawComparisonSegments(genome)
+	}
+	genome.rebuildDerived()
+	return genome, nil
+}
+
+func populateRawComparisonSegments(genome *comparisonGenome) {
+	if genome == nil {
+		return
+	}
+	for i := range genome.Segments {
+		segment := &genome.Segments[i]
+		if segment.Start >= 0 && segment.End <= len(genome.Sequence) && segment.End >= segment.Start {
+			segment.RawSequence = genome.Sequence[segment.Start:segment.End]
+			if segment.Reversed {
+				segment.RawSequence = reverseComplementString(segment.RawSequence)
+			}
+		}
+		segment.RawFeatures = segment.RawFeatures[:0]
+		for _, feature := range genome.Features {
+			if feature.Start < segment.Start || feature.End > segment.End {
+				continue
+			}
+			rawFeature := feature
+			rawFeature.Start -= segment.Start
+			rawFeature.End -= segment.Start
+			rawFeature.SeqName = segment.Name
+			if segment.Reversed {
+				rawFeature = reverseFeatureForLength(rawFeature, len(segment.RawSequence))
+				rawFeature.SeqName = segment.Name
+			}
+			segment.RawFeatures = append(segment.RawFeatures, rawFeature)
+		}
+	}
 }
 
 func writeComparisonPair(w io.Writer, pair *comparisonPair) {
@@ -239,13 +349,13 @@ func writeComparisonPair(w io.Writer, pair *comparisonPair) {
 	writeU16(w, pair.TopGenomeID)
 	writeU16(w, pair.BottomGenomeID)
 	writeU8(w, pair.Status)
-	writeU32(w, uint32(len(pair.Blocks)))
-	for _, block := range pair.Blocks {
-		writeComparisonBlock(w, block)
+	writeU32(w, uint32(len(pair.CanonicalBlocks)))
+	for _, block := range pair.CanonicalBlocks {
+		writeComparisonCanonicalBlock(w, block)
 	}
 }
 
-func readComparisonPair(r io.Reader) (*comparisonPair, error) {
+func readComparisonPair(r io.Reader, sessionVersion int) (*comparisonPair, error) {
 	id, err := readU16(r)
 	if err != nil {
 		return nil, err
@@ -266,20 +376,89 @@ func readComparisonPair(r io.Reader) (*comparisonPair, error) {
 	if err != nil {
 		return nil, err
 	}
-	blocks := make([]ComparisonBlock, 0, int(blockCount))
-	for i := 0; i < int(blockCount); i++ {
-		block, err := readComparisonBlock(r)
-		if err != nil {
-			return nil, err
+	canonicalBlocks := make([]comparisonCanonicalBlock, 0, int(blockCount))
+	if sessionVersion >= 3 {
+		for i := 0; i < int(blockCount); i++ {
+			block, err := readComparisonCanonicalBlock(r)
+			if err != nil {
+				return nil, err
+			}
+			canonicalBlocks = append(canonicalBlocks, block)
 		}
-		blocks = append(blocks, block)
+	} else {
+		for i := 0; i < int(blockCount); i++ {
+			if _, err := readComparisonBlock(r); err != nil {
+				return nil, err
+			}
+		}
+		status = comparisonStatusPending
 	}
 	return &comparisonPair{
-		ID:             id,
-		TopGenomeID:    topID,
-		BottomGenomeID: bottomID,
-		Status:         status,
-		Blocks:         blocks,
+		ID:              id,
+		TopGenomeID:     topID,
+		BottomGenomeID:  bottomID,
+		Status:          status,
+		CanonicalBlocks: canonicalBlocks,
+	}, nil
+}
+
+func writeComparisonCanonicalBlock(w io.Writer, block comparisonCanonicalBlock) {
+	writeU16(w, uint16(block.QuerySegment))
+	writeU32(w, uint32(block.QueryStart))
+	writeU32(w, uint32(block.QueryEnd))
+	writeU16(w, uint16(block.TargetSegment))
+	writeU32(w, uint32(block.TargetStart))
+	writeU32(w, uint32(block.TargetEnd))
+	writeU16(w, block.PercentIdentX100)
+	if block.SameStrand {
+		writeU8(w, 1)
+	} else {
+		writeU8(w, 0)
+	}
+}
+
+func readComparisonCanonicalBlock(r io.Reader) (comparisonCanonicalBlock, error) {
+	querySegment, err := readU16(r)
+	if err != nil {
+		return comparisonCanonicalBlock{}, err
+	}
+	queryStart, err := readU32(r)
+	if err != nil {
+		return comparisonCanonicalBlock{}, err
+	}
+	queryEnd, err := readU32(r)
+	if err != nil {
+		return comparisonCanonicalBlock{}, err
+	}
+	targetSegment, err := readU16(r)
+	if err != nil {
+		return comparisonCanonicalBlock{}, err
+	}
+	targetStart, err := readU32(r)
+	if err != nil {
+		return comparisonCanonicalBlock{}, err
+	}
+	targetEnd, err := readU32(r)
+	if err != nil {
+		return comparisonCanonicalBlock{}, err
+	}
+	pid, err := readU16(r)
+	if err != nil {
+		return comparisonCanonicalBlock{}, err
+	}
+	sameStrandByte, err := readU8(r)
+	if err != nil {
+		return comparisonCanonicalBlock{}, err
+	}
+	return comparisonCanonicalBlock{
+		QuerySegment:     int(querySegment),
+		QueryStart:       int(queryStart),
+		QueryEnd:         int(queryEnd),
+		TargetSegment:    int(targetSegment),
+		TargetStart:      int(targetStart),
+		TargetEnd:        int(targetEnd),
+		PercentIdentX100: pid,
+		SameStrand:       sameStrandByte != 0,
 	}, nil
 }
 

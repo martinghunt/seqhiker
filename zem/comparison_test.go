@@ -86,6 +86,77 @@ func TestAddComparisonGenomeFilesCombinesSequenceAndAnnotation(t *testing.T) {
 	}
 }
 
+func TestSetComparisonGenomeOrientationRebuildsSequenceAndBlocks(t *testing.T) {
+	e := NewEngine()
+	seq := uniqueishDNA(320)
+
+	makeGenome := func(dir string, name string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(">chr1\n"+seq+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	pathA := makeGenome(t.TempDir(), "a.fa")
+	pathB := makeGenome(t.TempDir(), "b.fa")
+	infoA, err := e.AddComparisonGenome(pathA)
+	if err != nil {
+		t.Fatalf("AddComparisonGenome(a) returned error: %v", err)
+	}
+	infoB, err := e.AddComparisonGenome(pathB)
+	if err != nil {
+		t.Fatalf("AddComparisonGenome(b) returned error: %v", err)
+	}
+
+	blocksBefore, err := e.GetComparisonBlocksByGenomes(infoA.ID, infoB.ID)
+	if err != nil {
+		t.Fatalf("GetComparisonBlocksByGenomes(before) returned error: %v", err)
+	}
+	foundForward := false
+	for _, block := range blocksBefore {
+		if block.SameStrand {
+			foundForward = true
+			break
+		}
+	}
+	if !foundForward {
+		t.Fatalf("expected forward blocks before orientation change, got %+v", blocksBefore)
+	}
+
+	if err := e.SetComparisonGenomeOrientation(infoA.ID, true); err != nil {
+		t.Fatalf("SetComparisonGenomeOrientation returned error: %v", err)
+	}
+	genomes := e.ListComparisonGenomes()
+	if len(genomes) < 1 || len(genomes[0].Segments) != 1 || !genomes[0].Segments[0].Reversed {
+		t.Fatalf("expected reversed comparison segment metadata, got %+v", genomes)
+	}
+	slicePayload, err := e.GetComparisonReferenceSlice(infoA.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("GetComparisonReferenceSlice returned error: %v", err)
+	}
+	start, end, got := decodeReferenceSliceForTest(t, slicePayload)
+	want := reverseComplementString(seq)[:20]
+	if start != 0 || end != 20 || got != want {
+		t.Fatalf("unexpected reversed comparison slice: start=%d end=%d got=%q want=%q", start, end, got, want)
+	}
+
+	blocksAfter, err := e.GetComparisonBlocksByGenomes(infoA.ID, infoB.ID)
+	if err != nil {
+		t.Fatalf("GetComparisonBlocksByGenomes(after) returned error: %v", err)
+	}
+	foundReverse := false
+	for _, block := range blocksAfter {
+		if !block.SameStrand {
+			foundReverse = true
+			break
+		}
+	}
+	if !foundReverse {
+		t.Fatalf("expected reverse-strand blocks after orientation change, got %+v", blocksAfter)
+	}
+}
+
 func TestComparisonPairsFollowGenomeOrder(t *testing.T) {
 	e := NewEngine()
 	for i := 0; i < 3; i++ {
@@ -255,6 +326,63 @@ func TestComparisonRefinementCapturesReverseOrientationVariants(t *testing.T) {
 	}
 }
 
+func TestComparisonBlockDetailHandlesLongBlockByStitchingAnchors(t *testing.T) {
+	querySeq := uniqueishDNA(10000)
+	targetSeq := querySeq[:3200] + "ACGTACGTACGTACGT" + querySeq[3200:7600] + "TTGGAACC" + querySeq[7600:]
+	query := &comparisonGenome{ID: 1, Name: "q", Length: len(querySeq), Sequence: querySeq}
+	target := &comparisonGenome{ID: 2, Name: "t", Length: len(targetSeq), Sequence: targetSeq}
+	detail, ok := buildComparisonBlockDetail(query, target, ComparisonBlock{
+		QueryStart:  0,
+		QueryEnd:    uint32(len(querySeq)),
+		TargetStart: 0,
+		TargetEnd:   uint32(len(targetSeq)),
+		SameStrand:  true,
+	})
+	if !ok {
+		t.Fatal("expected long block detail to be built by stitched anchors")
+	}
+	if len(detail.Ops) == 0 {
+		t.Fatal("expected long block detail ops")
+	}
+	if detail.Summary.QueryStart != 0 || detail.Summary.QueryEnd != uint32(len(querySeq)) {
+		t.Fatalf("unexpected query span: %+v", detail.Summary)
+	}
+	if detail.Summary.TargetStart != 0 || detail.Summary.TargetEnd != uint32(len(targetSeq)) {
+		t.Fatalf("unexpected target span: %+v", detail.Summary)
+	}
+	if detail.Summary.PercentIdentX100 < 9000 {
+		t.Fatalf("expected high-identity stitched detail, got %+v", detail.Summary)
+	}
+}
+
+func TestComparisonDetailHandlesOneSidedAnchorGap(t *testing.T) {
+	query := &comparisonGenome{ID: 1, Name: "q", Length: 80, Sequence: uniqueishDNA(80)}
+	target := &comparisonGenome{ID: 2, Name: "t", Length: 80, Sequence: query.Sequence}
+	chain := comparisonRefinedChain{
+		Summary: ComparisonBlock{
+			QueryStart:  0,
+			QueryEnd:    55,
+			TargetStart: 0,
+			TargetEnd:   54,
+			SameStrand:  true,
+		},
+		OrientedStart: 0,
+		OrientedEnd:   54,
+		Anchors: []comparisonAnchor{
+			{QPos: 0, TPos: 0, TTrans: 0},
+			{QPos: 20, TPos: 20, TTrans: 20},
+			{QPos: 40, TPos: 39, TTrans: 39},
+		},
+	}
+	detail, ok := buildComparisonDetailFromRefinedChainWithMode(query, target, chain, true)
+	if !ok {
+		t.Fatal("expected permissive chain detail to handle one-sided anchor gap")
+	}
+	if len(detail.Ops) == 0 {
+		t.Fatal("expected ops for one-sided anchor gap detail")
+	}
+}
+
 func TestComparisonRepeatsProduceMultipleBlocks(t *testing.T) {
 	anchors := []comparisonAnchor{
 		{QPos: 0, TPos: 0, TTrans: 0},
@@ -300,12 +428,42 @@ func TestComparisonLargeUnanchoredGapSplitsBlocks(t *testing.T) {
 		{QPos: 14080, TPos: 14080, TTrans: 14080},
 		{QPos: 14160, TPos: 14160, TTrans: 14160},
 	}
-	chains := buildRefinedChainsFromAnchors(anchors, true)
+	chains := buildRefinedChainsFromAnchors(nil, nil, anchors, true)
 	if len(chains) != 2 {
 		t.Fatalf("expected large unanchored gap to split into 2 chains, got %+v", chains)
 	}
 	if int(chains[0].Summary.QueryEnd) >= 1000 || int(chains[1].Summary.QueryStart) <= 1000 {
 		t.Fatalf("unexpected split positions: %+v", chains)
+	}
+}
+
+func TestComparisonGapAboveRefineLimitSplitsBlocks(t *testing.T) {
+	anchors := []comparisonAnchor{
+		{QPos: 0, TPos: 0, TTrans: 0},
+		{QPos: 80, TPos: 80, TTrans: 80},
+		{QPos: 160, TPos: 160, TTrans: 160},
+		{QPos: 8400, TPos: 8400, TTrans: 8400},
+		{QPos: 8480, TPos: 8480, TTrans: 8480},
+		{QPos: 8560, TPos: 8560, TTrans: 8560},
+	}
+	chains := buildRefinedChainsFromAnchors(nil, nil, anchors, true)
+	if len(chains) != 2 {
+		t.Fatalf("expected gap above refine limit to split into 2 chains, got %+v", chains)
+	}
+}
+
+func TestComparisonLargeGapImbalanceSplitsBlocks(t *testing.T) {
+	anchors := []comparisonAnchor{
+		{QPos: 0, TPos: 0, TTrans: 0},
+		{QPos: 80, TPos: 80, TTrans: 80},
+		{QPos: 160, TPos: 160, TTrans: 160},
+		{QPos: 1800, TPos: 240, TTrans: 240},
+		{QPos: 1880, TPos: 320, TTrans: 320},
+		{QPos: 1960, TPos: 400, TTrans: 400},
+	}
+	chains := buildRefinedChainsFromAnchors(nil, nil, anchors, true)
+	if len(chains) != 2 {
+		t.Fatalf("expected large internal gap imbalance to split into 2 chains, got %+v", chains)
 	}
 }
 
@@ -340,12 +498,77 @@ func TestComparisonSmallGapChainsMerge(t *testing.T) {
 			},
 		},
 	}
-	merged := mergeAdjacentRefinedChains(chains)
+	merged := mergeAdjacentRefinedChains(nil, nil, chains)
 	if len(merged) != 1 {
 		t.Fatalf("expected nearby chains to merge into 1 block, got %+v", merged)
 	}
 	if merged[0].Summary.QueryStart != 500 || merged[0].Summary.QueryEnd < 862 {
 		t.Fatalf("unexpected merged block span: %+v", merged[0].Summary)
+	}
+}
+
+func TestComparisonLargeInternalIndelPreventsChainMerge(t *testing.T) {
+	chains := []comparisonRefinedChain{
+		{
+			Summary: ComparisonBlock{
+				QueryStart: 500, QueryEnd: 675,
+				TargetStart: 3500, TargetEnd: 3675,
+				SameStrand: true,
+			},
+			OrientedStart: 3500,
+			OrientedEnd:   3675,
+			Anchors: []comparisonAnchor{
+				{QPos: 500, TPos: 3500, TTrans: 3500},
+				{QPos: 580, TPos: 3580, TTrans: 3580},
+				{QPos: 660, TPos: 3660, TTrans: 3660},
+			},
+		},
+		{
+			Summary: ComparisonBlock{
+				QueryStart: 687, QueryEnd: 862,
+				TargetStart: 3855, TargetEnd: 4030,
+				SameStrand: true,
+			},
+			OrientedStart: 3855,
+			OrientedEnd:   4030,
+			Anchors: []comparisonAnchor{
+				{QPos: 687, TPos: 3855, TTrans: 3855},
+				{QPos: 767, TPos: 3935, TTrans: 3935},
+				{QPos: 847, TPos: 4015, TTrans: 4015},
+			},
+		},
+	}
+	merged := mergeAdjacentRefinedChains(nil, nil, chains)
+	if len(merged) != 2 {
+		t.Fatalf("expected large internal indel to keep chains separate, got %+v", merged)
+	}
+}
+
+func TestGeneratedComparisonDataDoesNotBridgeLargeInternalInsertion(t *testing.T) {
+	e := NewEngine()
+	paths, err := e.GenerateComparisonTestData(t.TempDir())
+	if err != nil {
+		t.Fatalf("GenerateComparisonTestData returned error: %v", err)
+	}
+	ids := make([]uint16, 0, len(paths))
+	for _, path := range paths {
+		info, err := e.AddComparisonGenome(path)
+		if err != nil {
+			t.Fatalf("AddComparisonGenome(%q) returned error: %v", path, err)
+		}
+		ids = append(ids, info.ID)
+	}
+	if len(ids) != 3 {
+		t.Fatalf("expected 3 genomes, got %d", len(ids))
+	}
+	blocks, err := e.GetComparisonBlocksByGenomes(ids[0], ids[2])
+	if err != nil {
+		t.Fatalf("GetComparisonBlocksByGenomes returned error: %v", err)
+	}
+	for _, block := range blocks {
+		if int(block.QueryStart) == 4906 && int(block.QueryEnd) == 10121 && int(block.TargetStart) == 1506 && int(block.TargetEnd) == 5121 {
+			t.Fatalf("unexpected bridged beta/uniq1 block still present: %+v", block)
+		}
 	}
 }
 
@@ -380,12 +603,145 @@ func TestComparisonSmallOverlapChainsMerge(t *testing.T) {
 			},
 		},
 	}
-	merged := mergeAdjacentRefinedChains(chains)
+	merged := mergeAdjacentRefinedChains(nil, nil, chains)
 	if len(merged) != 1 {
 		t.Fatalf("expected overlapping chains to merge into 1 block, got %+v", merged)
 	}
 	if merged[0].Summary.QueryStart != 500 || merged[0].Summary.QueryEnd < 846 {
 		t.Fatalf("unexpected merged block span: %+v", merged[0].Summary)
+	}
+}
+
+func TestComparisonChainsDoNotMergeAcrossSegmentBoundaries(t *testing.T) {
+	query := &comparisonGenome{
+		Segments: []comparisonSegment{
+			{Start: 0, End: 675},
+			{Start: 680, End: 1200},
+		},
+	}
+	target := &comparisonGenome{
+		Segments: []comparisonSegment{
+			{Start: 0, End: 3675},
+			{Start: 3680, End: 4200},
+		},
+	}
+	chains := []comparisonRefinedChain{
+		{
+			Summary: ComparisonBlock{
+				QueryStart: 500, QueryEnd: 675,
+				TargetStart: 3500, TargetEnd: 3675,
+				SameStrand: true,
+			},
+			OrientedStart: 3500,
+			OrientedEnd:   3675,
+			Anchors: []comparisonAnchor{
+				{QPos: 500, TPos: 3500, TTrans: 3500},
+				{QPos: 580, TPos: 3580, TTrans: 3580},
+				{QPos: 660, TPos: 3660, TTrans: 3660},
+			},
+		},
+		{
+			Summary: ComparisonBlock{
+				QueryStart: 687, QueryEnd: 862,
+				TargetStart: 3687, TargetEnd: 3862,
+				SameStrand: true,
+			},
+			OrientedStart: 3687,
+			OrientedEnd:   3862,
+			Anchors: []comparisonAnchor{
+				{QPos: 687, TPos: 3687, TTrans: 3687},
+				{QPos: 767, TPos: 3767, TTrans: 3767},
+				{QPos: 847, TPos: 3847, TTrans: 3847},
+			},
+		},
+	}
+	merged := mergeAdjacentRefinedChains(query, target, chains)
+	if len(merged) != 2 {
+		t.Fatalf("expected segment boundary to prevent merge, got %+v", merged)
+	}
+}
+
+func TestComparisonTargetSegmentChecksUseDisplayCoordinates(t *testing.T) {
+	target := &comparisonGenome{
+		Segments: []comparisonSegment{
+			{Start: 0, End: 100},
+			{Start: 150, End: 250},
+		},
+	}
+	if !comparisonAnchorInSameSegment(target, comparisonAnchor{TPos: 10, TTrans: 180}, comparisonAnchor{TPos: 80, TTrans: 20}, false) {
+		t.Fatal("expected target segment comparison to use display coordinates")
+	}
+	chain := comparisonRefinedChain{
+		Summary: ComparisonBlock{
+			QueryStart: 10, QueryEnd: 80,
+			TargetStart: 10, TargetEnd: 80,
+			SameStrand: false,
+		},
+		OrientedStart: 20,
+		OrientedEnd:   180,
+	}
+	if !comparisonChainWithinSingleSegments(nil, target, chain) {
+		t.Fatal("expected target chain boundary checks to use display coordinates")
+	}
+}
+
+func TestComparisonReverseOrientationStaysWithinReversedSegment(t *testing.T) {
+	makeDNA := func(seed uint32, n int) string {
+		bases := [4]byte{'A', 'C', 'G', 'T'}
+		out := make([]byte, n)
+		state := seed
+		for i := 0; i < n; i++ {
+			state = state*1664525 + 1013904223
+			out[i] = bases[(state>>24)&3]
+		}
+		return string(out)
+	}
+	segA := makeDNA(17, 320)
+	segB := makeDNA(12345, 320)
+	makeGenome := func(id uint16, reverseFirst bool) *comparisonGenome {
+		genome := &comparisonGenome{
+			ID:   id,
+			Name: "g",
+			Segments: []comparisonSegment{
+				{Name: "a", RawSequence: segA, Reversed: reverseFirst},
+				{Name: "b", RawSequence: segB},
+			},
+		}
+		genome.rebuildDerived()
+		return genome
+	}
+
+	query := makeGenome(1, false)
+	target := makeGenome(2, true)
+	segBStart := target.Segments[1].Start
+	blocks := buildComparisonBlocks(query, target)
+	if len(blocks) == 0 {
+		t.Fatal("expected comparison blocks for mixed-orientation genome")
+	}
+
+	bestReverseLen := 0
+	bestSecondForwardLen := 0
+	for _, block := range blocks {
+		span := int(block.QueryEnd - block.QueryStart)
+		if !block.SameStrand && int(block.QueryStart) < segBStart && int(block.TargetStart) < segBStart {
+			if span > bestReverseLen {
+				bestReverseLen = span
+			}
+		}
+		if block.SameStrand && int(block.QueryStart) >= segBStart && int(block.TargetStart) >= segBStart {
+			if span > bestSecondForwardLen {
+				bestSecondForwardLen = span
+			}
+		}
+		if !block.SameStrand && (int(block.QueryStart) >= segBStart || int(block.TargetStart) >= segBStart) && span >= 200 {
+			t.Fatalf("unexpected large reverse block outside reversed first segment: %+v", block)
+		}
+	}
+	if bestReverseLen < 200 {
+		t.Fatalf("expected large reverse block in first segment, got %d from %+v", bestReverseLen, blocks)
+	}
+	if bestSecondForwardLen < 200 {
+		t.Fatalf("expected large forward block in second segment, got %d from %+v", bestSecondForwardLen, blocks)
 	}
 }
 
@@ -460,7 +816,16 @@ func TestComparisonSessionRoundTrip(t *testing.T) {
 		TopGenomeID:    1,
 		BottomGenomeID: 2,
 		Status:         comparisonStatusReady,
-		Blocks:         []ComparisonBlock{block},
+		CanonicalBlocks: []comparisonCanonicalBlock{{
+			QuerySegment:     0,
+			QueryStart:       int(block.QueryStart),
+			QueryEnd:         int(block.QueryEnd),
+			TargetSegment:    0,
+			TargetStart:      int(block.TargetStart),
+			TargetEnd:        int(block.TargetEnd),
+			PercentIdentX100: block.PercentIdentX100,
+			SameStrand:       block.SameStrand,
+		}},
 	}
 	e.comparisonPairOrder = []uint16{1}
 	e.nextComparisonGenomeID = 3
@@ -508,8 +873,8 @@ func TestComparisonSessionRoundTrip(t *testing.T) {
 	if len(loaded.comparisonGenomes[1].Features) != 1 {
 		t.Fatalf("expected features to round-trip, got %+v", loaded.comparisonGenomes[1].Features)
 	}
-	if loaded.comparisonPairs[1].Blocks[0].PercentIdentX100 != 7777 {
-		t.Fatalf("expected block summary to round-trip, got %+v", loaded.comparisonPairs[1].Blocks[0])
+	if loaded.comparisonPairs[1].CanonicalBlocks[0].PercentIdentX100 != 7777 {
+		t.Fatalf("expected canonical block summary to round-trip, got %+v", loaded.comparisonPairs[1].CanonicalBlocks[0])
 	}
 }
 
@@ -537,6 +902,46 @@ func TestComparisonBlocksAreSymmetricAcrossDirection(t *testing.T) {
 		if reverse[i] != swappedComparisonBlock(forward[i]) {
 			t.Fatalf("reverse block %d not symmetric: forward=%+v reverse=%+v", i, forward[i], reverse[i])
 		}
+	}
+}
+
+func TestComparisonSessionPreservesSegmentOrientation(t *testing.T) {
+	e := NewEngine()
+	dir := t.TempDir()
+	fastaPath := filepath.Join(dir, "ref.fa")
+	seq := uniqueishDNA(320)
+	if err := os.WriteFile(fastaPath, []byte(">chr1\n"+seq+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := e.AddComparisonGenome(fastaPath)
+	if err != nil {
+		t.Fatalf("AddComparisonGenome returned error: %v", err)
+	}
+	if err := e.SetComparisonGenomeOrientation(info.ID, true); err != nil {
+		t.Fatalf("SetComparisonGenomeOrientation returned error: %v", err)
+	}
+
+	path := filepath.Join(dir, "oriented.seqhikercmp")
+	if err := e.SaveComparisonSession(path); err != nil {
+		t.Fatalf("SaveComparisonSession returned error: %v", err)
+	}
+
+	loaded := NewEngine()
+	if err := loaded.LoadComparisonSession(path); err != nil {
+		t.Fatalf("LoadComparisonSession returned error: %v", err)
+	}
+	genomes := loaded.ListComparisonGenomes()
+	if len(genomes) != 1 || len(genomes[0].Segments) != 1 || !genomes[0].Segments[0].Reversed {
+		t.Fatalf("expected reversed segment after reload, got %+v", genomes)
+	}
+	slicePayload, err := loaded.GetComparisonReferenceSlice(genomes[0].ID, 0, 16)
+	if err != nil {
+		t.Fatalf("GetComparisonReferenceSlice returned error: %v", err)
+	}
+	_, _, got := decodeReferenceSliceForTest(t, slicePayload)
+	want := reverseComplementString(seq)[:16]
+	if got != want {
+		t.Fatalf("unexpected reloaded oriented slice: got %q want %q", got, want)
 	}
 }
 
@@ -656,6 +1061,129 @@ func TestGeneratedComparisonDataGetBlocksByGenomes(t *testing.T) {
 		if len(blocksByGenomes) == 0 {
 			t.Fatalf("expected pair %d genomes %d/%d to have blocks by genomes", pair.ID, pair.TopGenomeID, pair.BottomGenomeID)
 		}
+	}
+}
+
+func TestGetComparisonBlocksByGenomesWorksForReorderedNonAdjacentGenomes(t *testing.T) {
+	e := NewEngine()
+	paths, err := e.GenerateComparisonTestData(t.TempDir())
+	if err != nil {
+		t.Fatalf("GenerateComparisonTestData returned error: %v", err)
+	}
+	ids := make([]uint16, 0, len(paths))
+	for _, path := range paths {
+		info, err := e.AddComparisonGenome(path)
+		if err != nil {
+			t.Fatalf("AddComparisonGenome(%q) returned error: %v", path, err)
+		}
+		ids = append(ids, info.ID)
+	}
+	if len(ids) != 3 {
+		t.Fatalf("expected 3 genomes, got %d", len(ids))
+	}
+	blocks, err := e.GetComparisonBlocksByGenomes(ids[0], ids[2])
+	if err != nil {
+		t.Fatalf("GetComparisonBlocksByGenomes(non-adjacent) returned error: %v", err)
+	}
+	if len(blocks) == 0 {
+		t.Fatal("expected non-adjacent genome query to return blocks")
+	}
+}
+
+func TestComparisonGeneratedReverseChrB2SegmentSummary(t *testing.T) {
+	e := NewEngine()
+	paths, err := e.GenerateComparisonTestData(t.TempDir())
+	if err != nil {
+		t.Fatalf("GenerateComparisonTestData returned error: %v", err)
+	}
+	ids := make([]uint16, 0, len(paths))
+	for _, path := range paths {
+		info, err := e.AddComparisonGenome(path)
+		if err != nil {
+			t.Fatalf("AddComparisonGenome(%q) returned error: %v", path, err)
+		}
+		ids = append(ids, info.ID)
+	}
+	if len(ids) < 2 {
+		t.Fatalf("expected at least two genomes, got %d", len(ids))
+	}
+	genomes := e.ListComparisonGenomes()
+	segmentsByID := make(map[uint16][]ComparisonSegmentInfo, len(genomes))
+	var betaID uint16
+	var chrB2Start uint32
+	for _, genome := range genomes {
+		segmentsByID[genome.ID] = genome.Segments
+		if genome.Name != "cmp_beta" {
+			continue
+		}
+		betaID = genome.ID
+		for _, segment := range genome.Segments {
+			if segment.Name == "chrB2" {
+				chrB2Start = segment.Start
+				break
+			}
+		}
+	}
+	if betaID == 0 {
+		t.Fatalf("could not resolve cmp_beta genome: %+v", genomes)
+	}
+	type pairSummary struct {
+		count     int
+		maxSpan   int
+		totalSpan int
+	}
+	segmentNameAt := func(genomeID uint16, start uint32) string {
+		for _, segment := range segmentsByID[genomeID] {
+			if start >= segment.Start && start < segment.End {
+				return segment.Name
+			}
+		}
+		return "?"
+	}
+	summarize := func(blocks []ComparisonBlock) map[string]pairSummary {
+		summary := map[string]pairSummary{}
+		for _, block := range blocks {
+			qName := segmentNameAt(ids[0], block.QueryStart)
+			tName := segmentNameAt(ids[1], block.TargetStart)
+			key := qName + " -> " + tName + " strand=" + map[bool]string{true: "+", false: "-"}[block.SameStrand]
+			item := summary[key]
+			item.count++
+			span := max(int(block.QueryEnd-block.QueryStart), int(block.TargetEnd-block.TargetStart))
+			item.totalSpan += span
+			if span > item.maxSpan {
+				item.maxSpan = span
+			}
+			summary[key] = item
+		}
+		return summary
+	}
+	beforeBlocks, err := e.GetComparisonBlocksByGenomes(ids[0], ids[1])
+	if err != nil {
+		t.Fatalf("GetComparisonBlocksByGenomes(before) returned error: %v", err)
+	}
+	beforeSummary := summarize(beforeBlocks)
+	if err := e.SetComparisonSegmentOrientation(betaID, chrB2Start, true); err != nil {
+		t.Fatalf("SetComparisonSegmentOrientation returned error: %v", err)
+	}
+	blocks, err := e.GetComparisonBlocksByGenomes(ids[0], ids[1])
+	if err != nil {
+		t.Fatalf("GetComparisonBlocksByGenomes returned error: %v", err)
+	}
+	afterSummary := summarize(blocks)
+	if beforeSummary["chrA2 -> chrB2 strand=+"].totalSpan < 3000 {
+		t.Fatalf("expected substantial forward chrA2 -> chrB2 coverage before reverse, got %+v", beforeSummary)
+	}
+	if afterSummary["chrA2 -> chrB2 strand=-"].totalSpan != beforeSummary["chrA2 -> chrB2 strand=+"].totalSpan {
+		t.Fatalf("expected chrA2 -> chrB2 total span to be preserved across reverse, before=%+v after=%+v", beforeSummary, afterSummary)
+	}
+	if beforeSummary["chrA3 -> chrB3 strand=+"] != afterSummary["chrA3 -> chrB3 strand=+"] {
+		t.Fatalf("expected unrelated chrA3 -> chrB3 blocks to remain unchanged, before=%+v after=%+v", beforeSummary["chrA3 -> chrB3 strand=+"], afterSummary["chrA3 -> chrB3 strand=+"])
+	}
+	if beforeSummary["chrA1 -> chrB1 strand=+"] != afterSummary["chrA1 -> chrB1 strand=+"] {
+		t.Fatalf("expected chrA1 -> chrB1 forward blocks to remain unchanged, before=%+v after=%+v", beforeSummary["chrA1 -> chrB1 strand=+"], afterSummary["chrA1 -> chrB1 strand=+"])
+	}
+	if beforeSummary["chrA1 -> chrB1 strand=-"] != afterSummary["chrA1 -> chrB1 strand=-"] {
+		t.Fatalf("expected chrA1 -> chrB1 reverse blocks to remain unchanged, before=%+v after=%+v", beforeSummary["chrA1 -> chrB1 strand=-"], afterSummary["chrA1 -> chrB1 strand=-"])
 	}
 }
 

@@ -271,8 +271,10 @@ func rebuild_concat_segments() -> void:
 		var seg_len: int = int(c.get("length", 0))
 		var seg: Dictionary = {
 			"id": int(c.get("id", -1)),
-			"name": str(c.get("name", "chr")),
+			"name": _display_chromosome_name(c),
 			"length": seg_len,
+			"raw_name": str(c.get("name", "chr")),
+			"reversed": bool(c.get("reversed", false)),
 			"start": pos,
 			"end": pos + seg_len
 		}
@@ -307,8 +309,8 @@ func refresh_sequence_options() -> void:
 
 
 func apply_sequence_view(reset_viewport: bool) -> void:
+	var selected: Dictionary = {}
 	if host._seq_view_mode == host.SEQ_VIEW_SINGLE:
-		var selected: Dictionary = {}
 		for c in host._chromosomes:
 			if int(c.get("id", -1)) == host._selected_seq_id:
 				selected = c
@@ -331,11 +333,19 @@ func apply_sequence_view(reset_viewport: bool) -> void:
 		host._set_status("Loaded concat (%d seqs, %d bp)" % [host._concat_segments.size(), host._current_chr_len])
 	if reset_viewport:
 		host.genome_view.set_chromosome(host._current_chr_name, host._current_chr_len)
+	host.genome_view.set_chromosome_context(host._current_chr_id, bool(selected.get("reversed", false)) if not selected.is_empty() else false)
 	if host._seq_view_mode == host.SEQ_VIEW_CONCAT:
 		host.genome_view.set_concat_segments(host._concat_segments)
 	else:
 		host.genome_view.set_concat_segments([])
 	host._invalidate_cache()
+
+
+func _display_chromosome_name(chromosome: Dictionary) -> String:
+	var name := str(chromosome.get("name", "chr"))
+	if bool(chromosome.get("reversed", false)):
+		return "%s [RC]" % name
+	return name
 
 
 func record_loaded_files(files: PackedStringArray, replace_existing: bool) -> void:

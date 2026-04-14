@@ -106,6 +106,50 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		engine.ResetBrowserState()
 		return MsgAck, ackPayload("browser state reset"), nil
 
+	case MsgSetChromosomeOrientation:
+		if len(payload) < 3 {
+			return 0, nil, fmt.Errorf("invalid chromosome orientation payload")
+		}
+		chrID := binary.LittleEndian.Uint16(payload[0:2])
+		reversed := payload[2] != 0
+		if err := engine.SetChromosomeOrientation(chrID, reversed); err != nil {
+			return 0, nil, err
+		}
+		return MsgGetChromosomes, encodeChromosomes(engine.ListChromosomes()), nil
+
+	case MsgSetAllChromosomeOrientations:
+		if len(payload) < 1 {
+			return 0, nil, fmt.Errorf("invalid all-chromosome orientation payload")
+		}
+		reversed := payload[0] != 0
+		if err := engine.SetAllChromosomeOrientations(reversed); err != nil {
+			return 0, nil, err
+		}
+		return MsgGetChromosomes, encodeChromosomes(engine.ListChromosomes()), nil
+
+	case MsgSetComparisonSegmentOrientation:
+		if len(payload) < 7 {
+			return 0, nil, fmt.Errorf("invalid comparison segment orientation payload")
+		}
+		genomeID := binary.LittleEndian.Uint16(payload[0:2])
+		segmentStart := binary.LittleEndian.Uint32(payload[2:6])
+		reversed := payload[6] != 0
+		if err := engine.SetComparisonSegmentOrientation(genomeID, segmentStart, reversed); err != nil {
+			return 0, nil, err
+		}
+		return MsgListComparisonGenomes, encodeComparisonGenomes(engine.ListComparisonGenomes()), nil
+
+	case MsgSetComparisonGenomeOrientation:
+		if len(payload) < 3 {
+			return 0, nil, fmt.Errorf("invalid comparison genome orientation payload")
+		}
+		genomeID := binary.LittleEndian.Uint16(payload[0:2])
+		reversed := payload[2] != 0
+		if err := engine.SetComparisonGenomeOrientation(genomeID, reversed); err != nil {
+			return 0, nil, err
+		}
+		return MsgListComparisonGenomes, encodeComparisonGenomes(engine.ListComparisonGenomes()), nil
+
 	case MsgLoadBAM:
 		path, cutoff, err := decodeLoadBAMPayload(payload)
 		if err != nil {

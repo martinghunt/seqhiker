@@ -170,6 +170,11 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 		e.mu.Unlock()
 		return nil, fmt.Errorf("chromosome %s is missing from BAM header", chr)
 	}
+	chromLen := e.rawChrLength[chr]
+	if chromLen <= 0 {
+		chromLen = e.chrLength[chr]
+	}
+	reversed := e.chrReverse[chr]
 
 	key := tileCacheKey{
 		Generation: src.Generation,
@@ -194,10 +199,15 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 		maxTileRecs *= 2
 	}
 	window := tileWindow(zoom, tileIndex)
+	orientedStart, orientedEnd := clampWindowToLength(window.start, window.end, chromLen)
+	rawStart, rawEnd := rawWindowForOrientation(window.start, window.end, chromLen, reversed)
 	binCount := coverageTileBinCount(window.start, window.end, 0, ref.Len())
 	generation := src.Generation
 	prefetchRadius := e.prefetchRadius
-	refSeq := e.sequences[chr]
+	refSeq := e.rawSequences[chr]
+	if refSeq == "" {
+		refSeq = e.sequences[chr]
+	}
 	selectedSourceID := src.ID
 	e.mu.Unlock()
 
@@ -205,15 +215,44 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 	var payload []byte
 	if (kind == covTileCacheKind || kind == strandCovTileCacheKind) && (len(covPrefixFwd) > 0 || len(covPrefixRev) > 0) {
 		if kind == strandCovTileCacheKind {
-			payload, err = encodeStrandCoverageTileFromStrandPrefixes(window.start, window.end, covPrefixFwd, covPrefixRev, binCount)
+			payload, err = encodeStrandCoverageTileFromStrandPrefixes(rawStart, rawEnd, covPrefixFwd, covPrefixRev, binCount)
 		} else {
-			payload, err = encodeCoverageTileFromStrandPrefixes(window.start, window.end, covPrefixFwd, covPrefixRev, binCount)
+			payload, err = encodeCoverageTileFromStrandPrefixes(rawStart, rawEnd, covPrefixFwd, covPrefixRev, binCount)
 		}
 	} else {
-		payload, err = loadIndexedTilePayload(bamPath, bamIdx, ref, window.start, window.end, kind, maxTileRecs, includeSNPs, refSeq, binCount)
+		payload, err = loadIndexedTilePayload(bamPath, bamIdx, ref, rawStart, rawEnd, kind, maxTileRecs, includeSNPs, refSeq, binCount)
 	}
 	if err != nil {
 		return nil, err
+	}
+	if reversed {
+		switch kind {
+		case covTileCacheKind:
+			_, _, bins, decodeErr := decodeCoverageTilePayload(payload)
+			if decodeErr != nil {
+				return nil, decodeErr
+			}
+			reverseUint16s(bins)
+			payload = encodeCoverageTile(orientedStart, orientedEnd, bins)
+		case strandCovTileCacheKind:
+			_, _, forwardBins, reverseBins, decodeErr := decodeStrandCoverageTilePayload(payload)
+			if decodeErr != nil {
+				return nil, decodeErr
+			}
+			reverseUint16s(forwardBins)
+			reverseUint16s(reverseBins)
+			payload = encodeStrandCoverageTile(orientedStart, orientedEnd, reverseBins, forwardBins)
+		case readTileCacheKind:
+			_, _, alns, decodeErr := decodeAlignmentTilePayload(payload)
+			if decodeErr != nil {
+				return nil, decodeErr
+			}
+			transformed := make([]Alignment, 0, len(alns))
+			for i := len(alns) - 1; i >= 0; i-- {
+				transformed = append(transformed, e.transformAlignmentForChromLocked(chr, alns[i]))
+			}
+			payload = encodeAlignmentTile(orientedStart, orientedEnd, transformed)
+		}
 	}
 
 	e.mu.Lock()
@@ -688,6 +727,11 @@ func (e *Engine) prefetchReadTile(sourceID uint16, generation uint64, chrID uint
 		e.mu.Unlock()
 		return nil, nil
 	}
+	chromLen := e.rawChrLength[chr]
+	if chromLen <= 0 {
+		chromLen = e.chrLength[chr]
+	}
+	reversed := e.chrReverse[chr]
 	ref := src.Refs[chr]
 	if ref == nil {
 		e.mu.Unlock()
@@ -710,13 +754,29 @@ func (e *Engine) prefetchReadTile(sourceID uint16, generation uint64, chrID uint
 	bamIdx := src.Index
 	maxTileRecs := e.maxTileRecs
 	window := tileWindow(zoom, tileIndex)
-	refSeq := e.sequences[chr]
+	orientedStart, orientedEnd := clampWindowToLength(window.start, window.end, chromLen)
+	rawStart, rawEnd := rawWindowForOrientation(window.start, window.end, chromLen, reversed)
+	refSeq := e.rawSequences[chr]
+	if refSeq == "" {
+		refSeq = e.sequences[chr]
+	}
 	e.mu.Unlock()
 
 	includeSNPs := zoom <= snpDetailMaxZoom
-	payload, err := loadIndexedTilePayload(bamPath, bamIdx, ref, window.start, window.end, readTileCacheKind, maxTileRecs, includeSNPs, refSeq, 0)
+	payload, err := loadIndexedTilePayload(bamPath, bamIdx, ref, rawStart, rawEnd, readTileCacheKind, maxTileRecs, includeSNPs, refSeq, 0)
 	if err != nil {
 		return nil, err
+	}
+	if reversed {
+		_, _, alns, decodeErr := decodeAlignmentTilePayload(payload)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		transformed := make([]Alignment, 0, len(alns))
+		for i := len(alns) - 1; i >= 0; i-- {
+			transformed = append(transformed, e.transformAlignmentForChromLocked(chr, alns[i]))
+		}
+		payload = encodeAlignmentTile(orientedStart, orientedEnd, transformed)
 	}
 
 	e.mu.Lock()

@@ -35,6 +35,7 @@ type Feature struct {
 	Start      int
 	End        int
 	Strand     byte
+	Phase      int8
 	Attributes string
 }
 
@@ -86,6 +87,7 @@ type ComparisonSegmentInfo struct {
 	Start        uint32
 	End          uint32
 	FeatureCount uint32
+	Reversed     bool
 }
 
 type ComparisonPairInfo struct {
@@ -138,14 +140,18 @@ type tileCacheEntry struct {
 type Engine struct {
 	mu sync.RWMutex
 
-	chromOrder []string
-	chrToID    map[string]uint16
-	idToChr    map[uint16]string
-	chrLength  map[string]int
-	sequences  map[string]string
-	features   map[string][]Feature
-	gcPrefix   map[string][]uint32
-	atgcPrefix map[string][]uint32
+	chromOrder   []string
+	chrToID      map[string]uint16
+	idToChr      map[uint16]string
+	chrLength    map[string]int
+	sequences    map[string]string
+	features     map[string][]Feature
+	gcPrefix     map[string][]uint32
+	atgcPrefix   map[string][]uint32
+	rawChrLength map[string]int
+	rawSequences map[string]string
+	rawFeatures  map[string][]Feature
+	chrReverse   map[string]bool
 
 	bamSources       map[uint16]*bamSource
 	bamOrder         []uint16
@@ -182,6 +188,10 @@ func NewEngine() *Engine {
 		features:               make(map[string][]Feature),
 		gcPrefix:               make(map[string][]uint32),
 		atgcPrefix:             make(map[string][]uint32),
+		rawChrLength:           make(map[string]int),
+		rawSequences:           make(map[string]string),
+		rawFeatures:            make(map[string][]Feature),
+		chrReverse:             make(map[string]bool),
 		bamSources:             make(map[uint16]*bamSource),
 		bamOrder:               make([]uint16, 0, 4),
 		nextBAMSourceID:        1,
@@ -245,6 +255,10 @@ func (e *Engine) ResetBrowserState() {
 	e.features = make(map[string][]Feature)
 	e.gcPrefix = make(map[string][]uint32)
 	e.atgcPrefix = make(map[string][]uint32)
+	e.rawChrLength = make(map[string]int)
+	e.rawSequences = make(map[string]string)
+	e.rawFeatures = make(map[string][]Feature)
+	e.chrReverse = make(map[string]bool)
 	e.resetBAMStateLocked()
 	e.resetVariantStateLocked()
 	e.globalGeneration++
@@ -282,7 +296,11 @@ func (e *Engine) loadGenomeEntries(entries []string) error {
 	defer e.mu.Unlock()
 
 	if len(e.sequences) > 0 && hasSequenceInput && len(snapshot.Sequences) > 0 && embeddedGFFOnly {
-		if !sameSequenceSet(e.sequences, snapshot.Sequences) {
+		currentSeqs := e.sequences
+		if len(e.rawSequences) > 0 {
+			currentSeqs = e.rawSequences
+		}
+		if !sameSequenceSet(currentSeqs, snapshot.Sequences) {
 			return errors.New("embedded GFF3 sequence does not match loaded reference")
 		}
 		hasSequenceInput = false
@@ -295,6 +313,10 @@ func (e *Engine) loadGenomeEntries(entries []string) error {
 		e.chrLength = make(map[string]int, len(snapshot.ChromLength))
 		e.gcPrefix = make(map[string][]uint32, len(snapshot.Sequences))
 		e.atgcPrefix = make(map[string][]uint32, len(snapshot.Sequences))
+		e.rawSequences = make(map[string]string, len(snapshot.Sequences))
+		e.rawFeatures = make(map[string][]Feature, len(snapshot.Features))
+		e.rawChrLength = make(map[string]int, len(snapshot.ChromLength))
+		e.chrReverse = make(map[string]bool, len(snapshot.ChromLength))
 		e.chrToID = make(map[string]uint16)
 		e.idToChr = make(map[uint16]string)
 		e.chromOrder = e.chromOrder[:0]
@@ -302,29 +324,21 @@ func (e *Engine) loadGenomeEntries(entries []string) error {
 		e.resetVariantStateLocked()
 
 		for chr, seq := range snapshot.Sequences {
-			e.sequences[chr] = seq
-			gc, atgc := buildGCPrefix(seq)
-			e.gcPrefix[chr] = gc
-			e.atgcPrefix[chr] = atgc
+			e.rawSequences[chr] = seq
 		}
 		for chr, feats := range snapshot.Features {
-			sort.Slice(feats, func(i, j int) bool {
-				if feats[i].Start == feats[j].Start {
-					return feats[i].End < feats[j].End
-				}
-				return feats[i].Start < feats[j].Start
-			})
-			e.features[chr] = feats
+			e.rawFeatures[chr] = append([]Feature(nil), feats...)
 		}
 
 		chrNames := make([]string, 0, len(snapshot.ChromLength))
 		for chr, ln := range snapshot.ChromLength {
-			e.chrLength[chr] = ln
+			e.rawChrLength[chr] = ln
 			chrNames = append(chrNames, chr)
 		}
 		sort.Strings(chrNames)
 		for _, chr := range chrNames {
-			e.ensureChromosomeLocked(chr, e.chrLength[chr])
+			e.ensureChromosomeLocked(chr, e.rawChrLength[chr])
+			e.rebuildBrowserChromosomeLocked(chr)
 		}
 		return nil
 	}
@@ -346,18 +360,13 @@ func (e *Engine) loadGenomeEntries(entries []string) error {
 		}
 	}
 	for chr, feats := range remappedFeatures {
-		e.features[chr] = append(e.features[chr], feats...)
-		sort.Slice(e.features[chr], func(i, j int) bool {
-			if e.features[chr][i].Start == e.features[chr][j].Start {
-				return e.features[chr][i].End < e.features[chr][j].End
-			}
-			return e.features[chr][i].Start < e.features[chr][j].Start
-		})
-		featureMax := maxFeatureEnd(e.features[chr])
-		if e.chrLength[chr] < featureMax {
-			e.chrLength[chr] = featureMax
+		e.rawFeatures[chr] = append(e.rawFeatures[chr], feats...)
+		featureMax := maxFeatureEnd(e.rawFeatures[chr])
+		if e.rawChrLength[chr] < featureMax {
+			e.rawChrLength[chr] = featureMax
 		}
-		e.ensureChromosomeLocked(chr, e.chrLength[chr])
+		e.ensureChromosomeLocked(chr, e.rawChrLength[chr])
+		e.rebuildBrowserChromosomeLocked(chr)
 	}
 	e.globalGeneration++
 	e.resetTileCacheLocked()
@@ -375,6 +384,96 @@ func sameSequenceSet(current map[string]string, incoming map[string]string) bool
 		}
 	}
 	return true
+}
+
+func cloneFeatures(in []Feature) []Feature {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]Feature, len(in))
+	copy(out, in)
+	return out
+}
+
+func reverseFeatureForLength(feature Feature, chromLen int) Feature {
+	out := feature
+	out.Start = chromLen - feature.End
+	out.End = chromLen - feature.Start
+	switch feature.Strand {
+	case '+':
+		out.Strand = '-'
+	case '-':
+		out.Strand = '+'
+	}
+	return out
+}
+
+func (e *Engine) rebuildBrowserChromosomeLocked(chr string) {
+	rawSeq := e.rawSequences[chr]
+	seq := rawSeq
+	if e.chrReverse[chr] {
+		seq = reverseComplementString(rawSeq)
+	}
+	e.sequences[chr] = seq
+	e.chrLength[chr] = e.rawChrLength[chr]
+	gc, atgc := buildGCPrefix(seq)
+	e.gcPrefix[chr] = gc
+	e.atgcPrefix[chr] = atgc
+
+	rawFeatures := cloneFeatures(e.rawFeatures[chr])
+	if e.chrReverse[chr] {
+		for i := range rawFeatures {
+			rawFeatures[i] = reverseFeatureForLength(rawFeatures[i], e.rawChrLength[chr])
+		}
+	}
+	sort.Slice(rawFeatures, func(i, j int) bool {
+		if rawFeatures[i].Start == rawFeatures[j].Start {
+			return rawFeatures[i].End < rawFeatures[j].End
+		}
+		return rawFeatures[i].Start < rawFeatures[j].Start
+	})
+	e.features[chr] = rawFeatures
+}
+
+func (e *Engine) invalidateOrientationDependentStateLocked() {
+	e.globalGeneration++
+	for _, src := range e.bamSources {
+		if src != nil {
+			src.Generation++
+		}
+	}
+	for _, src := range e.variantSources {
+		if src != nil {
+			src.Generation++
+		}
+	}
+	e.resetTileCacheLocked()
+}
+
+func (e *Engine) ensureBrowserRawMaterialLocked(chr string) {
+	if chr == "" {
+		return
+	}
+	if _, ok := e.rawSequences[chr]; !ok {
+		seq := e.sequences[chr]
+		if e.chrReverse[chr] {
+			e.rawSequences[chr] = reverseComplementString(seq)
+		} else {
+			e.rawSequences[chr] = seq
+		}
+	}
+	if _, ok := e.rawChrLength[chr]; !ok {
+		e.rawChrLength[chr] = e.chrLength[chr]
+	}
+	if _, ok := e.rawFeatures[chr]; !ok {
+		rawFeatures := cloneFeatures(e.features[chr])
+		if e.chrReverse[chr] {
+			for i := range rawFeatures {
+				rawFeatures[i] = reverseFeatureForLength(rawFeatures[i], e.rawChrLength[chr])
+			}
+		}
+		e.rawFeatures[chr] = rawFeatures
+	}
 }
 
 func normalizeChromAlias(name string) string {
@@ -428,9 +527,10 @@ func (e *Engine) ListChromosomes() []ChromInfo {
 	chroms := make([]ChromInfo, 0, len(e.chromOrder))
 	for _, chr := range e.chromOrder {
 		chroms = append(chroms, ChromInfo{
-			ID:     e.chrToID[chr],
-			Name:   chr,
-			Length: uint32(e.chrLength[chr]),
+			ID:       e.chrToID[chr],
+			Name:     chr,
+			Length:   uint32(e.chrLength[chr]),
+			Reversed: e.chrReverse[chr],
 		})
 	}
 	return chroms
@@ -1048,7 +1148,10 @@ func encodeAnnotations(start, end int, feats []Feature) []byte {
 		binary.LittleEndian.PutUint32(buf[off:off+4], uint32(f.Start))
 		binary.LittleEndian.PutUint32(buf[off+4:off+8], uint32(f.End))
 		buf[off+8] = f.Strand
-		buf[off+9] = 0
+		buf[off+9] = 0xFF
+		if f.Phase >= 0 && f.Phase <= 2 {
+			buf[off+9] = byte(f.Phase)
+		}
 		binary.LittleEndian.PutUint16(buf[off+10:off+12], uint16(len(f.SeqName)))
 		copy(buf[off+12:off+12+len(f.SeqName)], f.SeqName)
 		off += 12 + len(f.SeqName)

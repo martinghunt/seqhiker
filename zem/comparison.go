@@ -11,28 +11,29 @@ import (
 )
 
 const (
-	comparisonConcatGapBP                = 50
-	maxComparisonGenomes                 = 8
-	comparisonStatusPending        uint8 = 1
-	comparisonStatusReady          uint8 = 2
-	comparisonMinimizerK                 = 15
-	comparisonMinimizerWindow            = 10
-	comparisonMaxSeedHits                = 64
-	comparisonMinAnchorCount             = 3
-	comparisonMinBlockLen                = 100
-	comparisonMinPercentIdentX100        = 5000
-	comparisonMaxAnchorGap               = 20000
-	comparisonMaxDiagonalDrift           = 6000
-	comparisonDiagonalBinSize            = 512
-	comparisonChainMergeGapMaxSpan       = 256
-	comparisonChainMergeOverlapMaxSpan   = 32
-	comparisonChainSplitGapMaxSpan       = 12000
-	comparisonRefineGapMaxSpan           = 8192
-	comparisonRefineBandPad              = 96
-	comparisonAffineMatch                = 2
-	comparisonAffineMismatch             = -3
-	comparisonAffineGapOpen              = -5
-	comparisonAffineGapExtend            = -1
+	comparisonConcatGapBP                    = 50
+	maxComparisonGenomes                     = 8
+	comparisonStatusPending            uint8 = 1
+	comparisonStatusReady              uint8 = 2
+	comparisonMinimizerK                     = 15
+	comparisonMinimizerWindow                = 10
+	comparisonMaxSeedHits                    = 64
+	comparisonMinAnchorCount                 = 3
+	comparisonMinBlockLen                    = 100
+	comparisonMinPercentIdentX100            = 5000
+	comparisonMaxAnchorGap                   = 20000
+	comparisonMaxDiagonalDrift               = 6000
+	comparisonDiagonalBinSize                = 512
+	comparisonChainMergeGapMaxSpan           = 256
+	comparisonChainMergeOverlapMaxSpan       = 32
+	comparisonChainMergeIndelMaxSpan         = 64
+	comparisonChainSplitGapMaxSpan           = 12000
+	comparisonRefineGapMaxSpan               = 8192
+	comparisonRefineBandPad                  = 96
+	comparisonAffineMatch                    = 2
+	comparisonAffineMismatch                 = -3
+	comparisonAffineGapOpen                  = -5
+	comparisonAffineGapExtend                = -1
 )
 
 type comparisonSegment struct {
@@ -40,6 +41,9 @@ type comparisonSegment struct {
 	Start        int
 	End          int
 	FeatureCount int
+	RawSequence  string
+	RawFeatures  []Feature
+	Reversed     bool
 }
 
 type comparisonGenome struct {
@@ -53,13 +57,24 @@ type comparisonGenome struct {
 }
 
 type comparisonPair struct {
-	ID             uint16
-	TopGenomeID    uint16
-	BottomGenomeID uint16
-	Status         uint8
-	Blocks         []ComparisonBlock
-	DetailPath     string
-	DetailIndex    map[string]comparisonDetailIndexEntry
+	ID              uint16
+	TopGenomeID     uint16
+	BottomGenomeID  uint16
+	Status          uint8
+	CanonicalBlocks []comparisonCanonicalBlock
+	DetailPath      string
+	DetailIndex     map[string]comparisonDetailIndexEntry
+}
+
+type comparisonCanonicalBlock struct {
+	QuerySegment     int
+	QueryStart       int
+	QueryEnd         int
+	TargetSegment    int
+	TargetStart      int
+	TargetEnd        int
+	PercentIdentX100 uint16
+	SameStrand       bool
 }
 
 type minimizerSeed struct {
@@ -300,17 +315,13 @@ func (e *Engine) ListComparisonPairs() []ComparisonPairInfo {
 			continue
 		}
 		if pair.Status != comparisonStatusReady {
-			query := e.comparisonGenomes[pair.TopGenomeID]
-			target := e.comparisonGenomes[pair.BottomGenomeID]
-			pair.Blocks = buildComparisonBlocksForDisplay(query, target, pair.TopGenomeID, pair.BottomGenomeID)
-			_ = e.ensureComparisonPairDetailCacheLocked(pair, query, target)
-			pair.Status = comparisonStatusReady
+			_ = e.ensureComparisonPairBlocksLocked(pair)
 		}
 		out = append(out, ComparisonPairInfo{
 			ID:             pair.ID,
 			TopGenomeID:    pair.TopGenomeID,
 			BottomGenomeID: pair.BottomGenomeID,
-			BlockCount:     uint32(len(pair.Blocks)),
+			BlockCount:     uint32(len(pair.CanonicalBlocks)),
 			Status:         pair.Status,
 		})
 	}
@@ -326,36 +337,24 @@ func (e *Engine) GetComparisonBlocks(pairID uint16) ([]ComparisonBlock, error) {
 		return nil, fmt.Errorf("comparison pair %d not found", pairID)
 	}
 	if pair.Status != comparisonStatusReady {
-		query := e.comparisonGenomes[pair.TopGenomeID]
-		target := e.comparisonGenomes[pair.BottomGenomeID]
-		pair.Blocks = buildComparisonBlocksForDisplay(query, target, pair.TopGenomeID, pair.BottomGenomeID)
-		_ = e.ensureComparisonPairDetailCacheLocked(pair, query, target)
-		pair.Status = comparisonStatusReady
+		if err := e.ensureComparisonPairBlocksLocked(pair); err != nil {
+			return nil, err
+		}
 	}
-	out := make([]ComparisonBlock, 0, len(pair.Blocks))
-	for _, block := range pair.Blocks {
-		out = append(out, block)
-	}
-	return out, nil
+	query := e.comparisonGenomes[pair.TopGenomeID]
+	target := e.comparisonGenomes[pair.BottomGenomeID]
+	return displayComparisonBlocks(query, target, pair.CanonicalBlocks), nil
 }
 
 func (e *Engine) GetComparisonBlocksByGenomes(queryGenomeID uint16, targetGenomeID uint16) ([]ComparisonBlock, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	blocks, storedQueryID, storedTargetID, err := e.getOrBuildComparisonPairLocked(queryGenomeID, targetGenomeID)
+	blocks, _, _, err := e.getOrBuildComparisonPairLocked(queryGenomeID, targetGenomeID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ComparisonBlock, 0, len(blocks))
-	reverse := storedQueryID != queryGenomeID || storedTargetID != targetGenomeID
-	for _, summary := range blocks {
-		if reverse {
-			summary = swappedComparisonBlock(summary)
-		}
-		out = append(out, summary)
-	}
-	return out, nil
+	return blocks, nil
 }
 
 func (e *Engine) GetComparisonAnnotations(genomeID uint16, start uint32, end uint32, maxRecords uint16, minFeatureLen uint32) ([]byte, error) {
@@ -411,7 +410,6 @@ func (e *Engine) GetComparisonBlockDetail(queryGenomeID uint16, targetGenomeID u
 	query := e.comparisonGenomes[queryGenomeID]
 	target := e.comparisonGenomes[targetGenomeID]
 	var exactPair *comparisonPair
-	var reversePair *comparisonPair
 	for _, pair := range e.comparisonPairs {
 		if pair == nil {
 			continue
@@ -420,30 +418,17 @@ func (e *Engine) GetComparisonBlockDetail(queryGenomeID uint16, targetGenomeID u
 			exactPair = pair
 			break
 		}
-		if pair.TopGenomeID == targetGenomeID && pair.BottomGenomeID == queryGenomeID {
-			reversePair = pair
-		}
 	}
 	if query == nil || target == nil {
 		e.mu.Unlock()
 		return ComparisonBlockDetail{}, fmt.Errorf("comparison genomes %d/%d not loaded", queryGenomeID, targetGenomeID)
 	}
 	if exactPair != nil {
+		_ = e.ensureComparisonPairBlocksLocked(exactPair)
 		_ = e.ensureComparisonPairDetailCacheLocked(exactPair, query, target)
-	}
-	if reversePair != nil {
-		_ = e.ensureComparisonPairDetailCacheLocked(reversePair, target, query)
-	}
-	if exactPair != nil {
 		if detail, ok, err := readComparisonDetailFromPairCache(exactPair, block); err == nil && ok {
 			e.mu.Unlock()
 			return detail, nil
-		}
-	}
-	if reversePair != nil {
-		if detail, ok, err := readComparisonDetailFromPairCache(reversePair, swappedComparisonBlock(block)); err == nil && ok {
-			e.mu.Unlock()
-			return swappedComparisonBlockDetail(detail), nil
 		}
 	}
 	e.mu.Unlock()
@@ -454,8 +439,6 @@ func (e *Engine) GetComparisonBlockDetail(queryGenomeID uint16, targetGenomeID u
 	e.mu.Lock()
 	if exactPair != nil {
 		_ = appendComparisonDetailToPairCache(exactPair, block, detail.info())
-	} else if reversePair != nil {
-		_ = appendComparisonDetailToPairCache(reversePair, swappedComparisonBlock(block), swappedComparisonBlockDetail(detail.info()))
 	}
 	e.mu.Unlock()
 	return detail.info(), nil
@@ -471,31 +454,59 @@ func buildComparisonGenome(path string, snapshot GenomeSnapshot) (*comparisonGen
 		return nil, errors.New("comparison genome has no chromosomes")
 	}
 
-	var seqBuilder strings.Builder
 	segments := make([]comparisonSegment, 0, len(chrNames))
+	for _, chr := range chrNames {
+		chrFeatures := cloneFeatures(snapshot.Features[chr])
+		segments = append(segments, comparisonSegment{
+			Name:        chr,
+			RawSequence: snapshot.Sequences[chr],
+			RawFeatures: chrFeatures,
+			Reversed:    false,
+		})
+	}
+	name := filepath.Base(path)
+	if ext := filepath.Ext(name); ext != "" {
+		name = strings.TrimSuffix(name, ext)
+	}
+	if name == "" {
+		name = "genome"
+	}
+	genome := &comparisonGenome{
+		Name:     name,
+		Path:     path,
+		Segments: segments,
+	}
+	genome.rebuildDerived()
+	return genome, nil
+}
+
+func (g *comparisonGenome) rebuildDerived() {
+	var seqBuilder strings.Builder
 	features := make([]Feature, 0, 1024)
 	offset := 0
-	for i, chr := range chrNames {
+	for i := range g.Segments {
+		segment := &g.Segments[i]
 		if i > 0 {
 			seqBuilder.WriteString(strings.Repeat("N", comparisonConcatGapBP))
 			offset += comparisonConcatGapBP
 		}
-		seq := snapshot.Sequences[chr]
-		start := offset
+		seq := segment.RawSequence
+		if segment.Reversed {
+			seq = reverseComplementString(seq)
+		}
+		segment.Start = offset
 		seqBuilder.WriteString(seq)
 		offset += len(seq)
-		chrFeatures := snapshot.Features[chr]
-		segments = append(segments, comparisonSegment{
-			Name:         chr,
-			Start:        start,
-			End:          offset,
-			FeatureCount: len(chrFeatures),
-		})
-		for _, feat := range chrFeatures {
-			adjusted := feat
-			adjusted.SeqName = chr
-			adjusted.Start += start
-			adjusted.End += start
+		segment.End = offset
+		segment.FeatureCount = len(segment.RawFeatures)
+		for _, rawFeature := range segment.RawFeatures {
+			adjusted := rawFeature
+			if segment.Reversed {
+				adjusted = reverseFeatureForLength(adjusted, len(segment.RawSequence))
+			}
+			adjusted.SeqName = segment.Name
+			adjusted.Start += segment.Start
+			adjusted.End += segment.Start
 			features = append(features, adjusted)
 		}
 	}
@@ -505,21 +516,9 @@ func buildComparisonGenome(path string, snapshot GenomeSnapshot) (*comparisonGen
 		}
 		return features[i].Start < features[j].Start
 	})
-	name := filepath.Base(path)
-	if ext := filepath.Ext(name); ext != "" {
-		name = strings.TrimSuffix(name, ext)
-	}
-	if name == "" {
-		name = "genome"
-	}
-	return &comparisonGenome{
-		Name:     name,
-		Path:     path,
-		Length:   seqBuilder.Len(),
-		Sequence: seqBuilder.String(),
-		Features: features,
-		Segments: segments,
-	}, nil
+	g.Sequence = seqBuilder.String()
+	g.Length = len(g.Sequence)
+	g.Features = features
 }
 
 func (g *comparisonGenome) info() ComparisonGenomeInfo {
@@ -530,6 +529,7 @@ func (g *comparisonGenome) info() ComparisonGenomeInfo {
 			Start:        uint32(segment.Start),
 			End:          uint32(segment.End),
 			FeatureCount: uint32(segment.FeatureCount),
+			Reversed:     segment.Reversed,
 		})
 	}
 	return ComparisonGenomeInfo{
@@ -551,15 +551,34 @@ func (e *Engine) rebuildComparisonPairsLocked() {
 		pairID := e.nextComparisonPairID
 		e.nextComparisonPairID++
 		pair := &comparisonPair{
-			ID:             pairID,
-			TopGenomeID:    e.comparisonGenomeOrder[i],
-			BottomGenomeID: e.comparisonGenomeOrder[i+1],
-			Status:         comparisonStatusPending,
-			Blocks:         nil,
+			ID:              pairID,
+			TopGenomeID:     e.comparisonGenomeOrder[i],
+			BottomGenomeID:  e.comparisonGenomeOrder[i+1],
+			Status:          comparisonStatusPending,
+			CanonicalBlocks: nil,
 		}
 		e.comparisonPairs[pairID] = pair
 		e.comparisonPairOrder = append(e.comparisonPairOrder, pairID)
 	}
+}
+
+func (e *Engine) ensureComparisonPairBlocksLocked(pair *comparisonPair) error {
+	if pair == nil {
+		return nil
+	}
+	if pair.Status == comparisonStatusReady {
+		return nil
+	}
+	query := e.comparisonGenomes[pair.TopGenomeID]
+	target := e.comparisonGenomes[pair.BottomGenomeID]
+	if query == nil || target == nil {
+		return fmt.Errorf("comparison genomes %d/%d not loaded", pair.TopGenomeID, pair.BottomGenomeID)
+	}
+	pair.CanonicalBlocks = buildCanonicalComparisonBlocks(query, target)
+	pair.DetailPath = ""
+	pair.DetailIndex = nil
+	pair.Status = comparisonStatusReady
+	return nil
 }
 
 func (e *Engine) getOrBuildComparisonPairLocked(queryGenomeID uint16, targetGenomeID uint16) ([]ComparisonBlock, uint16, uint16, error) {
@@ -571,32 +590,27 @@ func (e *Engine) getOrBuildComparisonPairLocked(queryGenomeID uint16, targetGeno
 	if query == nil || target == nil {
 		return nil, 0, 0, fmt.Errorf("comparison genomes %d/%d not loaded", queryGenomeID, targetGenomeID)
 	}
-	canonicalQueryID, canonicalTargetID := comparisonCanonicalGenomeIDs(queryGenomeID, targetGenomeID)
-	canonicalQuery := e.comparisonGenomes[canonicalQueryID]
-	canonicalTarget := e.comparisonGenomes[canonicalTargetID]
 	for _, pair := range e.comparisonPairs {
 		if pair == nil {
 			continue
 		}
 		if pair.TopGenomeID == queryGenomeID && pair.BottomGenomeID == targetGenomeID {
-			if pair.Status != comparisonStatusReady {
-				pair.Blocks = buildComparisonBlocksForDisplay(canonicalQuery, canonicalTarget, pair.TopGenomeID, pair.BottomGenomeID)
-				_ = e.ensureComparisonPairDetailCacheLocked(pair, query, target)
-				pair.Status = comparisonStatusReady
+			if err := e.ensureComparisonPairBlocksLocked(pair); err != nil {
+				return nil, 0, 0, err
 			}
-			return pair.Blocks, queryGenomeID, targetGenomeID, nil
+			return displayComparisonBlocks(query, target, pair.CanonicalBlocks), queryGenomeID, targetGenomeID, nil
 		}
 		if pair.TopGenomeID == targetGenomeID && pair.BottomGenomeID == queryGenomeID {
-			if pair.Status != comparisonStatusReady {
-				pair.Blocks = buildComparisonBlocksForDisplay(canonicalQuery, canonicalTarget, pair.TopGenomeID, pair.BottomGenomeID)
-				_ = e.ensureComparisonPairDetailCacheLocked(pair, target, query)
-				pair.Status = comparisonStatusReady
+			if err := e.ensureComparisonPairBlocksLocked(pair); err != nil {
+				return nil, 0, 0, err
 			}
-			return swapComparisonBlocks(pair.Blocks), queryGenomeID, targetGenomeID, nil
+			storedTop := e.comparisonGenomes[pair.TopGenomeID]
+			storedBottom := e.comparisonGenomes[pair.BottomGenomeID]
+			return swapComparisonBlocks(displayComparisonBlocks(storedTop, storedBottom, pair.CanonicalBlocks)), queryGenomeID, targetGenomeID, nil
 		}
 	}
-	blocks := buildComparisonBlocksForDisplay(canonicalQuery, canonicalTarget, queryGenomeID, targetGenomeID)
-	return blocks, queryGenomeID, targetGenomeID, nil
+	canonicalBlocks := buildCanonicalComparisonBlocks(query, target)
+	return displayComparisonBlocks(query, target, canonicalBlocks), queryGenomeID, targetGenomeID, nil
 }
 
 func comparisonCanonicalGenomeIDs(a uint16, b uint16) (uint16, uint16) {
@@ -606,15 +620,65 @@ func comparisonCanonicalGenomeIDs(a uint16, b uint16) (uint16, uint16) {
 	return b, a
 }
 
-func buildComparisonBlocksForDisplay(canonicalQuery, canonicalTarget *comparisonGenome, displayQueryID uint16, displayTargetID uint16) []ComparisonBlock {
-	blocks := buildComparisonBlocks(canonicalQuery, canonicalTarget)
-	if canonicalQuery == nil || canonicalTarget == nil {
-		return blocks
+func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []comparisonCanonicalBlock {
+	if query == nil || target == nil {
+		return nil
 	}
-	if canonicalQuery.ID == displayQueryID && canonicalTarget.ID == displayTargetID {
-		return blocks
+	out := make([]comparisonCanonicalBlock, 0, 64)
+	for qi, querySegment := range query.Segments {
+		if len(querySegment.RawSequence) < comparisonMinimizerK {
+			continue
+		}
+		queryGenome := &comparisonGenome{
+			ID:       query.ID,
+			Name:     querySegment.Name,
+			Length:   len(querySegment.RawSequence),
+			Sequence: querySegment.RawSequence,
+		}
+		for ti, targetSegment := range target.Segments {
+			if len(targetSegment.RawSequence) < comparisonMinimizerK {
+				continue
+			}
+			targetGenome := &comparisonGenome{
+				ID:       target.ID,
+				Name:     targetSegment.Name,
+				Length:   len(targetSegment.RawSequence),
+				Sequence: targetSegment.RawSequence,
+			}
+			for _, block := range buildComparisonBlocks(queryGenome, targetGenome) {
+				out = append(out, comparisonCanonicalBlock{
+					QuerySegment:     qi,
+					QueryStart:       int(block.QueryStart),
+					QueryEnd:         int(block.QueryEnd),
+					TargetSegment:    ti,
+					TargetStart:      int(block.TargetStart),
+					TargetEnd:        int(block.TargetEnd),
+					PercentIdentX100: block.PercentIdentX100,
+					SameStrand:       block.SameStrand,
+				})
+			}
+		}
 	}
-	return swapComparisonBlocks(blocks)
+	sort.Slice(out, func(i, j int) bool { return canonicalComparisonBlockLess(out[i], out[j]) })
+	return out
+}
+
+// Canonical blocks are stored in raw contig-local coordinates. Orientation
+// changes only remap them into concatenated display coordinates.
+func displayComparisonBlocks(query, target *comparisonGenome, canonicalBlocks []comparisonCanonicalBlock) []ComparisonBlock {
+	if query == nil || target == nil || len(canonicalBlocks) == 0 {
+		return nil
+	}
+	out := make([]ComparisonBlock, 0, len(canonicalBlocks))
+	for _, block := range canonicalBlocks {
+		displayBlock, ok := displayComparisonBlock(query, target, block)
+		if !ok {
+			continue
+		}
+		out = append(out, displayBlock)
+	}
+	sort.Slice(out, func(i, j int) bool { return comparisonBlockLess(out[i], out[j]) })
+	return out
 }
 
 func swapComparisonBlocks(blocks []ComparisonBlock) []ComparisonBlock {
@@ -626,6 +690,51 @@ func swapComparisonBlocks(blocks []ComparisonBlock) []ComparisonBlock {
 		out = append(out, swappedComparisonBlock(block))
 	}
 	return out
+}
+
+func displayComparisonBlock(query, target *comparisonGenome, block comparisonCanonicalBlock) (ComparisonBlock, bool) {
+	if query == nil || target == nil {
+		return ComparisonBlock{}, false
+	}
+	if block.QuerySegment < 0 || block.QuerySegment >= len(query.Segments) || block.TargetSegment < 0 || block.TargetSegment >= len(target.Segments) {
+		return ComparisonBlock{}, false
+	}
+	querySegment := query.Segments[block.QuerySegment]
+	targetSegment := target.Segments[block.TargetSegment]
+	queryStart, queryEnd, ok := displayComparisonInterval(querySegment, block.QueryStart, block.QueryEnd)
+	if !ok {
+		return ComparisonBlock{}, false
+	}
+	targetStart, targetEnd, ok := displayComparisonInterval(targetSegment, block.TargetStart, block.TargetEnd)
+	if !ok {
+		return ComparisonBlock{}, false
+	}
+	sameStrand := block.SameStrand
+	if querySegment.Reversed != targetSegment.Reversed {
+		sameStrand = !sameStrand
+	}
+	return ComparisonBlock{
+		QueryStart:       uint32(queryStart),
+		QueryEnd:         uint32(queryEnd),
+		TargetStart:      uint32(targetStart),
+		TargetEnd:        uint32(targetEnd),
+		PercentIdentX100: block.PercentIdentX100,
+		SameStrand:       sameStrand,
+	}, true
+}
+
+func displayComparisonInterval(segment comparisonSegment, start, end int) (int, int, bool) {
+	segmentLen := len(segment.RawSequence)
+	if segmentLen <= 0 {
+		segmentLen = segment.End - segment.Start
+	}
+	if start < 0 || end < start || end > segmentLen {
+		return 0, 0, false
+	}
+	if segment.Reversed {
+		return segment.Start + (segmentLen - end), segment.Start + (segmentLen - start), true
+	}
+	return segment.Start + start, segment.Start + end, true
 }
 
 func swappedComparisonBlock(block ComparisonBlock) ComparisonBlock {
@@ -640,7 +749,6 @@ func swappedComparisonBlock(block ComparisonBlock) ComparisonBlock {
 }
 
 func buildComparisonBlockDetail(query, target *comparisonGenome, summary ComparisonBlock) (comparisonBlockDetail, bool) {
-	block := comparisonBlockDetail{Summary: summary}
 	if query == nil || target == nil {
 		return comparisonBlockDetail{}, false
 	}
@@ -651,6 +759,20 @@ func buildComparisonBlockDetail(query, target *comparisonGenome, summary Compari
 	if qStart < 0 || tStart < 0 || qEnd > len(query.Sequence) || tEnd > len(target.Sequence) || qEnd <= qStart || tEnd <= tStart {
 		return comparisonBlockDetail{}, false
 	}
+	// Prefer a direct whole-block alignment first. Fall back to a stitched
+	// anchor-guided path for larger or messier requested detail blocks.
+	if block, ok := buildComparisonBlockDetailByAlignment(query, target, summary); ok {
+		return block, true
+	}
+	return buildComparisonBlockDetailByAnchors(query, target, summary)
+}
+
+func buildComparisonBlockDetailByAlignment(query, target *comparisonGenome, summary ComparisonBlock) (comparisonBlockDetail, bool) {
+	block := comparisonBlockDetail{Summary: summary}
+	qStart := int(summary.QueryStart)
+	qEnd := int(summary.QueryEnd)
+	tStart := int(summary.TargetStart)
+	tEnd := int(summary.TargetEnd)
 	qSpan := qEnd - qStart
 	tSpan := tEnd - tStart
 	if max(qSpan, tSpan) > comparisonRefineGapMaxSpan {
@@ -675,6 +797,200 @@ func buildComparisonBlockDetail(query, target *comparisonGenome, summary Compari
 	return block, true
 }
 
+func buildComparisonBlockDetailByAnchors(query, target *comparisonGenome, summary ComparisonBlock) (comparisonBlockDetail, bool) {
+	qStart := int(summary.QueryStart)
+	qEnd := int(summary.QueryEnd)
+	tStart := int(summary.TargetStart)
+	tEnd := int(summary.TargetEnd)
+	querySeq := query.Sequence[qStart:qEnd]
+	targetSeq, ok := orientedTargetSlice(target, summary.SameStrand, tStart, tEnd)
+	if !ok {
+		return comparisonBlockDetail{}, false
+	}
+	if len(querySeq) < comparisonMinimizerK || len(targetSeq) < comparisonMinimizerK {
+		return comparisonBlockDetail{}, false
+	}
+
+	// This path is intentionally more permissive than coarse block building:
+	// once the user asks for detail, returning dense ops is preferable to
+	// dropping detail because a block is larger or rougher than the strict path.
+	queryLocal := &comparisonGenome{Length: len(querySeq), Sequence: querySeq}
+	targetLocal := &comparisonGenome{Length: len(targetSeq), Sequence: targetSeq}
+	querySeeds := extractMinimizers(querySeq, comparisonMinimizerK, comparisonMinimizerWindow, false)
+	targetIndex := buildSeedIndex(extractMinimizers(targetSeq, comparisonMinimizerK, comparisonMinimizerWindow, false))
+	anchors := make([]comparisonAnchor, 0, len(querySeeds))
+	for _, seed := range querySeeds {
+		if positions, ok := targetIndex[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
+			for _, tPos := range positions {
+				anchors = append(anchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tPos})
+			}
+		}
+	}
+	chains := buildRefinedChainsFromAnchors(queryLocal, targetLocal, anchors, true)
+	if len(chains) == 0 {
+		return comparisonBlockDetail{}, false
+	}
+	localDetails := make([]comparisonBlockDetail, 0, len(chains))
+	for _, chain := range chains {
+		detail, ok := buildComparisonDetailFromRefinedChainWithMode(queryLocal, targetLocal, chain, true)
+		if ok {
+			localDetails = append(localDetails, detail)
+		}
+	}
+	if len(localDetails) == 0 {
+		return comparisonBlockDetail{}, false
+	}
+	selected := selectMonotonicComparisonDetails(localDetails)
+	if len(selected) == 0 {
+		return comparisonBlockDetail{}, false
+	}
+	localDetail, ok := stitchComparisonDetails(queryLocal, targetLocal, selected)
+	if !ok {
+		return comparisonBlockDetail{}, false
+	}
+	global := comparisonBlockDetail{
+		Summary: ComparisonBlock{
+			PercentIdentX100: localDetail.Summary.PercentIdentX100,
+			SameStrand:       summary.SameStrand,
+		},
+		Ops: localDetail.Ops,
+	}
+	global.Summary.QueryStart = uint32(qStart + int(localDetail.Summary.QueryStart))
+	global.Summary.QueryEnd = uint32(qStart + int(localDetail.Summary.QueryEnd))
+	if summary.SameStrand {
+		global.Summary.TargetStart = uint32(tStart + int(localDetail.Summary.TargetStart))
+		global.Summary.TargetEnd = uint32(tStart + int(localDetail.Summary.TargetEnd))
+	} else {
+		orientedStart := int(localDetail.Summary.TargetStart)
+		orientedEnd := int(localDetail.Summary.TargetEnd)
+		global.Summary.TargetStart = uint32(tEnd - orientedEnd)
+		global.Summary.TargetEnd = uint32(tEnd - orientedStart)
+	}
+	return global, true
+}
+
+func selectMonotonicComparisonDetails(details []comparisonBlockDetail) []comparisonBlockDetail {
+	if len(details) == 0 {
+		return nil
+	}
+	// Pick a non-overlapping left-to-right chain set that maximizes total
+	// covered span, so stitched detail stays monotonic on both axes.
+	sort.Slice(details, func(i, j int) bool {
+		if details[i].Summary.QueryStart == details[j].Summary.QueryStart {
+			if details[i].Summary.QueryEnd == details[j].Summary.QueryEnd {
+				if details[i].Summary.TargetStart == details[j].Summary.TargetStart {
+					return details[i].Summary.TargetEnd < details[j].Summary.TargetEnd
+				}
+				return details[i].Summary.TargetStart < details[j].Summary.TargetStart
+			}
+			return details[i].Summary.QueryEnd < details[j].Summary.QueryEnd
+		}
+		return details[i].Summary.QueryStart < details[j].Summary.QueryStart
+	})
+	weights := make([]int, len(details))
+	prev := make([]int, len(details))
+	bestIdx := 0
+	for i := range details {
+		prev[i] = -1
+		weights[i] = max(
+			int(details[i].Summary.QueryEnd-details[i].Summary.QueryStart),
+			int(details[i].Summary.TargetEnd-details[i].Summary.TargetStart),
+		)
+		for j := 0; j < i; j++ {
+			if details[j].Summary.QueryEnd <= details[i].Summary.QueryStart && details[j].Summary.TargetEnd <= details[i].Summary.TargetStart {
+				candidate := weights[j] + max(
+					int(details[i].Summary.QueryEnd-details[i].Summary.QueryStart),
+					int(details[i].Summary.TargetEnd-details[i].Summary.TargetStart),
+				)
+				if candidate > weights[i] {
+					weights[i] = candidate
+					prev[i] = j
+				}
+			}
+		}
+		if weights[i] > weights[bestIdx] {
+			bestIdx = i
+		}
+	}
+	out := make([]comparisonBlockDetail, 0, len(details))
+	for idx := bestIdx; idx >= 0; idx = prev[idx] {
+		out = append(out, details[idx])
+		if prev[idx] < 0 {
+			break
+		}
+	}
+	for l, r := 0, len(out)-1; l < r; l, r = l+1, r-1 {
+		out[l], out[r] = out[r], out[l]
+	}
+	return out
+}
+
+func stitchComparisonDetails(query, target *comparisonGenome, details []comparisonBlockDetail) (comparisonBlockDetail, bool) {
+	if query == nil || target == nil || len(details) == 0 {
+		return comparisonBlockDetail{}, false
+	}
+	// Stitch the selected refined pieces together by aligning only the gaps
+	// between them. This preserves full-block coordinates while keeping local
+	// anchor-supported structure.
+	qPos := 0
+	tPos := 0
+	ops := make([]byte, 0, len(query.Sequence)+len(target.Sequence))
+	for _, detail := range details {
+		nextQ := int(detail.Summary.QueryStart)
+		nextT := int(detail.Summary.TargetStart)
+		if nextQ < qPos || nextT < tPos {
+			continue
+		}
+		gapOps, ok := alignComparisonGap(query.Sequence[qPos:nextQ], target.Sequence[tPos:nextT])
+		if !ok {
+			return comparisonBlockDetail{}, false
+		}
+		ops = append(ops, gapOps...)
+		ops = append(ops, []byte(detail.Ops)...)
+		qPos = int(detail.Summary.QueryEnd)
+		tPos = int(detail.Summary.TargetEnd)
+	}
+	tailOps, ok := alignComparisonGap(query.Sequence[qPos:], target.Sequence[tPos:])
+	if !ok {
+		return comparisonBlockDetail{}, false
+	}
+	ops = append(ops, tailOps...)
+	summary := ComparisonBlock{
+		QueryStart:  0,
+		QueryEnd:    uint32(len(query.Sequence)),
+		TargetStart: 0,
+		TargetEnd:   uint32(len(target.Sequence)),
+		SameStrand:  true,
+	}
+	aln := affineAlignment{Ops: ops}
+	summary.PercentIdentX100 = aln.percentIdentityX100()
+	if int(summary.PercentIdentX100) < comparisonMinPercentIdentX100 {
+		return comparisonBlockDetail{}, false
+	}
+	return comparisonBlockDetail{
+		Summary:  summary,
+		Ops:      string(ops),
+		Variants: aln.variantsForBlock(summary),
+	}, true
+}
+
+func alignComparisonGap(queryGap, targetGap string) ([]byte, bool) {
+	if len(queryGap) == 0 && len(targetGap) == 0 {
+		return nil, true
+	}
+	// On-demand detail can afford a generous band because this runs only for
+	// blocks the user is actively inspecting.
+	band := max(len(queryGap), len(targetGap))
+	if band < absInt(len(queryGap)-len(targetGap))+comparisonRefineBandPad {
+		band = absInt(len(queryGap)-len(targetGap)) + comparisonRefineBandPad
+	}
+	aln, ok := bandedAffineAlign(queryGap, targetGap, band)
+	if !ok {
+		return nil, false
+	}
+	return aln.Ops, true
+}
+
 func buildComparisonBlockDetails(query, target *comparisonGenome) []comparisonBlockDetail {
 	if query == nil || target == nil || len(query.Sequence) < comparisonMinimizerK || len(target.Sequence) < comparisonMinimizerK {
 		return nil
@@ -694,8 +1010,8 @@ func buildComparisonBlockDetails(query, target *comparisonGenome) []comparisonBl
 		}
 		if positions, ok := targetReverse[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
 			for _, tPos := range positions {
-				tTrans := target.Length - (tPos + comparisonMinimizerK)
-				if tTrans < 0 {
+				tTrans, ok := comparisonReverseDisplayPos(target, tPos, comparisonMinimizerK)
+				if !ok {
 					continue
 				}
 				reverseAnchors = append(reverseAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tTrans})
@@ -704,8 +1020,8 @@ func buildComparisonBlockDetails(query, target *comparisonGenome) []comparisonBl
 	}
 
 	details := make([]comparisonBlockDetail, 0, 64)
-	details = append(details, buildDetailsFromAnchors(query, target, sameAnchors, true)...)
-	details = append(details, buildDetailsFromAnchors(query, target, reverseAnchors, false)...)
+	details = append(details, buildDetailsFromSegmentPairs(query, target, sameAnchors, true)...)
+	details = append(details, buildDetailsFromSegmentPairs(query, target, reverseAnchors, false)...)
 	sort.Slice(details, func(i, j int) bool {
 		if details[i].Summary.QueryStart == details[j].Summary.QueryStart {
 			if details[i].Summary.QueryEnd == details[j].Summary.QueryEnd {
@@ -723,43 +1039,17 @@ func buildComparisonBlocks(query, target *comparisonGenome) []ComparisonBlock {
 		return nil
 	}
 
-	querySeeds := extractMinimizers(query.Sequence, comparisonMinimizerK, comparisonMinimizerWindow, false)
-	targetForward := buildSeedIndex(extractMinimizers(target.Sequence, comparisonMinimizerK, comparisonMinimizerWindow, false))
-	targetReverse := buildSeedIndex(extractMinimizers(target.Sequence, comparisonMinimizerK, comparisonMinimizerWindow, true))
-
-	sameAnchors := make([]comparisonAnchor, 0, 1024)
-	reverseAnchors := make([]comparisonAnchor, 0, 1024)
-	for _, seed := range querySeeds {
-		if positions, ok := targetForward[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
-			for _, tPos := range positions {
-				sameAnchors = append(sameAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tPos})
-			}
-		}
-		if positions, ok := targetReverse[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
-			for _, tPos := range positions {
-				tTrans := target.Length - (tPos + comparisonMinimizerK)
-				if tTrans < 0 {
-					continue
-				}
-				reverseAnchors = append(reverseAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tTrans})
-			}
-		}
-	}
+	sameAnchors, reverseAnchors := buildComparisonAnchors(query, target)
 
 	chains := make([]comparisonRefinedChain, 0, 64)
-	chains = append(chains, buildRefinedChainsFromAnchors(sameAnchors, true)...)
-	chains = append(chains, buildRefinedChainsFromAnchors(reverseAnchors, false)...)
-	sort.Slice(chains, func(i, j int) bool {
-		if chains[i].Summary.QueryStart == chains[j].Summary.QueryStart {
-			if chains[i].Summary.QueryEnd == chains[j].Summary.QueryEnd {
-				return chains[i].Summary.TargetStart < chains[j].Summary.TargetStart
-			}
-			return chains[i].Summary.QueryEnd < chains[j].Summary.QueryEnd
-		}
-		return chains[i].Summary.QueryStart < chains[j].Summary.QueryStart
-	})
+	chains = append(chains, buildRefinedChainsFromSegmentPairs(query, target, sameAnchors, true)...)
+	chains = append(chains, buildRefinedChainsFromSegmentPairs(query, target, reverseAnchors, false)...)
+	sort.Slice(chains, func(i, j int) bool { return comparisonBlockLess(chains[i].Summary, chains[j].Summary) })
 	blocks := make([]ComparisonBlock, 0, len(chains))
 	for _, chain := range chains {
+		// The chain summary starts with an anchor-coverage identity estimate.
+		// Replace it with a refined aligned value whenever strict detail
+		// reconstruction succeeds.
 		summary := chain.Summary
 		if detail, ok := buildComparisonDetailFromRefinedChain(query, target, chain); ok {
 			summary = detail.Summary
@@ -772,6 +1062,57 @@ func buildComparisonBlocks(query, target *comparisonGenome) []ComparisonBlock {
 		blocks = append(blocks, summary)
 	}
 	return blocks
+}
+
+func buildDetailsFromSegmentPairs(query, target *comparisonGenome, anchors []comparisonAnchor, sameStrand bool) []comparisonBlockDetail {
+	refinedChains := buildRefinedChainsFromSegmentPairs(query, target, anchors, sameStrand)
+	out := make([]comparisonBlockDetail, 0, len(refinedChains))
+	for _, chain := range refinedChains {
+		detail, ok := buildComparisonDetailFromRefinedChain(query, target, chain)
+		if !ok {
+			continue
+		}
+		out = append(out, detail)
+	}
+	return out
+}
+
+// Segment-pair bucketing preserves canonical contig-local matching. It prevents
+// the concat layout from creating matches that bridge unrelated contigs.
+func buildRefinedChainsFromSegmentPairs(query, target *comparisonGenome, anchors []comparisonAnchor, sameStrand bool) []comparisonRefinedChain {
+	if len(anchors) == 0 {
+		return nil
+	}
+	if (query == nil || len(query.Segments) == 0) && (target == nil || len(target.Segments) == 0) {
+		return buildRefinedChainsFromAnchors(query, target, anchors, sameStrand)
+	}
+	type segmentPairKey struct {
+		query  int
+		target int
+	}
+	buckets := make(map[segmentPairKey][]comparisonAnchor, 16)
+	for _, anchor := range anchors {
+		key := segmentPairKey{
+			query:  comparisonAnchorSegmentIndex(query, anchor, true),
+			target: comparisonAnchorSegmentIndex(target, anchor, false),
+		}
+		buckets[key] = append(buckets[key], anchor)
+	}
+	out := make([]comparisonRefinedChain, 0, len(anchors)/comparisonMinAnchorCount)
+	keys := make([]segmentPairKey, 0, len(buckets))
+	for key := range buckets {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].query == keys[j].query {
+			return keys[i].target < keys[j].target
+		}
+		return keys[i].query < keys[j].query
+	})
+	for _, key := range keys {
+		out = append(out, buildRefinedChainsFromAnchors(query, target, buckets[key], sameStrand)...)
+	}
+	return out
 }
 
 func buildBlocksFromAnchors(anchors []comparisonAnchor, sameStrand bool) []ComparisonBlock {
@@ -797,7 +1138,7 @@ func buildBlocksFromAnchors(anchors []comparisonAnchor, sameStrand bool) []Compa
 }
 
 func buildDetailsFromAnchors(query, target *comparisonGenome, anchors []comparisonAnchor, sameStrand bool) []comparisonBlockDetail {
-	refinedChains := buildRefinedChainsFromAnchors(anchors, sameStrand)
+	refinedChains := buildRefinedChainsFromAnchors(query, target, anchors, sameStrand)
 	out := make([]comparisonBlockDetail, 0, len(refinedChains))
 	for _, chain := range refinedChains {
 		detail, ok := buildComparisonDetailFromRefinedChain(query, target, chain)
@@ -809,7 +1150,7 @@ func buildDetailsFromAnchors(query, target *comparisonGenome, anchors []comparis
 	return out
 }
 
-func buildRefinedChainsFromAnchors(anchors []comparisonAnchor, sameStrand bool) []comparisonRefinedChain {
+func buildRefinedChainsFromAnchors(query, target *comparisonGenome, anchors []comparisonAnchor, sameStrand bool) []comparisonRefinedChain {
 	if len(anchors) == 0 {
 		return nil
 	}
@@ -834,7 +1175,9 @@ func buildRefinedChainsFromAnchors(anchors []comparisonAnchor, sameStrand bool) 
 		qGap := anchor.QPos - prev.QPos
 		tGap := anchor.TTrans - prev.TTrans
 		diag := float64(anchor.TTrans - anchor.QPos)
-		if qGap > 0 && tGap > 0 && qGap <= comparisonMaxAnchorGap && tGap <= comparisonMaxAnchorGap && math.Abs(diag-current.DiagMean) <= comparisonMaxDiagonalDrift {
+		sameQuerySegment := comparisonAnchorInSameSegment(query, prev, anchor, true)
+		sameTargetSegment := comparisonAnchorInSameSegment(target, prev, anchor, false)
+		if sameQuerySegment && sameTargetSegment && qGap > 0 && tGap > 0 && qGap <= comparisonMaxAnchorGap && tGap <= comparisonMaxAnchorGap && math.Abs(diag-current.DiagMean) <= comparisonMaxDiagonalDrift {
 			current.Anchors = append(current.Anchors, anchor)
 			n := float64(len(current.Anchors))
 			current.DiagMean += (diag - current.DiagMean) / n
@@ -853,15 +1196,15 @@ func buildRefinedChainsFromAnchors(anchors []comparisonAnchor, sameStrand bool) 
 	for _, chain := range chains {
 		for _, subchain := range splitComparisonChainForRefinement(chain) {
 			refined := comparisonChainToRefinedChain(subchain)
-			if refined.Summary.QueryEnd > refined.Summary.QueryStart && refined.Summary.TargetEnd > refined.Summary.TargetStart {
+			if refined.Summary.QueryEnd > refined.Summary.QueryStart && refined.Summary.TargetEnd > refined.Summary.TargetStart && comparisonChainWithinSingleSegments(query, target, refined) {
 				out = append(out, refined)
 			}
 		}
 	}
-	return mergeAdjacentRefinedChains(out)
+	return mergeAdjacentRefinedChains(query, target, out)
 }
 
-func mergeAdjacentRefinedChains(chains []comparisonRefinedChain) []comparisonRefinedChain {
+func mergeAdjacentRefinedChains(query, target *comparisonGenome, chains []comparisonRefinedChain) []comparisonRefinedChain {
 	if len(chains) <= 1 {
 		return chains
 	}
@@ -881,7 +1224,7 @@ func mergeAdjacentRefinedChains(chains []comparisonRefinedChain) []comparisonRef
 	current := chains[0]
 	for i := 1; i < len(chains); i++ {
 		next := chains[i]
-		if canMergeAdjacentRefinedChains(current, next) {
+		if canMergeAdjacentRefinedChains(query, target, current, next) {
 			chain := comparisonChain{
 				Anchors:    append(append([]comparisonAnchor(nil), current.Anchors...), next.Anchors...),
 				SameStrand: current.Summary.SameStrand,
@@ -896,7 +1239,10 @@ func mergeAdjacentRefinedChains(chains []comparisonRefinedChain) []comparisonRef
 	return merged
 }
 
-func canMergeAdjacentRefinedChains(a, b comparisonRefinedChain) bool {
+// Merge is intentionally conservative. At this point both sides already agree
+// on orientation and contig. The remaining question is whether they represent
+// one biological block or two nearby blocks that should stay visually separate.
+func canMergeAdjacentRefinedChains(query, target *comparisonGenome, a, b comparisonRefinedChain) bool {
 	if a.Summary.SameStrand != b.Summary.SameStrand {
 		return false
 	}
@@ -908,12 +1254,88 @@ func canMergeAdjacentRefinedChains(a, b comparisonRefinedChain) bool {
 	if max(qGap, tGap) > comparisonChainMergeGapMaxSpan {
 		return false
 	}
+	if absInt(qGap-tGap) > comparisonChainMergeIndelMaxSpan {
+		return false
+	}
 	diagA := a.OrientedStart - int(a.Summary.QueryStart)
 	diagB := b.OrientedStart - int(b.Summary.QueryStart)
 	if absInt(diagA-diagB) > comparisonMaxDiagonalDrift {
 		return false
 	}
+	if !comparisonIntervalWithinSingleSegment(query, int(a.Summary.QueryStart), int(b.Summary.QueryEnd)) {
+		return false
+	}
+	if !comparisonIntervalWithinSingleSegment(target, int(a.Summary.TargetStart), int(b.Summary.TargetEnd)) {
+		return false
+	}
 	return true
+}
+
+func comparisonAnchorInSameSegment(genome *comparisonGenome, a, b comparisonAnchor, querySide bool) bool {
+	if genome == nil || len(genome.Segments) == 0 {
+		return true
+	}
+	return comparisonAnchorSegmentIndex(genome, a, querySide) == comparisonAnchorSegmentIndex(genome, b, querySide)
+}
+
+func comparisonChainWithinSingleSegments(query, target *comparisonGenome, chain comparisonRefinedChain) bool {
+	return comparisonIntervalWithinSingleSegment(query, int(chain.Summary.QueryStart), int(chain.Summary.QueryEnd)) &&
+		comparisonIntervalWithinSingleSegment(target, int(chain.Summary.TargetStart), int(chain.Summary.TargetEnd))
+}
+
+func comparisonIntervalWithinSingleSegment(genome *comparisonGenome, start, end int) bool {
+	if genome == nil || len(genome.Segments) == 0 {
+		return true
+	}
+	if end <= start {
+		return false
+	}
+	startIdx := comparisonPositionSegmentIndex(genome, start)
+	endIdx := comparisonPositionSegmentIndex(genome, end-1)
+	return startIdx >= 0 && startIdx == endIdx
+}
+
+func comparisonPositionSegmentIndex(genome *comparisonGenome, pos int) int {
+	if genome == nil {
+		return -1
+	}
+	for i, segment := range genome.Segments {
+		if pos >= segment.Start && pos < segment.End {
+			return i
+		}
+	}
+	return -1
+}
+
+func comparisonAnchorSegmentIndex(genome *comparisonGenome, anchor comparisonAnchor, querySide bool) int {
+	if genome == nil || len(genome.Segments) == 0 {
+		return 0
+	}
+	pos := anchor.TPos
+	if querySide {
+		pos = anchor.QPos
+	}
+	return comparisonPositionSegmentIndex(genome, pos)
+}
+
+func comparisonReverseDisplayPos(genome *comparisonGenome, pos, span int) (int, bool) {
+	if span <= 0 || pos < 0 {
+		return -1, false
+	}
+	if genome == nil {
+		return -1, false
+	}
+	if len(genome.Segments) == 0 {
+		tTrans := genome.Length - (pos + span)
+		return tTrans, tTrans >= 0
+	}
+	for _, segment := range genome.Segments {
+		if pos < segment.Start || pos+span > segment.End {
+			continue
+		}
+		return segment.Start + (segment.End - (pos + span)), true
+	}
+	return -1, false
 }
 
 func splitComparisonChainForRefinement(chain comparisonChain) []comparisonChain {
@@ -931,7 +1353,7 @@ func splitComparisonChainForRefinement(chain comparisonChain) []comparisonChain 
 		next := chain.Anchors[i]
 		qGap := next.QPos - (prev.QPos + comparisonMinimizerK)
 		tGap := next.TTrans - (prev.TTrans + comparisonMinimizerK)
-		if max(qGap, tGap) > comparisonChainSplitGapMaxSpan && isUsableComparisonChain(current) {
+		if shouldSplitComparisonChain(qGap, tGap) && isUsableComparisonChain(current) {
 			out = append(out, current)
 			current = comparisonChain{
 				Anchors:    []comparisonAnchor{next},
@@ -952,6 +1374,68 @@ func splitComparisonChainForRefinement(chain comparisonChain) []comparisonChain 
 		return []comparisonChain{chain}
 	}
 	return out
+}
+
+func buildComparisonAnchors(query, target *comparisonGenome) ([]comparisonAnchor, []comparisonAnchor) {
+	querySeeds := extractMinimizers(query.Sequence, comparisonMinimizerK, comparisonMinimizerWindow, false)
+	targetForward := buildSeedIndex(extractMinimizers(target.Sequence, comparisonMinimizerK, comparisonMinimizerWindow, false))
+	targetReverse := buildSeedIndex(extractMinimizers(target.Sequence, comparisonMinimizerK, comparisonMinimizerWindow, true))
+
+	sameAnchors := make([]comparisonAnchor, 0, 1024)
+	reverseAnchors := make([]comparisonAnchor, 0, 1024)
+	for _, seed := range querySeeds {
+		if positions, ok := targetForward[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
+			for _, tPos := range positions {
+				sameAnchors = append(sameAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tPos})
+			}
+		}
+		if positions, ok := targetReverse[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
+			for _, tPos := range positions {
+				tTrans, ok := comparisonReverseDisplayPos(target, tPos, comparisonMinimizerK)
+				if !ok {
+					continue
+				}
+				reverseAnchors = append(reverseAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tTrans})
+			}
+		}
+	}
+	return sameAnchors, reverseAnchors
+}
+
+func shouldSplitComparisonChain(qGap, tGap int) bool {
+	// Coarse blocks should already be detail-feasible. If a local anchor gap is
+	// larger than the strict refinement path can align, emit separate blocks
+	// instead of relying on later detail-time rescue.
+	return max(qGap, tGap) > min(comparisonChainSplitGapMaxSpan, comparisonRefineGapMaxSpan) || absInt(qGap-tGap) > comparisonChainMergeIndelMaxSpan
+}
+
+func comparisonBlockLess(a, b ComparisonBlock) bool {
+	if a.QueryStart == b.QueryStart {
+		if a.QueryEnd == b.QueryEnd {
+			return a.TargetStart < b.TargetStart
+		}
+		return a.QueryEnd < b.QueryEnd
+	}
+	return a.QueryStart < b.QueryStart
+}
+
+func canonicalComparisonBlockLess(a, b comparisonCanonicalBlock) bool {
+	if a.QuerySegment == b.QuerySegment {
+		if a.QueryStart == b.QueryStart {
+			if a.TargetSegment == b.TargetSegment {
+				if a.TargetStart == b.TargetStart {
+					if a.QueryEnd == b.QueryEnd {
+						return a.TargetEnd < b.TargetEnd
+					}
+					return a.QueryEnd < b.QueryEnd
+				}
+				return a.TargetStart < b.TargetStart
+			}
+			return a.TargetSegment < b.TargetSegment
+		}
+		return a.QueryStart < b.QueryStart
+	}
+	return a.QuerySegment < b.QuerySegment
 }
 
 func buildBlocksFromDiagonalBucket(anchors []comparisonAnchor, sameStrand bool) []ComparisonBlock {
@@ -1107,6 +1591,7 @@ func comparisonChainToRefinedChain(chain comparisonChain) comparisonRefinedChain
 	span := max(qEnd-qStart, tEnd-tStart)
 	pid := uint16(0)
 	if span > 0 {
+		// This is an anchor-coverage estimate, not a final aligned identity.
 		pct := int(math.Round(10000 * float64(covered) / float64(span)))
 		if pct < 0 {
 			pct = 0
@@ -1143,35 +1628,50 @@ func refineComparisonBlock(query, target *comparisonGenome, block *comparisonBlo
 }
 
 func buildComparisonDetailFromRefinedChain(query, target *comparisonGenome, chain comparisonRefinedChain) (comparisonBlockDetail, bool) {
+	return buildComparisonDetailFromRefinedChainWithMode(query, target, chain, false)
+}
+
+func buildComparisonDetailFromRefinedChainWithMode(query, target *comparisonGenome, chain comparisonRefinedChain, allowLargeGaps bool) (comparisonBlockDetail, bool) {
 	if query == nil || target == nil || len(chain.Anchors) == 0 {
 		return comparisonBlockDetail{}, false
 	}
+	// allowLargeGaps=false is the strict path used while building coarse blocks.
+	// allowLargeGaps=true is the on-demand detail path, which is allowed to do
+	// more work to recover dense per-base ops for an inspected block.
 	var ops []byte
 	coveredQ := chain.Anchors[0].QPos
 	coveredT := chain.Anchors[0].TTrans
 	for _, anchor := range chain.Anchors {
 		if anchor.QPos > coveredQ || anchor.TTrans > coveredT {
 			qGapStart := coveredQ
-			qGapEnd := anchor.QPos
+			qGapEnd := max(anchor.QPos, coveredQ)
 			tGapStart := coveredT
-			tGapEnd := anchor.TTrans
+			tGapEnd := max(anchor.TTrans, coveredT)
 			if qGapEnd < qGapStart || tGapEnd < tGapStart {
 				return comparisonBlockDetail{}, false
 			}
 			if qGapEnd > qGapStart || tGapEnd > tGapStart {
-				if max(qGapEnd-qGapStart, tGapEnd-tGapStart) > comparisonRefineGapMaxSpan {
-					return comparisonBlockDetail{}, false
-				}
 				queryGap := query.Sequence[qGapStart:qGapEnd]
 				targetGap, ok := orientedTargetSlice(target, chain.Summary.SameStrand, tGapStart, tGapEnd)
 				if !ok {
 					return comparisonBlockDetail{}, false
 				}
-				aln, ok := bandedAffineAlign(queryGap, targetGap, absInt((qGapEnd-qGapStart)-(tGapEnd-tGapStart))+comparisonRefineBandPad)
-				if !ok {
-					return comparisonBlockDetail{}, false
+				if allowLargeGaps {
+					gapOps, ok := alignComparisonGap(queryGap, targetGap)
+					if !ok {
+						return comparisonBlockDetail{}, false
+					}
+					ops = append(ops, gapOps...)
+				} else {
+					if max(qGapEnd-qGapStart, tGapEnd-tGapStart) > comparisonRefineGapMaxSpan {
+						return comparisonBlockDetail{}, false
+					}
+					aln, ok := bandedAffineAlign(queryGap, targetGap, absInt((qGapEnd-qGapStart)-(tGapEnd-tGapStart))+comparisonRefineBandPad)
+					if !ok {
+						return comparisonBlockDetail{}, false
+					}
+					ops = append(ops, aln.Ops...)
 				}
-				ops = append(ops, aln.Ops...)
 			}
 		}
 		matchStartQ := max(anchor.QPos, coveredQ)
@@ -1628,7 +2128,7 @@ func encodeComparisonGenomes(genomes []ComparisonGenomeInfo) []byte {
 	for _, genome := range genomes {
 		total += 16 + len(genome.Name) + len(genome.Path)
 		for _, segment := range genome.Segments {
-			total += 14 + len(segment.Name)
+			total += 15 + len(segment.Name)
 		}
 	}
 	buf := make([]byte, total)
@@ -1649,9 +2149,13 @@ func encodeComparisonGenomes(genomes []ComparisonGenomeInfo) []byte {
 			binary.LittleEndian.PutUint32(buf[off:off+4], segment.Start)
 			binary.LittleEndian.PutUint32(buf[off+4:off+8], segment.End)
 			binary.LittleEndian.PutUint32(buf[off+8:off+12], segment.FeatureCount)
-			binary.LittleEndian.PutUint16(buf[off+12:off+14], uint16(len(segment.Name)))
-			copy(buf[off+14:off+14+len(segment.Name)], segment.Name)
-			off += 14 + len(segment.Name)
+			buf[off+12] = 0
+			if segment.Reversed {
+				buf[off+12] = 1
+			}
+			binary.LittleEndian.PutUint16(buf[off+13:off+15], uint16(len(segment.Name)))
+			copy(buf[off+15:off+15+len(segment.Name)], segment.Name)
+			off += 15 + len(segment.Name)
 		}
 	}
 	return buf

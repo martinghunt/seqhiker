@@ -39,6 +39,48 @@ func TestParseGFF3EmbeddedFASTA(t *testing.T) {
 	}
 }
 
+func TestParseGFF3CapturesCDSPhase(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "phase.gff3")
+	content := "##gff-version 3\n" +
+		"chr1\tsrc\tCDS\t2\t8\t.\t-\t2\tID=cds1;Parent=tx1\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, featsByChr, err := parseGFF3(path)
+	if err != nil {
+		t.Fatalf("parseGFF3 returned error: %v", err)
+	}
+	chrFeats := featsByChr["chr1"]
+	if len(chrFeats) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(chrFeats))
+	}
+	if chrFeats[0].Phase != 2 {
+		t.Fatalf("expected CDS phase 2, got %+v", chrFeats[0])
+	}
+}
+
+func TestEncodeAnnotationsPreservesPhase(t *testing.T) {
+	payload := encodeAnnotations(0, 10, []Feature{{
+		SeqName:    "chr1",
+		Source:     "src",
+		Type:       "CDS",
+		Start:      1,
+		End:        8,
+		Strand:     '-',
+		Phase:      2,
+		Attributes: "ID=cds1;Parent=tx1",
+	}})
+	_, _, feats := decodeAnnotationsForTest(t, payload)
+	if len(feats) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(feats))
+	}
+	if feats[0].Phase != 2 {
+		t.Fatalf("expected phase 2 after annotation round-trip, got %+v", feats[0])
+	}
+}
+
 func TestInspectInputEmbeddedGFF3ReportsSequenceAndAnnotation(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "embedded.gff3")
@@ -351,6 +393,46 @@ func TestGetReferenceSliceRejectsInvertedRange(t *testing.T) {
 
 	if _, err := e.GetReferenceSlice(1, 7, 6); err == nil {
 		t.Fatal("expected inverted range to return an error")
+	}
+}
+
+func TestSetChromosomeOrientationRebuildsReferenceAndAnnotations(t *testing.T) {
+	e := NewEngine()
+	e.rawSequences["chr1"] = "ACGTTGCA"
+	e.rawChrLength["chr1"] = 8
+	e.rawFeatures["chr1"] = []Feature{
+		{SeqName: "chr1", Source: "src", Type: "gene", Start: 0, End: 2, Strand: '+', Attributes: "ID=f1"},
+	}
+	chrID := e.ensureChromosomeLocked("chr1", 8)
+	e.rebuildBrowserChromosomeLocked("chr1")
+
+	if err := e.SetChromosomeOrientation(chrID, true); err != nil {
+		t.Fatalf("SetChromosomeOrientation returned error: %v", err)
+	}
+	chroms := e.ListChromosomes()
+	if len(chroms) != 1 || !chroms[0].Reversed {
+		t.Fatalf("expected reversed chromosome metadata, got %+v", chroms)
+	}
+
+	payload, err := e.GetReferenceSlice(chrID, 0, 4)
+	if err != nil {
+		t.Fatalf("GetReferenceSlice returned error: %v", err)
+	}
+	start, end, seq := decodeReferenceSliceForTest(t, payload)
+	if start != 0 || end != 4 || seq != "TGCA" {
+		t.Fatalf("unexpected reversed slice: start=%d end=%d seq=%q", start, end, seq)
+	}
+
+	annPayload, err := e.GetAnnotations(chrID, 0, 8, 10, 1)
+	if err != nil {
+		t.Fatalf("GetAnnotations returned error: %v", err)
+	}
+	_, _, feats := decodeAnnotationsForTest(t, annPayload)
+	if len(feats) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(feats))
+	}
+	if feats[0].Start != 6 || feats[0].End != 8 || feats[0].Strand != '-' {
+		t.Fatalf("unexpected reversed feature: %+v", feats[0])
 	}
 }
 
@@ -796,6 +878,53 @@ func TestLoadBAMFixtureReadBoundariesAreExact(t *testing.T) {
 	}
 }
 
+func TestSetChromosomeOrientationTransformsReadTiles(t *testing.T) {
+	e := NewEngine()
+	refPath := filepath.Join("testdata", "test_reads.ref.fa")
+	bamPath := filepath.Join("testdata", "test_reads.bam")
+	if err := e.LoadGenome(refPath); err != nil {
+		t.Fatalf("LoadGenome returned error: %v", err)
+	}
+	sourceID, err := e.LoadBAM(bamPath, 0)
+	if err != nil {
+		t.Fatalf("LoadBAM returned error: %v", err)
+	}
+
+	chrID := e.chrToID["chrTest"]
+	chromLen := e.rawChrLength["chrTest"]
+	if err := e.SetChromosomeOrientation(chrID, true); err != nil {
+		t.Fatalf("SetChromosomeOrientation returned error: %v", err)
+	}
+
+	wantStart := chromLen - 2350
+	tileWidth := baseTileSize << 1
+	tileIndex := uint32(wantStart / tileWidth)
+	payload, err := e.GetTile(sourceID, chrID, 1, tileIndex)
+	if err != nil {
+		t.Fatalf("GetTile returned error: %v", err)
+	}
+	alns := decodeAlignmentTileForTest(t, payload)
+	var found *Alignment
+	for i := range alns {
+		if alns[i].Name == "indel_like" {
+			found = &alns[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected indel_like in transformed tile, got %+v", alns)
+	}
+	if found.Start != chromLen-2350 || found.End != chromLen-2200 {
+		t.Fatalf("unexpected transformed coordinates: %+v", *found)
+	}
+	if !found.Reverse {
+		t.Fatalf("expected transformed read to flip strand: %+v", *found)
+	}
+	if found.Cigar != "41M1D38M1I70M" {
+		t.Fatalf("unexpected transformed cigar: %+v", *found)
+	}
+}
+
 func TestLoadBAMFixtureCoverageBoundariesAreExact(t *testing.T) {
 	e := NewEngine()
 	refPath := filepath.Join("testdata", "test_reads.ref.fa")
@@ -1121,6 +1250,10 @@ func decodeAnnotationsForTest(t *testing.T, payload []byte) (int, int, []Feature
 			Start:  int(binary.LittleEndian.Uint32(payload[off : off+4])),
 			End:    int(binary.LittleEndian.Uint32(payload[off+4 : off+8])),
 			Strand: payload[off+8],
+			Phase:  int8(payload[off+9]),
+		}
+		if payload[off+9] == 0xFF {
+			feat.Phase = -1
 		}
 		seqNameLen := int(binary.LittleEndian.Uint16(payload[off+10 : off+12]))
 		off += 12

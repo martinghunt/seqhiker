@@ -133,6 +133,117 @@ func TestGetVariantDetailVCF(t *testing.T) {
 	}
 }
 
+func TestChromosomeOrientationTransformsVariantTilesAndDetails(t *testing.T) {
+	dir := t.TempDir()
+	genomePath := filepath.Join(dir, "ref.fa")
+	if err := os.WriteFile(genomePath, []byte(">chr1\nAACCGGTTAA\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	vcfPath := filepath.Join(dir, "sample.vcf")
+	content := "##fileformat=VCFv4.2\n" +
+		"##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n" +
+		"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample_a\n" +
+		"chr1\t3\tdemo1\tC\tT\t60\tPASS\tTYPE=SNP\tGT\t0/1\n"
+	if err := os.WriteFile(vcfPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(genomePath); err != nil {
+		t.Fatalf("LoadGenome returned error: %v", err)
+	}
+	source, err := e.LoadVariantFile(vcfPath)
+	if err != nil {
+		t.Fatalf("LoadVariantFile returned error: %v", err)
+	}
+	chroms := e.ListChromosomes()
+	chrID := chroms[0].ID
+	if err := e.SetChromosomeOrientation(chrID, true); err != nil {
+		t.Fatalf("SetChromosomeOrientation returned error: %v", err)
+	}
+
+	payload, err := e.GetVariantTile(source.ID, chrID, 0, 0)
+	if err != nil {
+		t.Fatalf("GetVariantTile returned error: %v", err)
+	}
+	_, _, records := decodeVariantTileForTest(t, payload)
+	if len(records) != 1 {
+		t.Fatalf("expected 1 transformed record, got %d", len(records))
+	}
+	if records[0].Start != 7 || records[0].End != 8 {
+		t.Fatalf("unexpected transformed coords: %+v", records[0])
+	}
+	if records[0].Ref != "G" || records[0].AltSummary != "A" {
+		t.Fatalf("unexpected transformed alleles: %+v", records[0])
+	}
+	if len(records[0].SampleTexts) != 1 || records[0].SampleTexts[0] != "G/A" {
+		t.Fatalf("unexpected transformed sample text: %+v", records[0].SampleTexts)
+	}
+
+	detailPayload, err := e.GetVariantDetail(source.ID, chrID, 7, "G", "A")
+	if err != nil {
+		t.Fatalf("GetVariantDetail returned error: %v", err)
+	}
+	detail := decodeVariantDetailForTest(t, detailPayload)
+	if detail["start"] != 7 || detail["end"] != 8 {
+		t.Fatalf("unexpected transformed detail coords: %+v", detail)
+	}
+	if detail["ref"] != "G" || detail["alt_summary"] != "A" {
+		t.Fatalf("unexpected transformed detail alleles: %+v", detail)
+	}
+}
+
+func TestChromosomeOrientationPreservesDeletionKindForVariants(t *testing.T) {
+	dir := t.TempDir()
+	genomePath := filepath.Join(dir, "ref.fa")
+	if err := os.WriteFile(genomePath, []byte(">chr1\nAACCGGTTAA\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	vcfPath := filepath.Join(dir, "sample.vcf")
+	content := "##fileformat=VCFv4.2\n" +
+		"##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n" +
+		"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample_a\n" +
+		"chr1\t3\tdemo_del\tCCG\tC\t60\tPASS\tTYPE=DEL\tGT\t0/1\n"
+	if err := os.WriteFile(vcfPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(genomePath); err != nil {
+		t.Fatalf("LoadGenome returned error: %v", err)
+	}
+	source, err := e.LoadVariantFile(vcfPath)
+	if err != nil {
+		t.Fatalf("LoadVariantFile returned error: %v", err)
+	}
+	chroms := e.ListChromosomes()
+	chrID := chroms[0].ID
+	if err := e.SetChromosomeOrientation(chrID, true); err != nil {
+		t.Fatalf("SetChromosomeOrientation returned error: %v", err)
+	}
+
+	payload, err := e.GetVariantTile(source.ID, chrID, 0, 0)
+	if err != nil {
+		t.Fatalf("GetVariantTile returned error: %v", err)
+	}
+	_, _, records := decodeVariantTileForTest(t, payload)
+	if len(records) != 1 {
+		t.Fatalf("expected 1 transformed deletion record, got %d", len(records))
+	}
+	if records[0].Kind != variantKindDeletion {
+		t.Fatalf("unexpected transformed deletion kind: %+v", records[0])
+	}
+
+	detailPayload, err := e.GetVariantDetail(source.ID, chrID, records[0].Start, records[0].Ref, records[0].AltSummary)
+	if err != nil {
+		t.Fatalf("GetVariantDetail returned error: %v", err)
+	}
+	detail := decodeVariantDetailForTest(t, detailPayload)
+	if detail["kind"] != int(variantKindDeletion) {
+		t.Fatalf("unexpected transformed deletion detail kind: %+v", detail)
+	}
+}
+
 func TestLoadVariantFileRejectsMismatchedLoadedGenome(t *testing.T) {
 	dir := t.TempDir()
 	genomePath := filepath.Join(dir, "ref.fa")
