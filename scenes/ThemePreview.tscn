@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3 uid="uid://yj6ag8h0gtoq"]
 
-[ext_resource type="Script" path="res://scripts/theme_preview.gd" id="1_theme_preview"]
+[ext_resource type="Script" uid="uid://byicgbtmb8f5x" path="res://scripts/theme_preview.gd" id="1_theme_preview"]
+[ext_resource type="Script" uid="uid://cwryv3f65bimv" path="res://scripts/theme_preview_section.gd" id="2_theme_preview_section"]
 
 [node name="ThemePreview" type="Control"]
 layout_mode = 3
@@ -11,3 +12,191 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("1_theme_preview")
+
+[node name="FlashOverlay" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "bg_overlay"
+
+[node name="PreviewMargin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 24
+
+[node name="PreviewScroll" type="ScrollContainer" parent="PreviewMargin"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="PreviewPadding" type="MarginContainer" parent="PreviewMargin/PreviewScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/margin_right = 20
+
+[node name="SectionsFlow" type="HFlowContainer" parent="PreviewMargin/PreviewScroll/PreviewPadding"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/h_separation = 18
+theme_override_constants/v_separation = 22
+
+[node name="HeaderTitleSection" type="Control" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow"]
+custom_minimum_size = Vector2(320, 42)
+layout_mode = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "header_title"
+
+[node name="Padding" type="MarginContainer" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderTitleSection"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 8
+
+[node name="Row" type="HBoxContainer" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderTitleSection/Padding"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 28
+
+[node name="ThemeNameLabel" type="Label" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderTitleSection/Padding/Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Theme Preview"
+
+[node name="StatusLabel" type="Label" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderTitleSection/Padding/Row"]
+layout_mode = 2
+text = "Error message"
+
+[node name="HeaderControlsSection" type="Control" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow"]
+custom_minimum_size = Vector2(420, 64)
+layout_mode = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "header_controls"
+
+[node name="Padding" type="MarginContainer" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 10
+
+[node name="Layout" type="HBoxContainer" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection/Padding"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="ButtonsRow" type="HBoxContainer" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection/Padding/Layout"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="NormalButton" type="Button" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection/Padding/Layout/ButtonsRow"]
+layout_mode = 2
+text = "Normal"
+
+[node name="HoverButton" type="Button" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection/Padding/Layout/ButtonsRow"]
+layout_mode = 2
+text = "Hover"
+
+[node name="PressedButton" type="Button" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection/Padding/Layout/ButtonsRow"]
+layout_mode = 2
+toggle_mode = true
+button_pressed = true
+text = "Pressed"
+
+[node name="ControlsRow" type="HBoxContainer" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection/Padding/Layout"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="CheckSample" type="CheckBox" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection/Padding/Layout/ControlsRow"]
+layout_mode = 2
+button_pressed = true
+
+[node name="ToggleSample" type="CheckButton" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection/Padding/Layout/ControlsRow"]
+custom_minimum_size = Vector2(40, 0)
+layout_mode = 2
+button_pressed = true
+
+[node name="SliderSample" type="HSlider" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection/Padding/Layout/ControlsRow"]
+custom_minimum_size = Vector2(78, 0)
+layout_mode = 2
+value = 58.0
+
+[node name="ScrollSample" type="VScrollBar" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow/HeaderControlsSection/Padding/Layout"]
+custom_minimum_size = Vector2(12, 0)
+layout_mode = 2
+size_flags_vertical = 3
+page = 40.0
+value = 28.0
+
+[node name="PlotSection" type="Control" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow"]
+custom_minimum_size = Vector2(340, 120)
+layout_mode = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "plot"
+
+[node name="ReadsSection" type="Control" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow"]
+custom_minimum_size = Vector2(300, 172)
+layout_mode = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "reads"
+
+[node name="AnnotationSection" type="Control" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow"]
+custom_minimum_size = Vector2(340, 156)
+layout_mode = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "annotation"
+
+[node name="DepthSeriesSection" type="Control" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow"]
+custom_minimum_size = Vector2(300, 220)
+layout_mode = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "depth_series"
+
+[node name="GenomeSection" type="Control" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow"]
+custom_minimum_size = Vector2(340, 132)
+layout_mode = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "genome"
+
+[node name="VcfSection" type="Control" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow"]
+custom_minimum_size = Vector2(300, 136)
+layout_mode = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "vcf"
+
+[node name="MapSection" type="Control" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow"]
+custom_minimum_size = Vector2(340, 124)
+layout_mode = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "map"
+
+[node name="ComparisonSection" type="Control" parent="PreviewMargin/PreviewScroll/PreviewPadding/SectionsFlow"]
+custom_minimum_size = Vector2(300, 224)
+layout_mode = 2
+script = ExtResource("2_theme_preview_section")
+section_key = "comparison"

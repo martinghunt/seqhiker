@@ -5,7 +5,7 @@
 [ext_resource type="Script" uid="uid://d2jyou0mxekd6" path="res://scripts/genome_view.gd" id="2_view"]
 [ext_resource type="PackedScene" uid="uid://q40rq7ikp5jf" path="res://scenes/FeaturePanel.tscn" id="3_30wbj"]
 [ext_resource type="PackedScene" path="res://scenes/ComparisonView.tscn" id="4_cmp"]
-[ext_resource type="PackedScene" path="res://scenes/ThemePreview.tscn" id="5_theme_preview"]
+[ext_resource type="PackedScene" uid="uid://yj6ag8h0gtoq" path="res://scenes/ThemePreview.tscn" id="5_theme_preview"]
 
 [sub_resource type="InputEventAction" id="InputEventAction_toggle_settings"]
 action = &"seqhiker_toggle_settings"
