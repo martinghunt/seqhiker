@@ -1,6 +1,8 @@
 extends RefCounted
 class_name ThemeEditorController
 
+const ThemeEditorPanelScene = preload("res://scenes/ThemeEditorPanel.tscn")
+
 var host: Node = null
 var themes_lib: RefCounted = null
 
@@ -16,6 +18,7 @@ var _action_clipper: Control = null
 var _close_button: Button = null
 var _preview: Control = null
 var _feature_custom_content: VBoxContainer = null
+var _panel_root: VBoxContainer = null
 var _open_button: Button = null
 var _name_edit: LineEdit = null
 var _rename_button: Button = null
@@ -45,7 +48,8 @@ func setup() -> void:
 	_preview = host.get_node_or_null("Root/ContentMargin/ViewportLayer/ThemePreview")
 	_feature_custom_content = host.get_node_or_null("Root/ContentMargin/ViewportLayer/FeaturePanel/FeatureMargin/FeatureLayout/FeatureScroll/FeaturePadding/FeatureContent/FeatureCustomContent")
 	_open_button = host.get_node_or_null("Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/OpenThemeEditorButton")
-	_setup_ui()
+	_ensure_panel_scene()
+	_bind_ui()
 	_setup_theme_file_dialogs()
 	if _open_button != null and not _open_button.pressed.is_connected(_on_open_pressed):
 		_open_button.pressed.connect(_on_open_pressed)
@@ -129,108 +133,35 @@ func close() -> void:
 	host._slide_feature_panel(false, true)
 
 
-func _setup_ui() -> void:
+func _ensure_panel_scene() -> void:
 	if _feature_custom_content == null:
 		return
-	for child in _feature_custom_content.get_children():
-		child.queue_free()
-	var intro := Label.new()
-	intro.text = "Theme editor changes are previewed immediately and saved to the selected user theme."
-	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_feature_custom_content.add_child(intro)
-	_hint_label = intro
+	if _panel_root != null and is_instance_valid(_panel_root):
+		return
+	_panel_root = ThemeEditorPanelScene.instantiate() as VBoxContainer
+	if _panel_root == null:
+		return
+	_feature_custom_content.add_child(_panel_root)
 
-	var name_label := Label.new()
-	name_label.text = "Theme Name"
-	_feature_custom_content.add_child(name_label)
-
-	var name_row := HBoxContainer.new()
-	name_row.add_theme_constant_override("separation", 8)
-	_feature_custom_content.add_child(name_row)
-
-	_name_edit = LineEdit.new()
-	_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_name_edit.focus_mode = Control.FOCUS_ALL
-	name_row.add_child(_name_edit)
-
-	_rename_button = Button.new()
-	_rename_button.text = "Rename"
-	name_row.add_child(_rename_button)
-
-	var manage_row := HBoxContainer.new()
-	manage_row.add_theme_constant_override("separation", 8)
-	_feature_custom_content.add_child(manage_row)
-
-	_duplicate_button = Button.new()
-	_duplicate_button.text = "Duplicate"
-	manage_row.add_child(_duplicate_button)
-
-	_undo_button = Button.new()
-	_undo_button.text = "Undo"
-	_undo_button.disabled = true
-	manage_row.add_child(_undo_button)
-
-	_reset_button = Button.new()
-	_reset_button.text = "Reset"
-	manage_row.add_child(_reset_button)
-
-	_delete_button = Button.new()
-	_delete_button.text = "Delete"
-	manage_row.add_child(_delete_button)
-
-	var manage_sep := HSeparator.new()
-	_feature_custom_content.add_child(manage_sep)
-
-	var io_row := HBoxContainer.new()
-	io_row.add_theme_constant_override("separation", 8)
-	_feature_custom_content.add_child(io_row)
-
-	_export_button = Button.new()
-	_export_button.text = "Export"
-	io_row.add_child(_export_button)
-
-	_import_button = Button.new()
-	_import_button.text = "Import"
-	io_row.add_child(_import_button)
-
-	var io_sep := HSeparator.new()
-	_feature_custom_content.add_child(io_sep)
-
-	var role_groups: Array = themes_lib.editor_role_groups() if themes_lib != null and themes_lib.has_method("editor_role_groups") else []
+func _bind_ui() -> void:
+	if _panel_root == null:
+		return
+	_hint_label = _panel_root.get_node_or_null("IntroLabel")
+	_name_edit = _panel_root.get_node_or_null("NameRow/NameEdit")
+	_rename_button = _panel_root.get_node_or_null("NameRow/RenameButton")
+	_duplicate_button = _panel_root.get_node_or_null("ManageRow/DuplicateButton")
+	_undo_button = _panel_root.get_node_or_null("ManageRow/UndoButton")
+	_reset_button = _panel_root.get_node_or_null("ManageRow/ResetButton")
+	_delete_button = _panel_root.get_node_or_null("ManageRow/DeleteButton")
+	_export_button = _panel_root.get_node_or_null("IoRow/ExportButton")
+	_import_button = _panel_root.get_node_or_null("IoRow/ImportButton")
+	if _hint_label != null:
+		_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if _name_edit != null:
+		_name_edit.focus_mode = Control.FOCUS_ALL
 	_role_pickers.clear()
 	_role_buttons.clear()
-	for group_index in range(role_groups.size()):
-		var group: Dictionary = role_groups[group_index] as Dictionary
-		var group_label := Label.new()
-		group_label.text = str(group.get("title", "Colours"))
-		_feature_custom_content.add_child(group_label)
-		for role_any in group.get("roles", []):
-			var role: Dictionary = role_any as Dictionary
-			var role_key := str(role.get("key", ""))
-			if role_key.is_empty():
-				continue
-			var row := HBoxContainer.new()
-			row.add_theme_constant_override("separation", 8)
-			_feature_custom_content.add_child(row)
-			var role_label := Button.new()
-			role_label.text = str(role.get("label", role_key.replace("_", " ").capitalize()))
-			role_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			role_label.flat = true
-			role_label.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			role_label.focus_mode = Control.FOCUS_NONE
-			role_label.pressed.connect(_on_role_label_pressed.bind(role_key))
-			row.add_child(role_label)
-			var picker := ColorPickerButton.new()
-			picker.custom_minimum_size = Vector2(68.0, 30.0)
-			picker.edit_alpha = false
-			picker.color_changed.connect(_on_picker_changed.bind(role_key))
-			row.add_child(picker)
-			_role_pickers[role_key] = picker
-			_role_buttons[role_key] = role_label
-		if group_index < role_groups.size() - 1:
-			var group_sep := HSeparator.new()
-			_feature_custom_content.add_child(group_sep)
-
+	_bind_role_rows(_panel_root)
 	if _name_edit != null and not _name_edit.text_submitted.is_connected(_on_name_submitted):
 		_name_edit.text_submitted.connect(_on_name_submitted)
 	if _rename_button != null and not _rename_button.pressed.is_connected(_on_rename_pressed):
@@ -247,6 +178,26 @@ func _setup_ui() -> void:
 		_export_button.pressed.connect(_on_export_pressed)
 	if _import_button != null and not _import_button.pressed.is_connected(_on_import_pressed):
 		_import_button.pressed.connect(_on_import_pressed)
+
+func _bind_role_rows(node: Node) -> void:
+	for child in node.get_children():
+		_bind_role_rows(child)
+	var row := node as HBoxContainer
+	if row == null:
+		return
+	var role_label := row.get_node_or_null("RoleButton") as Button
+	var picker := row.get_node_or_null("Picker") as ColorPickerButton
+	if role_label == null or picker == null:
+		return
+	var role_key := String(row.name)
+	role_label.focus_mode = Control.FOCUS_NONE
+	picker.edit_alpha = false
+	if not role_label.pressed.is_connected(_on_role_label_pressed.bind(role_key)):
+		role_label.pressed.connect(_on_role_label_pressed.bind(role_key))
+	if not picker.color_changed.is_connected(_on_picker_changed.bind(role_key)):
+		picker.color_changed.connect(_on_picker_changed.bind(role_key))
+	_role_pickers[role_key] = picker
+	_role_buttons[role_key] = role_label
 
 
 func _setup_theme_file_dialogs() -> void:

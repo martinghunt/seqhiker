@@ -1,0 +1,1080 @@
+[gd_scene format=3 uid="uid://dhi2bg7j3ch5e"]
+
+[node name="ThemeEditorPanel" type="VBoxContainer"]
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="IntroLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Theme editor changes are previewed immediately and saved to the selected user theme."
+
+[node name="ThemeNameLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Theme Name"
+
+[node name="NameRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="NameEdit" type="LineEdit" parent="NameRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="RenameButton" type="Button" parent="NameRow"]
+layout_mode = 2
+text = "Rename"
+
+[node name="ManageRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DuplicateButton" type="Button" parent="ManageRow"]
+layout_mode = 2
+text = "Duplicate"
+
+[node name="UndoButton" type="Button" parent="ManageRow"]
+layout_mode = 2
+disabled = true
+text = "Undo"
+
+[node name="ResetButton" type="Button" parent="ManageRow"]
+layout_mode = 2
+text = "Reset"
+
+[node name="DeleteButton" type="Button" parent="ManageRow"]
+layout_mode = 2
+text = "Delete"
+
+[node name="ManageSeparator" type="HSeparator" parent="."]
+layout_mode = 2
+
+[node name="IoRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ExportButton" type="Button" parent="IoRow"]
+layout_mode = 2
+text = "Export"
+
+[node name="ImportButton" type="Button" parent="IoRow"]
+layout_mode = 2
+text = "Import"
+
+[node name="IoSeparator" type="HSeparator" parent="."]
+layout_mode = 2
+
+[node name="SectionsFlow" type="HFlowContainer" parent="."]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/h_separation = 12
+theme_override_constants/v_separation = 12
+
+[node name="CoreUiSection" type="VBoxContainer" parent="SectionsFlow"]
+custom_minimum_size = Vector2(145, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SectionsFlow/CoreUiSection"]
+layout_mode = 2
+text = "Core UI"
+
+[node name="Rows" type="VBoxContainer" parent="SectionsFlow/CoreUiSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="bg" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/bg"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Background"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/bg"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="track_alt_bg" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/track_alt_bg"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Track alt bg"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/track_alt_bg"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="panel" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/panel"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Panel"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/panel"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="panel_alt" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/panel_alt"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Panel alt"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/panel_alt"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="grid" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/grid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Grid"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/grid"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="border" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/border"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Border"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/border"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="scrollbar_outline" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/scrollbar_outline"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Scrollbar outline"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/scrollbar_outline"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="text" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/text"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Text"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/text"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="text_inverse" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/text_inverse"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Check mark"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/text_inverse"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="text_muted" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/text_muted"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Text muted"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/text_muted"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="accent" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/accent"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Accent"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/accent"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="status_error" type="HBoxContainer" parent="SectionsFlow/CoreUiSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/CoreUiSection/Rows/status_error"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Error message"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/CoreUiSection/Rows/status_error"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="HeaderControlsSection" type="VBoxContainer" parent="SectionsFlow"]
+custom_minimum_size = Vector2(145, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SectionsFlow/HeaderControlsSection"]
+layout_mode = 2
+text = "Header Controls"
+
+[node name="Rows" type="VBoxContainer" parent="SectionsFlow/HeaderControlsSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="button_bg" type="HBoxContainer" parent="SectionsFlow/HeaderControlsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/HeaderControlsSection/Rows/button_bg"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Button bg"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/HeaderControlsSection/Rows/button_bg"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="button_hover" type="HBoxContainer" parent="SectionsFlow/HeaderControlsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/HeaderControlsSection/Rows/button_hover"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Button hover"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/HeaderControlsSection/Rows/button_hover"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="button_pressed" type="HBoxContainer" parent="SectionsFlow/HeaderControlsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/HeaderControlsSection/Rows/button_pressed"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Button pressed"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/HeaderControlsSection/Rows/button_pressed"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="field_bg" type="HBoxContainer" parent="SectionsFlow/HeaderControlsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/HeaderControlsSection/Rows/field_bg"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Field bg"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/HeaderControlsSection/Rows/field_bg"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="field_border" type="HBoxContainer" parent="SectionsFlow/HeaderControlsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/HeaderControlsSection/Rows/field_border"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Field border"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/HeaderControlsSection/Rows/field_border"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="field_focus" type="HBoxContainer" parent="SectionsFlow/HeaderControlsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/HeaderControlsSection/Rows/field_focus"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Field focus"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/HeaderControlsSection/Rows/field_focus"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="PlotsSection" type="VBoxContainer" parent="SectionsFlow"]
+custom_minimum_size = Vector2(145, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SectionsFlow/PlotsSection"]
+layout_mode = 2
+text = "Plots"
+
+[node name="Rows" type="VBoxContainer" parent="SectionsFlow/PlotsSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="gc_plot" type="HBoxContainer" parent="SectionsFlow/PlotsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/PlotsSection/Rows/gc_plot"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "GC plot"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/PlotsSection/Rows/gc_plot"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="depth_plot" type="HBoxContainer" parent="SectionsFlow/PlotsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/PlotsSection/Rows/depth_plot"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Depth plot"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/PlotsSection/Rows/depth_plot"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="DepthPlotColoursSection" type="VBoxContainer" parent="SectionsFlow"]
+custom_minimum_size = Vector2(145, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SectionsFlow/DepthPlotColoursSection"]
+layout_mode = 2
+text = "Depth plot colours"
+
+[node name="Rows" type="VBoxContainer" parent="SectionsFlow/DepthPlotColoursSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="depth_plot_series_0" type="HBoxContainer" parent="SectionsFlow/DepthPlotColoursSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_0"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Colour 1"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_0"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="depth_plot_series_1" type="HBoxContainer" parent="SectionsFlow/DepthPlotColoursSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_1"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Colour 2"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_1"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="depth_plot_series_2" type="HBoxContainer" parent="SectionsFlow/DepthPlotColoursSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_2"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Colour 3"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_2"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="depth_plot_series_3" type="HBoxContainer" parent="SectionsFlow/DepthPlotColoursSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_3"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Colour 4"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_3"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="depth_plot_series_4" type="HBoxContainer" parent="SectionsFlow/DepthPlotColoursSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_4"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Colour 5"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_4"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="depth_plot_series_5" type="HBoxContainer" parent="SectionsFlow/DepthPlotColoursSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_5"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Colour 6"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/DepthPlotColoursSection/Rows/depth_plot_series_5"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="AaAnnotationSection" type="VBoxContainer" parent="SectionsFlow"]
+custom_minimum_size = Vector2(145, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SectionsFlow/AaAnnotationSection"]
+layout_mode = 2
+text = "AA / Annotation"
+
+[node name="Rows" type="VBoxContainer" parent="SectionsFlow/AaAnnotationSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="feature" type="HBoxContainer" parent="SectionsFlow/AaAnnotationSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/AaAnnotationSection/Rows/feature"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Feature"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/AaAnnotationSection/Rows/feature"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="feature_accent" type="HBoxContainer" parent="SectionsFlow/AaAnnotationSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/AaAnnotationSection/Rows/feature_accent"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Feature border"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/AaAnnotationSection/Rows/feature_accent"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="feature_text" type="HBoxContainer" parent="SectionsFlow/AaAnnotationSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/AaAnnotationSection/Rows/feature_text"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Feature text"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/AaAnnotationSection/Rows/feature_text"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="stop_codon" type="HBoxContainer" parent="SectionsFlow/AaAnnotationSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/AaAnnotationSection/Rows/stop_codon"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Stop codon"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/AaAnnotationSection/Rows/stop_codon"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="GenomeSection" type="VBoxContainer" parent="SectionsFlow"]
+custom_minimum_size = Vector2(145, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SectionsFlow/GenomeSection"]
+layout_mode = 2
+text = "Genome"
+
+[node name="Rows" type="VBoxContainer" parent="SectionsFlow/GenomeSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="genome" type="HBoxContainer" parent="SectionsFlow/GenomeSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/GenomeSection/Rows/genome"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Genome"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/GenomeSection/Rows/genome"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="region_select_fill" type="HBoxContainer" parent="SectionsFlow/GenomeSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/GenomeSection/Rows/region_select_fill"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Region select fill"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/GenomeSection/Rows/region_select_fill"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="region_select_outline" type="HBoxContainer" parent="SectionsFlow/GenomeSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/GenomeSection/Rows/region_select_outline"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Region select outline"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/GenomeSection/Rows/region_select_outline"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="ambiguous_base" type="HBoxContainer" parent="SectionsFlow/GenomeSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/GenomeSection/Rows/ambiguous_base"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Ambiguous base"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/GenomeSection/Rows/ambiguous_base"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="pileup_base_a" type="HBoxContainer" parent="SectionsFlow/GenomeSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/GenomeSection/Rows/pileup_base_a"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Base A"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/GenomeSection/Rows/pileup_base_a"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="pileup_base_c" type="HBoxContainer" parent="SectionsFlow/GenomeSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/GenomeSection/Rows/pileup_base_c"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Base C"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/GenomeSection/Rows/pileup_base_c"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="pileup_base_g" type="HBoxContainer" parent="SectionsFlow/GenomeSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/GenomeSection/Rows/pileup_base_g"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Base G"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/GenomeSection/Rows/pileup_base_g"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="pileup_base_t" type="HBoxContainer" parent="SectionsFlow/GenomeSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/GenomeSection/Rows/pileup_base_t"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Base T"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/GenomeSection/Rows/pileup_base_t"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="pileup_base_d" type="HBoxContainer" parent="SectionsFlow/GenomeSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/GenomeSection/Rows/pileup_base_d"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Base D"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/GenomeSection/Rows/pileup_base_d"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="MapSection" type="VBoxContainer" parent="SectionsFlow"]
+custom_minimum_size = Vector2(145, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SectionsFlow/MapSection"]
+layout_mode = 2
+text = "Map"
+
+[node name="Rows" type="VBoxContainer" parent="SectionsFlow/MapSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="map_contig" type="HBoxContainer" parent="SectionsFlow/MapSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/MapSection/Rows/map_contig"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Map contig"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/MapSection/Rows/map_contig"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="map_contig_alt" type="HBoxContainer" parent="SectionsFlow/MapSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/MapSection/Rows/map_contig_alt"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Map contig alt"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/MapSection/Rows/map_contig_alt"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="map_view_fill" type="HBoxContainer" parent="SectionsFlow/MapSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/MapSection/Rows/map_view_fill"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Map view fill"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/MapSection/Rows/map_view_fill"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="map_view_outline" type="HBoxContainer" parent="SectionsFlow/MapSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/MapSection/Rows/map_view_outline"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Map view outline"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/MapSection/Rows/map_view_outline"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="ReadsSection" type="VBoxContainer" parent="SectionsFlow"]
+custom_minimum_size = Vector2(145, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SectionsFlow/ReadsSection"]
+layout_mode = 2
+text = "Reads"
+
+[node name="Rows" type="VBoxContainer" parent="SectionsFlow/ReadsSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="read" type="HBoxContainer" parent="SectionsFlow/ReadsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/ReadsSection/Rows/read"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Read"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/ReadsSection/Rows/read"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="insertion_marker" type="HBoxContainer" parent="SectionsFlow/ReadsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/ReadsSection/Rows/insertion_marker"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Insertion marker"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/ReadsSection/Rows/insertion_marker"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="snp" type="HBoxContainer" parent="SectionsFlow/ReadsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/ReadsSection/Rows/snp"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "SNP in read"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/ReadsSection/Rows/snp"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="snp_text" type="HBoxContainer" parent="SectionsFlow/ReadsSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/ReadsSection/Rows/snp_text"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "SNP text"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/ReadsSection/Rows/snp_text"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="VcfSection" type="VBoxContainer" parent="SectionsFlow"]
+custom_minimum_size = Vector2(145, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SectionsFlow/VcfSection"]
+layout_mode = 2
+text = "VCF"
+
+[node name="Rows" type="VBoxContainer" parent="SectionsFlow/VcfSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="vcf_gt_ref_fill" type="HBoxContainer" parent="SectionsFlow/VcfSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/VcfSection/Rows/vcf_gt_ref_fill"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "VCF ref call"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/VcfSection/Rows/vcf_gt_ref_fill"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="vcf_gt_ref_text" type="HBoxContainer" parent="SectionsFlow/VcfSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/VcfSection/Rows/vcf_gt_ref_text"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "VCF ref call text"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/VcfSection/Rows/vcf_gt_ref_text"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="vcf_gt_het_fill" type="HBoxContainer" parent="SectionsFlow/VcfSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/VcfSection/Rows/vcf_gt_het_fill"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "VCF het call"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/VcfSection/Rows/vcf_gt_het_fill"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="vcf_gt_het_text" type="HBoxContainer" parent="SectionsFlow/VcfSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/VcfSection/Rows/vcf_gt_het_text"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "VCF het call text"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/VcfSection/Rows/vcf_gt_het_text"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="vcf_gt_hom_alt_fill" type="HBoxContainer" parent="SectionsFlow/VcfSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/VcfSection/Rows/vcf_gt_hom_alt_fill"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "VCF hom call"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/VcfSection/Rows/vcf_gt_hom_alt_fill"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="vcf_gt_hom_alt_text" type="HBoxContainer" parent="SectionsFlow/VcfSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/VcfSection/Rows/vcf_gt_hom_alt_text"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "VCF hom call text"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/VcfSection/Rows/vcf_gt_hom_alt_text"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="ComparisonSection" type="VBoxContainer" parent="SectionsFlow"]
+custom_minimum_size = Vector2(145, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SectionsFlow/ComparisonSection"]
+layout_mode = 2
+text = "Comparison"
+
+[node name="Rows" type="VBoxContainer" parent="SectionsFlow/ComparisonSection"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="comparison_same_strand" type="HBoxContainer" parent="SectionsFlow/ComparisonSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/ComparisonSection/Rows/comparison_same_strand"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Match same strand"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/ComparisonSection/Rows/comparison_same_strand"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="comparison_opp_strand" type="HBoxContainer" parent="SectionsFlow/ComparisonSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/ComparisonSection/Rows/comparison_opp_strand"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Reverse match"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/ComparisonSection/Rows/comparison_opp_strand"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="comparison_selected_fill" type="HBoxContainer" parent="SectionsFlow/ComparisonSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/ComparisonSection/Rows/comparison_selected_fill"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Selected match"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/ComparisonSection/Rows/comparison_selected_fill"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="comparison_match_line" type="HBoxContainer" parent="SectionsFlow/ComparisonSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/ComparisonSection/Rows/comparison_match_line"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Match line"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/ComparisonSection/Rows/comparison_match_line"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
+
+[node name="comparison_snp" type="HBoxContainer" parent="SectionsFlow/ComparisonSection/Rows"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RoleButton" type="Button" parent="SectionsFlow/ComparisonSection/Rows/comparison_snp"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "SNP line"
+flat = true
+alignment = 0
+
+[node name="Picker" type="ColorPickerButton" parent="SectionsFlow/ComparisonSection/Rows/comparison_snp"]
+custom_minimum_size = Vector2(68, 30)
+layout_mode = 2
