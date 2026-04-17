@@ -93,7 +93,7 @@ func configure_row(genome: Dictionary, offset: float, view_span_bp: float) -> vo
 	_genome = genome.duplicate(true)
 	_genome_id = int(_genome.get("id", -1))
 	_view_span_bp = maxf(MIN_VIEW_SPAN_BP, view_span_bp)
-	_offset = maxf(0.0, offset)
+	_offset = offset
 	_refresh_if_ready()
 
 func set_view_span_bp(next_span: float) -> void:
@@ -101,7 +101,7 @@ func set_view_span_bp(next_span: float) -> void:
 	_refresh_if_ready()
 
 func set_view_offset(next_offset: float) -> void:
-	_offset = maxf(0.0, next_offset)
+	_offset = next_offset
 	_refresh_if_ready()
 
 func set_reference_slice(slice_start: int, sequence: String) -> void:

@@ -26,6 +26,7 @@ const LOCK_BTN_SIZE := Vector2(30.0, 30.0)
 const LOCK_BTN_X := 18.0
 const MIN_VIEW_SPAN_BP := 50.0
 const DEFAULT_VIEW_SPAN_BP := 10000.0
+const MAX_VIEW_SPAN_OVERSCAN_FRAC := 0.15
 const DETAIL_MAX_BLOCKS_PER_PAIR := 96
 const REGION_SELECT_DRAG_THRESHOLD_PX := 6.0
 
@@ -206,16 +207,14 @@ func set_mouse_wheel_pan_sensitivity(value: float) -> void:
 
 
 func set_zoom_span_bp(next_span: float) -> void:
-	var longest := _longest_genome_len()
-	var max_span := maxf(MIN_VIEW_SPAN_BP, longest)
+	var max_span := _max_zoom_span_bp()
 	_view_span_bp = clampf(next_span, MIN_VIEW_SPAN_BP, max_span)
 	for genome_id in _order:
 		var row = _rows.get(int(genome_id))
 		if row == null:
 			continue
 		var genome_len := float(_genomes_by_id.get(int(genome_id), {}).get("length", 0))
-		var max_offset := maxf(0.0, genome_len - _view_span_bp)
-		var next_offset := clampf(float(_offsets.get(int(genome_id), 0.0)), 0.0, max_offset)
+		var next_offset := _clamped_display_offset(float(_offsets.get(int(genome_id), 0.0)), genome_len)
 		_offsets[int(genome_id)] = next_offset
 		row.set_view_span_bp(_view_span_bp)
 		row.set_view_offset(next_offset)
@@ -231,7 +230,7 @@ func reset_view_to_full_genomes() -> void:
 	var longest := _longest_genome_len()
 	if longest <= 0.0:
 		return
-	_view_span_bp = maxf(MIN_VIEW_SPAN_BP, longest)
+	_view_span_bp = _max_zoom_span_bp()
 	for genome_id in _order:
 		_offsets[int(genome_id)] = 0.0
 		var row = _rows.get(int(genome_id))
@@ -265,8 +264,7 @@ func pan_all_by_fraction(fraction: float) -> void:
 	var targets := {}
 	for genome_id in _order:
 		var genome_len := float(_genomes_by_id.get(int(genome_id), {}).get("length", 0))
-		var max_offset := maxf(0.0, genome_len - _view_span_bp)
-		var next_offset := clampf(float(_offsets.get(int(genome_id), 0.0)) + _view_span_bp * fraction, 0.0, max_offset)
+		var next_offset := _clamped_display_offset(float(_offsets.get(int(genome_id), 0.0)) + _view_span_bp * fraction, genome_len)
 		targets[int(genome_id)] = next_offset
 	_animate_offsets_to(targets)
 
@@ -275,7 +273,7 @@ func move_all_to_boundary(at_end: bool) -> void:
 	var targets := {}
 	for genome_id in _order:
 		var genome_len := float(_genomes_by_id.get(int(genome_id), {}).get("length", 0))
-		var next_offset := maxf(0.0, genome_len - _view_span_bp) if at_end else 0.0
+		var next_offset := _max_display_offset(genome_len) if at_end else 0.0
 		targets[int(genome_id)] = next_offset
 	_animate_offsets_to(targets)
 
@@ -296,8 +294,7 @@ func focus_genome_range(genome_id: int, start_bp: int, end_bp: int) -> void:
 	if genome_len <= 0.0:
 		return
 	var center_bp := 0.5 * float(start_bp + maxi(start_bp + 1, end_bp))
-	var max_offset := maxf(0.0, genome_len - _view_span_bp)
-	var next_offset := clampf(center_bp - _view_span_bp * 0.5, 0.0, max_offset)
+	var next_offset := _clamped_display_offset(center_bp - _view_span_bp * 0.5, genome_len)
 	_animate_offsets_to(_targets_with_locked_propagation({genome_id: next_offset}))
 
 func focus_genome_range_with_zoom(genome_id: int, start_bp: int, end_bp: int) -> void:
@@ -505,8 +502,7 @@ func apply_view_slot_state(state: Dictionary) -> void:
 	for genome_id_any in _order:
 		var genome_id := int(genome_id_any)
 		var genome_len := float(_genomes_by_id.get(genome_id, {}).get("length", 0))
-		var max_offset := maxf(0.0, genome_len - _view_span_bp)
-		_offsets[genome_id] = clampf(float(offsets_dict.get(genome_id, 0.0)), 0.0, max_offset)
+		_offsets[genome_id] = _clamped_display_offset(float(offsets_dict.get(genome_id, 0.0)), genome_len)
 	_sync_row_instances()
 	_layout_rows_and_locks()
 	_schedule_post_layout_refresh()
@@ -1320,8 +1316,7 @@ func _focus_match_left(payload: Dictionary) -> void:
 			continue
 		var start_bp := float(pair_any[1])
 		var genome_len := float(_genomes_by_id.get(genome_id, {}).get("length", 0))
-		var max_offset := maxf(0.0, genome_len - _view_span_bp)
-		var next_offset := clampf(start_bp - _view_span_bp * left_frac, 0.0, max_offset)
+		var next_offset := _clamped_display_offset(start_bp - _view_span_bp * left_frac, genome_len)
 		direct_targets[genome_id] = next_offset
 	_animate_offsets_to(_targets_with_locked_propagation(direct_targets))
 
@@ -1365,8 +1360,7 @@ func _targets_with_locked_propagation(direct_targets: Dictionary) -> Dictionary:
 			if targets.has(neighbor_id) or direct_targets.has(neighbor_id):
 				continue
 			var genome_len := float(_genomes_by_id.get(neighbor_id, {}).get("length", 0))
-			var max_offset := maxf(0.0, genome_len - _view_span_bp)
-			var next_offset := clampf(float(_offsets.get(neighbor_id, 0.0)) + delta, 0.0, max_offset)
+			var next_offset := _clamped_display_offset(float(_offsets.get(neighbor_id, 0.0)) + delta, genome_len)
 			targets[neighbor_id] = next_offset
 			queue.append({
 				"genome_id": neighbor_id,
@@ -1451,8 +1445,7 @@ func _pan_all_by_pixels(delta_x: float, animated: bool = true) -> void:
 		_zoom_tween = null
 	for genome_id in _order:
 		var genome_len := float(_genomes_by_id.get(int(genome_id), {}).get("length", 0))
-		var max_offset := maxf(0.0, genome_len - _view_span_bp)
-		var next_offset := clampf(float(_offsets.get(int(genome_id), 0.0)) + _view_span_bp * fraction, 0.0, max_offset)
+		var next_offset := _clamped_display_offset(float(_offsets.get(int(genome_id), 0.0)) + _view_span_bp * fraction, genome_len)
 		_offsets[int(genome_id)] = next_offset
 		var row2 = _rows.get(int(genome_id))
 		if row2 != null:
@@ -1465,8 +1458,7 @@ func _pan_all_by_pixels(delta_x: float, animated: bool = true) -> void:
 
 
 func _animate_zoom_to_span(next_span: float, anchor_x: float, duration: float = 0.22) -> void:
-	var longest := _longest_genome_len()
-	var target_span := clampf(next_span, MIN_VIEW_SPAN_BP, maxf(MIN_VIEW_SPAN_BP, longest))
+	var target_span := clampf(next_span, MIN_VIEW_SPAN_BP, _max_zoom_span_bp())
 	if absf(target_span - _view_span_bp) < 0.000001:
 		return
 	if _pan_tween != null:
@@ -1496,11 +1488,9 @@ func _animate_zoom_to_span(next_span: float, anchor_x: float, duration: float = 
 
 
 func _set_zoom_span_animated(span_value: float, anchors: Dictionary, anchor_x: float) -> void:
-	var longest := _longest_genome_len()
-	_view_span_bp = clampf(span_value, MIN_VIEW_SPAN_BP, maxf(MIN_VIEW_SPAN_BP, longest))
+	_view_span_bp = clampf(span_value, MIN_VIEW_SPAN_BP, _max_zoom_span_bp())
 	for genome_id in _order:
 		var genome_len := float(_genomes_by_id.get(int(genome_id), {}).get("length", 0))
-		var max_offset := maxf(0.0, genome_len - _view_span_bp)
 		var row = _rows.get(int(genome_id))
 		var anchor_frac := 0.5
 		if row != null:
@@ -1508,7 +1498,7 @@ func _set_zoom_span_animated(span_value: float, anchors: Dictionary, anchor_x: f
 			if axis_rect.size.x > 0.0:
 				anchor_frac = clampf((anchor_x - axis_rect.position.x) / axis_rect.size.x, 0.0, 1.0)
 		var anchor_bp := float(anchors.get(int(genome_id), _view_span_bp * 0.5))
-		var next_offset := clampf(anchor_bp - _view_span_bp * anchor_frac, 0.0, max_offset)
+		var next_offset := _clamped_display_offset(anchor_bp - _view_span_bp * anchor_frac, genome_len)
 		_offsets[int(genome_id)] = next_offset
 		if row != null:
 			row.set_view_span_bp(_view_span_bp)
@@ -1810,9 +1800,11 @@ func _on_row_offset_changed(genome_id: int, value: float) -> void:
 	if _syncing_offsets:
 		return
 	var previous := float(_offsets.get(genome_id, value))
-	_offsets[genome_id] = value
-	if absf(value - previous) > 0.000001:
-		_propagate_locked_offsets(genome_id, value - previous)
+	var genome_len := float(_genomes_by_id.get(genome_id, {}).get("length", 0))
+	var next_value := _clamped_display_offset(value, genome_len)
+	_offsets[genome_id] = next_value
+	if absf(next_value - previous) > 0.000001:
+		_propagate_locked_offsets(genome_id, next_value - previous)
 	_schedule_detail_request()
 	queue_redraw()
 
@@ -1827,8 +1819,7 @@ func _on_row_pan_step_requested(genome_id: int, fraction: float) -> void:
 	while not queue.is_empty():
 		var current_id := int(queue.pop_front())
 		var genome_len := float(_genomes_by_id.get(current_id, {}).get("length", 0))
-		var max_offset := maxf(0.0, genome_len - _view_span_bp)
-		targets[current_id] = clampf(float(_offsets.get(current_id, 0.0)) + delta, 0.0, max_offset)
+		targets[current_id] = _clamped_display_offset(float(_offsets.get(current_id, 0.0)) + delta, genome_len)
 		var idx := _order.find(current_id)
 		if idx < 0:
 			continue
@@ -1853,13 +1844,12 @@ func _on_row_axis_center_requested(genome_id: int, click_x_in_parent: float) -> 
 	var genome_len := float(_genomes_by_id.get(genome_id, {}).get("length", 0))
 	if genome_len <= 0.0:
 		return
-	var max_offset := maxf(0.0, genome_len - _view_span_bp)
 	var axis_rect: Rect2 = row.get_axis_rect_in_parent()
 	if axis_rect.size.x <= 0.0:
 		return
 	var frac := clampf((click_x_in_parent - axis_rect.position.x) / axis_rect.size.x, 0.0, 1.0)
 	var clicked_bp: float = float(_offsets.get(genome_id, 0.0)) + frac * _view_span_bp
-	var next_offset := clampf(clicked_bp - _view_span_bp * 0.5, 0.0, max_offset)
+	var next_offset := _clamped_display_offset(clicked_bp - _view_span_bp * 0.5, genome_len)
 	_animate_offsets_to(_targets_with_locked_propagation({genome_id: next_offset}))
 
 
@@ -1897,13 +1887,29 @@ func _propagate_locked_offsets(source_genome_id: int, delta: float) -> void:
 			seen[neighbor_id] = true
 			queue.append(neighbor_id)
 			var genome_len := float(_genomes_by_id.get(neighbor_id, {}).get("length", 0))
-			var max_offset := maxf(0.0, genome_len - _view_span_bp)
-			var next_offset := clampf(float(_offsets.get(neighbor_id, 0.0)) + delta, 0.0, max_offset)
+			var next_offset := _clamped_display_offset(float(_offsets.get(neighbor_id, 0.0)) + delta, genome_len)
 			_offsets[neighbor_id] = next_offset
 			var row = _rows.get(neighbor_id)
 			if row != null:
 				row.set_view_offset(next_offset)
 	_syncing_offsets = false
+
+
+func _min_display_offset() -> float:
+	return -_view_span_bp
+
+
+func _max_display_offset(genome_len: float) -> float:
+	return maxf(0.0, genome_len)
+
+
+func _max_zoom_span_bp() -> float:
+	var longest := _longest_genome_len()
+	return maxf(MIN_VIEW_SPAN_BP, longest * (1.0 + MAX_VIEW_SPAN_OVERSCAN_FRAC))
+
+
+func _clamped_display_offset(offset: float, genome_len: float) -> float:
+	return clampf(offset, _min_display_offset(), _max_display_offset(genome_len))
 
 
 func _row_index_for_y(y: float) -> int:
