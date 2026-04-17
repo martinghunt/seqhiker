@@ -1090,6 +1090,70 @@ func TestGetComparisonBlocksByGenomesWorksForReorderedNonAdjacentGenomes(t *test
 	}
 }
 
+func TestComparisonMonomerDimerBlocksDoNotDependOnLoadOrder(t *testing.T) {
+	dir := t.TempDir()
+	monomerSeq := comparisonDeterministicTestDNA(6707)
+	dimerSeq := monomerSeq + monomerSeq
+	monomerPath := filepath.Join(dir, "monomer.fa")
+	dimerPath := filepath.Join(dir, "dimer.fa")
+	if err := os.WriteFile(monomerPath, []byte(">monomer\n"+monomerSeq+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(monomer) returned error: %v", err)
+	}
+	if err := os.WriteFile(dimerPath, []byte(">dimer\n"+dimerSeq+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(dimer) returned error: %v", err)
+	}
+
+	e := NewEngine()
+	monomerInfo, err := e.AddComparisonGenome(monomerPath)
+	if err != nil {
+		t.Fatalf("AddComparisonGenome(monomer) returned error: %v", err)
+	}
+	dimerInfo, err := e.AddComparisonGenome(dimerPath)
+	if err != nil {
+		t.Fatalf("AddComparisonGenome(dimer) returned error: %v", err)
+	}
+	blocks, err := e.GetComparisonBlocksByGenomes(monomerInfo.ID, dimerInfo.ID)
+	if err != nil {
+		t.Fatalf("GetComparisonBlocksByGenomes(monomer,dimer) returned error: %v", err)
+	}
+	if len(blocks) == 0 {
+		t.Fatal("expected monomer->dimer comparison to yield blocks")
+	}
+
+	e = NewEngine()
+	dimerInfo, err = e.AddComparisonGenome(dimerPath)
+	if err != nil {
+		t.Fatalf("AddComparisonGenome(dimer first) returned error: %v", err)
+	}
+	monomerInfo, err = e.AddComparisonGenome(monomerPath)
+	if err != nil {
+		t.Fatalf("AddComparisonGenome(monomer second) returned error: %v", err)
+	}
+	blocks, err = e.GetComparisonBlocksByGenomes(dimerInfo.ID, monomerInfo.ID)
+	if err != nil {
+		t.Fatalf("GetComparisonBlocksByGenomes(dimer,monomer) returned error: %v", err)
+	}
+	if len(blocks) == 0 {
+		t.Fatal("expected dimer->monomer comparison to yield blocks")
+	}
+}
+
+func comparisonDeterministicTestDNA(length int) string {
+	var b strings.Builder
+	b.Grow(length)
+	state := uint32(1)
+	bases := [4]byte{'A', 'C', 'G', 'T'}
+	for b.Len() < length {
+		state = state*1664525 + 1013904223
+		b.WriteByte(bases[(state>>30)&3])
+		if b.Len()%97 == 0 {
+			b.WriteString("GATTACAGGCT")
+		}
+	}
+	seq := b.String()
+	return seq[:length]
+}
+
 func TestComparisonGeneratedReverseChrB2SegmentSummary(t *testing.T) {
 	e := NewEngine()
 	paths, err := e.GenerateComparisonTestData(t.TempDir())

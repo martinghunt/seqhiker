@@ -820,8 +820,8 @@ func buildComparisonBlockDetailByAnchors(query, target *comparisonGenome, summar
 	targetIndex := buildSeedIndex(extractMinimizers(targetSeq, comparisonMinimizerK, comparisonMinimizerWindow, false))
 	anchors := make([]comparisonAnchor, 0, len(querySeeds))
 	for _, seed := range querySeeds {
-		if positions, ok := targetIndex[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
-			for _, tPos := range positions {
+		if positions, ok := targetIndex[seed.Hash]; ok {
+			for _, tPos := range sampleComparisonSeedPositions(positions) {
 				anchors = append(anchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tPos})
 			}
 		}
@@ -1003,13 +1003,13 @@ func buildComparisonBlockDetails(query, target *comparisonGenome) []comparisonBl
 	sameAnchors := make([]comparisonAnchor, 0, 1024)
 	reverseAnchors := make([]comparisonAnchor, 0, 1024)
 	for _, seed := range querySeeds {
-		if positions, ok := targetForward[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
-			for _, tPos := range positions {
+		if positions, ok := targetForward[seed.Hash]; ok {
+			for _, tPos := range sampleComparisonSeedPositions(positions) {
 				sameAnchors = append(sameAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tPos})
 			}
 		}
-		if positions, ok := targetReverse[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
-			for _, tPos := range positions {
+		if positions, ok := targetReverse[seed.Hash]; ok {
+			for _, tPos := range sampleComparisonSeedPositions(positions) {
 				tTrans, ok := comparisonReverseDisplayPos(target, tPos, comparisonMinimizerK)
 				if !ok {
 					continue
@@ -1154,6 +1154,37 @@ func buildRefinedChainsFromAnchors(query, target *comparisonGenome, anchors []co
 	if len(anchors) == 0 {
 		return nil
 	}
+	diagBuckets := make(map[int][]comparisonAnchor, 16)
+	for _, anchor := range anchors {
+		diagBuckets[diagBucket(anchor.TTrans-anchor.QPos)] = append(diagBuckets[diagBucket(anchor.TTrans-anchor.QPos)], anchor)
+	}
+	bucketKeys := make([]int, 0, len(diagBuckets))
+	for key := range diagBuckets {
+		bucketKeys = append(bucketKeys, key)
+	}
+	sort.Ints(bucketKeys)
+
+	chains := make([]comparisonChain, 0, 32)
+	for _, key := range bucketKeys {
+		chains = append(chains, buildComparisonChainsFromAnchors(query, target, diagBuckets[key], sameStrand)...)
+	}
+
+	out := make([]comparisonRefinedChain, 0, len(chains))
+	for _, chain := range chains {
+		for _, subchain := range splitComparisonChainForRefinement(chain) {
+			refined := comparisonChainToRefinedChain(subchain)
+			if refined.Summary.QueryEnd > refined.Summary.QueryStart && refined.Summary.TargetEnd > refined.Summary.TargetStart && comparisonChainWithinSingleSegments(query, target, refined) {
+				out = append(out, refined)
+			}
+		}
+	}
+	return mergeAdjacentRefinedChains(query, target, out)
+}
+
+func buildComparisonChainsFromAnchors(query, target *comparisonGenome, anchors []comparisonAnchor, sameStrand bool) []comparisonChain {
+	if len(anchors) == 0 {
+		return nil
+	}
 	sort.Slice(anchors, func(i, j int) bool {
 		if anchors[i].QPos == anchors[j].QPos {
 			if anchors[i].TTrans == anchors[j].TTrans {
@@ -1164,7 +1195,7 @@ func buildRefinedChainsFromAnchors(query, target *comparisonGenome, anchors []co
 		return anchors[i].QPos < anchors[j].QPos
 	})
 
-	chains := make([]comparisonChain, 0, 32)
+	chains := make([]comparisonChain, 0, 8)
 	var current comparisonChain
 	for _, anchor := range dedupComparisonAnchors(anchors) {
 		if len(current.Anchors) == 0 {
@@ -1191,17 +1222,7 @@ func buildRefinedChainsFromAnchors(query, target *comparisonGenome, anchors []co
 	if isUsableComparisonChain(current) {
 		chains = append(chains, current)
 	}
-
-	out := make([]comparisonRefinedChain, 0, len(chains))
-	for _, chain := range chains {
-		for _, subchain := range splitComparisonChainForRefinement(chain) {
-			refined := comparisonChainToRefinedChain(subchain)
-			if refined.Summary.QueryEnd > refined.Summary.QueryStart && refined.Summary.TargetEnd > refined.Summary.TargetStart && comparisonChainWithinSingleSegments(query, target, refined) {
-				out = append(out, refined)
-			}
-		}
-	}
-	return mergeAdjacentRefinedChains(query, target, out)
+	return chains
 }
 
 func mergeAdjacentRefinedChains(query, target *comparisonGenome, chains []comparisonRefinedChain) []comparisonRefinedChain {
@@ -1384,13 +1405,13 @@ func buildComparisonAnchors(query, target *comparisonGenome) ([]comparisonAnchor
 	sameAnchors := make([]comparisonAnchor, 0, 1024)
 	reverseAnchors := make([]comparisonAnchor, 0, 1024)
 	for _, seed := range querySeeds {
-		if positions, ok := targetForward[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
-			for _, tPos := range positions {
+		if positions, ok := targetForward[seed.Hash]; ok {
+			for _, tPos := range sampleComparisonSeedPositions(positions) {
 				sameAnchors = append(sameAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tPos})
 			}
 		}
-		if positions, ok := targetReverse[seed.Hash]; ok && len(positions) > 0 && len(positions) <= comparisonMaxSeedHits {
-			for _, tPos := range positions {
+		if positions, ok := targetReverse[seed.Hash]; ok {
+			for _, tPos := range sampleComparisonSeedPositions(positions) {
 				tTrans, ok := comparisonReverseDisplayPos(target, tPos, comparisonMinimizerK)
 				if !ok {
 					continue
@@ -1400,6 +1421,26 @@ func buildComparisonAnchors(query, target *comparisonGenome) ([]comparisonAnchor
 		}
 	}
 	return sameAnchors, reverseAnchors
+}
+
+func sampleComparisonSeedPositions(positions []int) []int {
+	if len(positions) == 0 {
+		return nil
+	}
+	if len(positions) <= comparisonMaxSeedHits {
+		return positions
+	}
+	sampled := make([]int, 0, comparisonMaxSeedHits)
+	lastIdx := -1
+	for i := 0; i < comparisonMaxSeedHits; i++ {
+		idx := i * (len(positions) - 1) / (comparisonMaxSeedHits - 1)
+		if idx == lastIdx {
+			continue
+		}
+		sampled = append(sampled, positions[idx])
+		lastIdx = idx
+	}
+	return sampled
 }
 
 func shouldSplitComparisonChain(qGap, tGap int) bool {
