@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Position of colour nucleotides by base in the settings menu
 
-## [1.1.0] - 2026-04-18
+## [1.1.0] - "Hooloovoo Blue" - 2026-04-18
 
 ### Added
 - Theme editor with live preview, and JSON import/export of themes
