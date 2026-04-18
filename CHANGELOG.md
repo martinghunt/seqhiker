@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved matches in comparison mode, previously very low percent identity matches are now split into more accurate higher percent identity matches.
 - Some matches incorrectly reported as low, when actually high. Zooming in showed no match lines in these cases, but now also fixed.
 - Comparison mode bug where matches could be missing at repeats, noticeable in order genomes were added or when trying to compare genome to itself
+- Windows icon in file manager shows seqhiker icon instead of Godot default icon
 
 ## [1.0.0] - "Total Perspective" - 2026-04-05
 
