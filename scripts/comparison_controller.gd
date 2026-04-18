@@ -1,10 +1,7 @@
 extends RefCounted
 class_name ComparisonController
 
-const CONTEXT_MENU_REVERSE_SEGMENT := 1
-const CONTEXT_MENU_RESTORE_SEGMENT := 2
-const CONTEXT_MENU_REVERSE_GENOME := 3
-const CONTEXT_MENU_RESTORE_GENOME := 4
+const ContigContextMenuScript = preload("res://scripts/contig_context_menu.gd")
 
 var host: Node = null
 var zem: RefCounted = null
@@ -28,7 +25,6 @@ var _max_identity_spin: SpinBox
 var _generate_test_genomes_button: Button
 var _contig_context_menu: PopupMenu = null
 var _contig_context_genome_id := -1
-var _contig_context_segment: Dictionary = {}
 
 
 func configure(next_host: Node, next_zem: RefCounted, next_themes_lib: RefCounted, next_view: Control) -> void:
@@ -71,9 +67,9 @@ func _ensure_contig_context_menu() -> void:
 		return
 	if host == null:
 		return
-	_contig_context_menu = PopupMenu.new()
+	_contig_context_menu = ContigContextMenuScript.new()
 	_contig_context_menu.name = "ComparisonContigContextMenu"
-	_contig_context_menu.id_pressed.connect(_on_contig_context_menu_id_pressed)
+	_contig_context_menu.contig_action_selected.connect(_on_contig_context_menu_action_selected)
 	host.add_child(_contig_context_menu)
 
 
@@ -266,68 +262,58 @@ func _on_comparison_contig_context_requested(genome_id: int, segment: Dictionary
 	if _contig_context_menu == null:
 		return
 	_contig_context_genome_id = genome_id
-	_contig_context_segment = segment.duplicate(true)
 	var genome := _genome_by_id(genome_id)
 	var segments: Array = genome.get("segments", [])
-	var has_segments := not segments.is_empty()
-	var all_reversed := has_segments
-	var any_reversed := false
-	for seg_any in segments:
-		var seg: Dictionary = seg_any
-		if bool(seg.get("reversed", false)):
-			any_reversed = true
-		if not bool(seg.get("reversed", false)):
-			all_reversed = false
-	_contig_context_menu.clear()
-	_contig_context_menu.add_item("Reverse complement contig", CONTEXT_MENU_REVERSE_SEGMENT)
-	_contig_context_menu.set_item_disabled(_contig_context_menu.item_count - 1, bool(segment.get("reversed", false)))
-	_contig_context_menu.add_item("Restore contig forward", CONTEXT_MENU_RESTORE_SEGMENT)
-	_contig_context_menu.set_item_disabled(_contig_context_menu.item_count - 1, not bool(segment.get("reversed", false)))
-	_contig_context_menu.add_separator()
-	_contig_context_menu.add_item("Reverse complement all contigs", CONTEXT_MENU_REVERSE_GENOME)
-	_contig_context_menu.set_item_disabled(_contig_context_menu.item_count - 1, not has_segments or all_reversed)
-	_contig_context_menu.add_item("Restore all contigs forward", CONTEXT_MENU_RESTORE_GENOME)
-	_contig_context_menu.set_item_disabled(_contig_context_menu.item_count - 1, not has_segments or not any_reversed)
+	var popup_callable := Callable()
 	if host != null and host.has_method("_popup_menu_at_mouse"):
-		host._popup_menu_at_mouse(_contig_context_menu)
-	else:
-		_contig_context_menu.popup()
+		popup_callable = Callable(host, "_popup_menu_at_mouse")
+	_contig_context_menu.popup_for_segment(segment, segments, popup_callable)
 
 
-func _on_contig_context_menu_id_pressed(action_id: int) -> void:
-	if _contig_context_genome_id < 0 or _contig_context_segment.is_empty():
+func _on_contig_context_menu_action_selected(action_id: int, segment: Dictionary) -> void:
+	if _contig_context_genome_id < 0:
 		return
 	var view_state := get_view_slot_state()
-	var segment_name := str(_contig_context_segment.get("name", "contig"))
+	var segment_name := str(segment.get("name", "contig"))
 	match action_id:
-		CONTEXT_MENU_REVERSE_SEGMENT:
-			var reverse_resp: Dictionary = zem.set_comparison_segment_orientation(_contig_context_genome_id, int(_contig_context_segment.get("start", 0)), true)
+		ContigContextMenuScript.ACTION_REVERSE_SEGMENT:
+			var reverse_resp: Dictionary = zem.set_comparison_segment_orientation(_contig_context_genome_id, int(segment.get("start", 0)), true)
 			if not bool(reverse_resp.get("ok", false)):
 				host._set_status("Reverse complement failed: %s" % str(reverse_resp.get("error", "error")), true)
 				return
 			_apply_orientation_response(reverse_resp.get("genomes", []), [_contig_context_genome_id], view_state)
 			host._set_status("Reversed %s." % segment_name)
-		CONTEXT_MENU_RESTORE_SEGMENT:
-			var restore_resp: Dictionary = zem.set_comparison_segment_orientation(_contig_context_genome_id, int(_contig_context_segment.get("start", 0)), false)
+		ContigContextMenuScript.ACTION_RESTORE_SEGMENT:
+			var restore_resp: Dictionary = zem.set_comparison_segment_orientation(_contig_context_genome_id, int(segment.get("start", 0)), false)
 			if not bool(restore_resp.get("ok", false)):
 				host._set_status("Restore forward failed: %s" % str(restore_resp.get("error", "error")), true)
 				return
 			_apply_orientation_response(restore_resp.get("genomes", []), [_contig_context_genome_id], view_state)
 			host._set_status("Restored %s forward." % segment_name)
-		CONTEXT_MENU_REVERSE_GENOME:
+		ContigContextMenuScript.ACTION_REVERSE_ALL:
 			var reverse_genome_resp: Dictionary = zem.set_comparison_genome_orientation(_contig_context_genome_id, true)
 			if not bool(reverse_genome_resp.get("ok", false)):
 				host._set_status("Reverse complement all failed: %s" % str(reverse_genome_resp.get("error", "error")), true)
 				return
 			_apply_orientation_response(reverse_genome_resp.get("genomes", []), [_contig_context_genome_id], view_state)
 			host._set_status("Reversed all contigs in %s." % str(_genome_by_id(_contig_context_genome_id).get("name", "genome")))
-		CONTEXT_MENU_RESTORE_GENOME:
+		ContigContextMenuScript.ACTION_RESTORE_ALL:
 			var restore_genome_resp: Dictionary = zem.set_comparison_genome_orientation(_contig_context_genome_id, false)
 			if not bool(restore_genome_resp.get("ok", false)):
 				host._set_status("Restore all forward failed: %s" % str(restore_genome_resp.get("error", "error")), true)
 				return
 			_apply_orientation_response(restore_genome_resp.get("genomes", []), [_contig_context_genome_id], view_state)
 			host._set_status("Restored all contigs in %s forward." % str(_genome_by_id(_contig_context_genome_id).get("name", "genome")))
+		_:
+			var move_code: int = _contig_context_menu.move_code_for_action(action_id)
+			if move_code < 0:
+				return
+			var move_resp: Dictionary = zem.move_comparison_segment(_contig_context_genome_id, int(segment.get("start", 0)), move_code)
+			if not bool(move_resp.get("ok", false)):
+				host._set_status("%s failed: %s" % [_contig_context_menu.move_error_label(action_id), str(move_resp.get("error", "error"))], true)
+				return
+			_apply_orientation_response(move_resp.get("genomes", []), [_contig_context_genome_id], view_state)
+			host._set_status(_contig_context_menu.move_status_text(action_id, segment_name))
 
 
 func _apply_orientation_response(genomes: Array, refetch_ids: Array, view_state: Dictionary) -> void:

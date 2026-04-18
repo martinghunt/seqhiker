@@ -46,6 +46,8 @@ const MSG_SET_CHROMOSOME_ORIENTATION := 42
 const MSG_SET_ALL_CHROMOSOME_ORIENTATIONS := 43
 const MSG_SET_COMPARISON_SEGMENT_ORIENTATION := 44
 const MSG_SET_COMPARISON_GENOME_ORIENTATION := 45
+const MSG_MOVE_CHROMOSOME := 46
+const MSG_MOVE_COMPARISON_SEGMENT := 47
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -605,6 +607,29 @@ func set_comparison_genome_orientation(genome_id: int, reversed: bool) -> Dictio
 	payload.encode_u16(0, genome_id)
 	payload[2] = 1 if reversed else 0
 	var resp := _send_request(MSG_SET_COMPARISON_GENOME_ORIENTATION, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["genomes"] = _parse_comparison_genomes(resp.get("payload", PackedByteArray()))
+	return resp
+
+func move_chromosome(chr_id: int, move_action: int) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(3)
+	payload.encode_u16(0, chr_id)
+	payload[2] = move_action
+	var resp := _send_request(MSG_MOVE_CHROMOSOME, payload, LOAD_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["chromosomes"] = _parse_chromosomes(resp.get("payload", PackedByteArray()))
+	return resp
+
+func move_comparison_segment(genome_id: int, segment_start_bp: int, move_action: int) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(7)
+	payload.encode_u16(0, genome_id)
+	payload.encode_u32(2, segment_start_bp)
+	payload[6] = move_action
+	var resp := _send_request(MSG_MOVE_COMPARISON_SEGMENT, payload, LOAD_TIMEOUT_MS)
 	if not resp.get("ok", false):
 		return resp
 	resp["genomes"] = _parse_comparison_genomes(resp.get("payload", PackedByteArray()))

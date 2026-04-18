@@ -15,6 +15,7 @@ const VariantControllerScript = preload("res://scripts/variant_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
 const ComparisonControllerScript = preload("res://scripts/comparison_controller.gd")
 const ThemeEditorControllerScript = preload("res://scripts/theme_editor_controller.gd")
+const ContigContextMenuScript = preload("res://scripts/contig_context_menu.gd")
 const ReadTrackSettingsPanelScene = preload("res://scenes/ReadTrackSettingsPanel.tscn")
 const CONFIG_PATH := "user://seqhiker_settings.cfg"
 const ZEM_BIN_SUBDIR := "bin"
@@ -62,10 +63,6 @@ const MAX_UI_FONT_SIZE := 26
 const VIEW_SLOT_COUNT := 9
 const APP_MODE_BROWSER := 0
 const APP_MODE_COMPARISON := 1
-const BROWSER_CONTIG_MENU_REVERSE_CONTIG := 1
-const BROWSER_CONTIG_MENU_RESTORE_CONTIG := 2
-const BROWSER_CONTIG_MENU_REVERSE_ALL := 3
-const BROWSER_CONTIG_MENU_RESTORE_ALL := 4
 const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
 const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
 const SAM_FLAG_LABELS := [
@@ -183,7 +180,6 @@ var _settings_toggle_icon_label: Label
 var _feature_panel_open := false
 var _context_panel_mode := CONTEXT_PANEL_NONE
 var _browser_contig_context_menu: PopupMenu = null
-var _browser_contig_context_segment: Dictionary = {}
 var _feature_tween: Tween
 var _fetch_timer: Timer
 var _fetch_in_progress := false
@@ -2987,9 +2983,9 @@ func _apply_sequence_view(reset_viewport: bool) -> void:
 func _ensure_browser_contig_context_menu() -> void:
 	if _browser_contig_context_menu != null and is_instance_valid(_browser_contig_context_menu):
 		return
-	_browser_contig_context_menu = PopupMenu.new()
+	_browser_contig_context_menu = ContigContextMenuScript.new()
 	_browser_contig_context_menu.name = "BrowserContigContextMenu"
-	_browser_contig_context_menu.id_pressed.connect(_on_browser_contig_context_menu_id_pressed)
+	_browser_contig_context_menu.contig_action_selected.connect(_on_browser_contig_context_menu_action_selected)
 	add_child(_browser_contig_context_menu)
 
 func _popup_menu_at_mouse(menu: PopupMenu) -> void:
@@ -3017,63 +3013,52 @@ func _on_map_contig_context_requested(segment: Dictionary) -> void:
 	_ensure_browser_contig_context_menu()
 	if _browser_contig_context_menu == null:
 		return
-	_browser_contig_context_segment = segment.duplicate(true)
-	var all_reversed := not _chromosomes.is_empty()
-	var any_reversed := false
-	for chr_any in _chromosomes:
-		var chr: Dictionary = chr_any
-		if bool(chr.get("reversed", false)):
-			any_reversed = true
-		if not bool(chr.get("reversed", false)):
-			all_reversed = false
-	_browser_contig_context_menu.clear()
-	_browser_contig_context_menu.add_item("Reverse complement contig", BROWSER_CONTIG_MENU_REVERSE_CONTIG)
-	_browser_contig_context_menu.set_item_disabled(_browser_contig_context_menu.item_count - 1, bool(segment.get("reversed", false)))
-	_browser_contig_context_menu.add_item("Restore contig forward", BROWSER_CONTIG_MENU_RESTORE_CONTIG)
-	_browser_contig_context_menu.set_item_disabled(_browser_contig_context_menu.item_count - 1, not bool(segment.get("reversed", false)))
-	_browser_contig_context_menu.add_separator()
-	_browser_contig_context_menu.add_item("Reverse complement all contigs", BROWSER_CONTIG_MENU_REVERSE_ALL)
-	_browser_contig_context_menu.set_item_disabled(_browser_contig_context_menu.item_count - 1, _chromosomes.is_empty() or all_reversed)
-	_browser_contig_context_menu.add_item("Restore all contigs forward", BROWSER_CONTIG_MENU_RESTORE_ALL)
-	_browser_contig_context_menu.set_item_disabled(_browser_contig_context_menu.item_count - 1, _chromosomes.is_empty() or not any_reversed)
-	_popup_menu_at_mouse(_browser_contig_context_menu)
+	_browser_contig_context_menu.popup_for_segment(segment, _chromosomes, Callable(self, "_popup_menu_at_mouse"))
 
-func _on_browser_contig_context_menu_id_pressed(action_id: int) -> void:
-	if _browser_contig_context_segment.is_empty():
-		return
-	var segment_name := str(_browser_contig_context_segment.get("raw_name", _browser_contig_context_segment.get("name", "contig")))
+func _on_browser_contig_context_menu_action_selected(action_id: int, segment: Dictionary) -> void:
+	var segment_name := str(segment.get("raw_name", segment.get("name", "contig")))
 	var resp: Dictionary = {}
 	match action_id:
-		BROWSER_CONTIG_MENU_REVERSE_CONTIG:
-			resp = _zem.set_chromosome_orientation(int(_browser_contig_context_segment.get("id", -1)), true)
+		ContigContextMenuScript.ACTION_REVERSE_SEGMENT:
+			resp = _zem.set_chromosome_orientation(int(segment.get("id", -1)), true)
 			if not bool(resp.get("ok", false)):
 				_set_status("Reverse complement failed: %s" % str(resp.get("error", "error")), true)
 				return
-			_refresh_browser_after_orientation_change()
+			_refresh_browser_after_contig_layout_change()
 			_set_status("Reversed %s." % segment_name)
-		BROWSER_CONTIG_MENU_RESTORE_CONTIG:
-			resp = _zem.set_chromosome_orientation(int(_browser_contig_context_segment.get("id", -1)), false)
+		ContigContextMenuScript.ACTION_RESTORE_SEGMENT:
+			resp = _zem.set_chromosome_orientation(int(segment.get("id", -1)), false)
 			if not bool(resp.get("ok", false)):
 				_set_status("Restore forward failed: %s" % str(resp.get("error", "error")), true)
 				return
-			_refresh_browser_after_orientation_change()
+			_refresh_browser_after_contig_layout_change()
 			_set_status("Restored %s forward." % segment_name)
-		BROWSER_CONTIG_MENU_REVERSE_ALL:
+		ContigContextMenuScript.ACTION_REVERSE_ALL:
 			resp = _zem.set_all_chromosome_orientations(true)
 			if not bool(resp.get("ok", false)):
 				_set_status("Reverse complement all failed: %s" % str(resp.get("error", "error")), true)
 				return
-			_refresh_browser_after_orientation_change()
+			_refresh_browser_after_contig_layout_change()
 			_set_status("Reversed all contigs.")
-		BROWSER_CONTIG_MENU_RESTORE_ALL:
+		ContigContextMenuScript.ACTION_RESTORE_ALL:
 			resp = _zem.set_all_chromosome_orientations(false)
 			if not bool(resp.get("ok", false)):
 				_set_status("Restore all forward failed: %s" % str(resp.get("error", "error")), true)
 				return
-			_refresh_browser_after_orientation_change()
+			_refresh_browser_after_contig_layout_change()
 			_set_status("Restored all contigs forward.")
+		_:
+			var move_code: int = _browser_contig_context_menu.move_code_for_action(action_id)
+			if move_code < 0:
+				return
+			resp = _zem.move_chromosome(int(segment.get("id", -1)), move_code)
+			if not bool(resp.get("ok", false)):
+				_set_status("%s failed: %s" % [_browser_contig_context_menu.move_error_label(action_id), str(resp.get("error", "error"))], true)
+				return
+			_refresh_browser_after_contig_layout_change()
+			_set_status(_browser_contig_context_menu.move_status_text(action_id, segment_name))
 
-func _refresh_browser_after_orientation_change() -> void:
+func _refresh_browser_after_contig_layout_change() -> void:
 	var empty_dicts: Array[Dictionary] = []
 	_refresh_chromosomes(false)
 	_invalidate_cache()

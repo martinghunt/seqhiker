@@ -436,6 +436,33 @@ func TestSetChromosomeOrientationRebuildsReferenceAndAnnotations(t *testing.T) {
 	}
 }
 
+func TestMoveChromosomeReordersListWithoutChangingIDs(t *testing.T) {
+	e := NewEngine()
+	for _, chr := range []string{"chr1", "chr2", "chr3"} {
+		e.rawSequences[chr] = "ACGT"
+		e.rawChrLength[chr] = 4
+		e.ensureChromosomeLocked(chr, 4)
+		e.rebuildBrowserChromosomeLocked(chr)
+	}
+	chroms := e.ListChromosomes()
+	if len(chroms) != 3 {
+		t.Fatalf("expected 3 chromosomes, got %d", len(chroms))
+	}
+	chr2ID := chroms[1].ID
+	if err := e.MoveChromosome(chr2ID, moveActionStart); err != nil {
+		t.Fatalf("MoveChromosome returned error: %v", err)
+	}
+	chroms = e.ListChromosomes()
+	gotOrder := []string{chroms[0].Name, chroms[1].Name, chroms[2].Name}
+	wantOrder := []string{"chr2", "chr1", "chr3"}
+	if !slices.Equal(gotOrder, wantOrder) {
+		t.Fatalf("unexpected chromosome order: got %v want %v", gotOrder, wantOrder)
+	}
+	if chroms[0].ID != chr2ID {
+		t.Fatalf("expected moved chromosome to keep id %d, got %d", chr2ID, chroms[0].ID)
+	}
+}
+
 func TestLoadGenomeEMBL(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "record.embl")

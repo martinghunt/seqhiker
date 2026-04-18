@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -1260,4 +1261,69 @@ func uniqueishDNA(n int) string {
 		out[i] = bases[(state>>24)&3]
 	}
 	return string(out)
+}
+
+func TestMoveComparisonSegmentRebuildsCoordinatesAndAnnotations(t *testing.T) {
+	e := NewEngine()
+	genome := &comparisonGenome{
+		ID:   1,
+		Name: "g1",
+		Segments: []comparisonSegment{
+			{
+				Name:        "chr1",
+				RawSequence: strings.Repeat("A", 120),
+				RawFeatures: []Feature{{SeqName: "chr1", Start: 10, End: 20, Type: "gene"}},
+			},
+			{
+				Name:        "chr2",
+				RawSequence: strings.Repeat("C", 80),
+				RawFeatures: []Feature{{SeqName: "chr2", Start: 5, End: 15, Type: "gene"}},
+			},
+			{
+				Name:        "chr3",
+				RawSequence: strings.Repeat("G", 60),
+				RawFeatures: []Feature{{SeqName: "chr3", Start: 1, End: 6, Type: "gene"}},
+			},
+		},
+	}
+	genome.rebuildDerived()
+	e.comparisonGenomes[genome.ID] = genome
+	e.comparisonGenomeOrder = []uint16{genome.ID}
+
+	if err := e.MoveComparisonSegment(genome.ID, uint32(genome.Segments[0].Start), moveActionEnd); err != nil {
+		t.Fatalf("MoveComparisonSegment returned error: %v", err)
+	}
+
+	genomes := e.ListComparisonGenomes()
+	if len(genomes) != 1 {
+		t.Fatalf("expected 1 genome, got %d", len(genomes))
+	}
+	segments := genomes[0].Segments
+	gotOrder := []string{segments[0].Name, segments[1].Name, segments[2].Name}
+	wantOrder := []string{"chr2", "chr3", "chr1"}
+	if !slices.Equal(gotOrder, wantOrder) {
+		t.Fatalf("unexpected segment order: got %v want %v", gotOrder, wantOrder)
+	}
+	wantChr1Start := uint32(80 + comparisonConcatGapBP + 60 + comparisonConcatGapBP)
+	if segments[2].Start != wantChr1Start {
+		t.Fatalf("unexpected moved chr1 start: got %d want %d", segments[2].Start, wantChr1Start)
+	}
+	annPayload, err := e.GetComparisonAnnotations(genome.ID, 0, uint32(genomes[0].Length), 100, 1)
+	if err != nil {
+		t.Fatalf("GetComparisonAnnotations returned error: %v", err)
+	}
+	_, _, feats := decodeAnnotationsForTest(t, annPayload)
+	foundChr1 := false
+	for _, feat := range feats {
+		if feat.SeqName != "chr1" {
+			continue
+		}
+		foundChr1 = true
+		if feat.Start != int(wantChr1Start)+10 || feat.End != int(wantChr1Start)+20 {
+			t.Fatalf("unexpected moved chr1 feature coordinates: %+v", feat)
+		}
+	}
+	if !foundChr1 {
+		t.Fatal("expected moved chr1 feature to be present")
+	}
 }

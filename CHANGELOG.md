@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Theme editor with live preview, and JSON import/export of themes
-- Option to reverse complement contigs via right-click menu
+- Options to reverse complement and move contigs via right-click menu
 - Comparison mode: allow panning past end of genome, and zoom out a bit more than full genome width
 
 ### Fixed

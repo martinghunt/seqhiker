@@ -150,6 +150,29 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		}
 		return MsgListComparisonGenomes, encodeComparisonGenomes(engine.ListComparisonGenomes()), nil
 
+	case MsgMoveChromosome:
+		if len(payload) < 3 {
+			return 0, nil, fmt.Errorf("invalid chromosome move payload")
+		}
+		chrID := binary.LittleEndian.Uint16(payload[0:2])
+		moveAction := payload[2]
+		if err := engine.MoveChromosome(chrID, moveAction); err != nil {
+			return 0, nil, err
+		}
+		return MsgGetChromosomes, encodeChromosomes(engine.ListChromosomes()), nil
+
+	case MsgMoveComparisonSegment:
+		if len(payload) < 7 {
+			return 0, nil, fmt.Errorf("invalid comparison segment move payload")
+		}
+		genomeID := binary.LittleEndian.Uint16(payload[0:2])
+		segmentStart := binary.LittleEndian.Uint32(payload[2:6])
+		moveAction := payload[6]
+		if err := engine.MoveComparisonSegment(genomeID, segmentStart, moveAction); err != nil {
+			return 0, nil, err
+		}
+		return MsgListComparisonGenomes, encodeComparisonGenomes(engine.ListComparisonGenomes()), nil
+
 	case MsgLoadBAM:
 		path, cutoff, err := decodeLoadBAMPayload(payload)
 		if err != nil {

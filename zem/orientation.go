@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+const (
+	moveActionLeft  byte = 1
+	moveActionRight byte = 2
+	moveActionStart byte = 3
+	moveActionEnd   byte = 4
+)
+
 type cigarOp struct {
 	Len int
 	Op  byte
@@ -494,4 +501,87 @@ func (e *Engine) SetComparisonSegmentOrientation(genomeID uint16, segmentStart u
 		return nil
 	}
 	return fmt.Errorf("comparison segment starting at %d not found", segmentStart)
+}
+
+func moveIndex(items int, from int, moveAction byte) (int, bool, error) {
+	if items <= 0 || from < 0 || from >= items {
+		return from, false, fmt.Errorf("index %d out of range", from)
+	}
+	to := from
+	switch moveAction {
+	case moveActionLeft:
+		to = max(0, from-1)
+	case moveActionRight:
+		to = min(items-1, from+1)
+	case moveActionStart:
+		to = 0
+	case moveActionEnd:
+		to = items - 1
+	default:
+		return from, false, fmt.Errorf("unknown move action %d", moveAction)
+	}
+	return to, to != from, nil
+}
+
+func (e *Engine) MoveChromosome(chrID uint16, moveAction byte) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	chr, ok := e.idToChr[chrID]
+	if !ok {
+		return fmt.Errorf("unknown chromosome id %d", chrID)
+	}
+	from := -1
+	for i, name := range e.chromOrder {
+		if name == chr {
+			from = i
+			break
+		}
+	}
+	to, changed, err := moveIndex(len(e.chromOrder), from, moveAction)
+	if err != nil || !changed {
+		return err
+	}
+	item := e.chromOrder[from]
+	copy(e.chromOrder[from:], e.chromOrder[from+1:])
+	e.chromOrder = e.chromOrder[:len(e.chromOrder)-1]
+	if to >= len(e.chromOrder) {
+		e.chromOrder = append(e.chromOrder, item)
+	} else {
+		e.chromOrder = append(e.chromOrder, "")
+		copy(e.chromOrder[to+1:], e.chromOrder[to:])
+		e.chromOrder[to] = item
+	}
+	return nil
+}
+
+func (e *Engine) MoveComparisonSegment(genomeID uint16, segmentStart uint32, moveAction byte) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	genome := e.comparisonGenomes[genomeID]
+	if genome == nil {
+		return fmt.Errorf("comparison genome %d not found", genomeID)
+	}
+	from := -1
+	for i := range genome.Segments {
+		if uint32(genome.Segments[i].Start) == segmentStart {
+			from = i
+			break
+		}
+	}
+	to, changed, err := moveIndex(len(genome.Segments), from, moveAction)
+	if err != nil || !changed {
+		return err
+	}
+	item := genome.Segments[from]
+	genome.Segments = append(genome.Segments[:from], genome.Segments[from+1:]...)
+	if to >= len(genome.Segments) {
+		genome.Segments = append(genome.Segments, item)
+	} else {
+		genome.Segments = append(genome.Segments[:to], append([]comparisonSegment{item}, genome.Segments[to:]...)...)
+	}
+	genome.rebuildDerived()
+	e.rebuildComparisonPairsLocked()
+	return nil
 }
