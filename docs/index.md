@@ -63,6 +63,7 @@ install
 supported-files
 navigation
 contig-actions
+theme-editor
 comparison-view
 genome-and-annotation-tracks
 reads-track
