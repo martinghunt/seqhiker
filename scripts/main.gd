@@ -492,8 +492,12 @@ func _setup_settings_sections() -> void:
 	if _sounds_cb != null and not _sounds_cb.toggled.is_connected(_on_sounds_toggled):
 		_sounds_cb.toggled.connect(_on_sounds_toggled)
 	var insert_at := -1
+	var ui_scale_insert_target: Node = null
 	for i in range(_settings_shared_box.get_child_count()):
-		if _settings_shared_box.get_child(i) == ui_font_option:
+		var child := _settings_shared_box.get_child(i)
+		if ui_scale_insert_target == null and child.name == "UIScaleLabel":
+			ui_scale_insert_target = child
+		if child == ui_scale_insert_target:
 			insert_at = i
 			break
 	if insert_at >= 0:
