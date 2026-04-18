@@ -72,6 +72,24 @@ jobs:
           unzip -q /tmp/godot_templates.tpz -d /tmp/godot_templates
           cp -R /tmp/godot_templates/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
 
+      - name: Install Wine and rcedit for Windows icon patching
+        if: startsWith(matrix.target, 'windows/')
+        run: |
+          set -euo pipefail
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y wine64 wine32
+          mkdir -p "$HOME/.local/bin" "$HOME/.config/godot"
+          curl -L -o "$HOME/.local/bin/rcedit-x64.exe" "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe"
+          chmod +x "$HOME/.local/bin/rcedit-x64.exe"
+          printf '%s\n' \
+            '[gd_resource type="EditorSettings" format=3]' \
+            '' \
+            '[resource]' \
+            "export/windows/rcedit = \"$HOME/.local/bin/rcedit-x64.exe\"" \
+            "export/windows/wine = \"$(command -v wine)\"" \
+            > "$HOME/.config/godot/editor_settings-4.tres"
+
       - name: Export app for preset
         run: |
           mkdir -p dist
