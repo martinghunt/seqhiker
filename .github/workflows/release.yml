@@ -1,9 +1,29 @@
 name: Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      export_mode:
+        description: Godot export mode
+        required: true
+        default: release
+        type: choice
+        options:
+          - release
+          - debug
   push:
+    branches-ignore:
+      - main
     tags:
       - "v*"
+    paths:
+      - ".github/workflows/release.yml"
+      - "build_release.sh"
+      - "build_zem_bins.sh"
+      - "export_presets.cfg"
+      - "project.godot"
+      - "assets/icons/**"
+      - "zem/**"
 
 permissions:
   contents: write
@@ -12,6 +32,8 @@ permissions:
 jobs:
   export-cross-platform:
     runs-on: ubuntu-latest
+    env:
+      EXPORT_MODE: ${{ inputs.export_mode || 'release' }}
     strategy:
       fail-fast: false
       matrix:
@@ -34,6 +56,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify release tag matches project version
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
           project_version="$(sed -n 's/^config\/version="\([^"]*\)"/\1/p' project.godot | head -n1)"
@@ -64,13 +87,31 @@ jobs:
           GODOT_VERSION: 4.4.1
         run: |
           set -euo pipefail
-          curl -L -o /tmp/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          curl -fL -o /tmp/godot.zip "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
           unzip -q /tmp/godot.zip -d /tmp/godot
           chmod +x /tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64
           mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
-          curl -L -o /tmp/godot_templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          curl -fL -o /tmp/godot_templates.tpz "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
           unzip -q /tmp/godot_templates.tpz -d /tmp/godot_templates
           cp -R /tmp/godot_templates/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+
+      - name: Install Wine and rcedit for Windows icon patching
+        if: startsWith(matrix.target, 'windows/')
+        run: |
+          set -euo pipefail
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y wine64 wine32
+          mkdir -p "$HOME/.local/bin" "$HOME/.config/godot"
+          curl -L -o "$HOME/.local/bin/rcedit-x64.exe" "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe"
+          chmod +x "$HOME/.local/bin/rcedit-x64.exe"
+          printf '%s\n' \
+            '[gd_resource type="EditorSettings" format=3]' \
+            '' \
+            '[resource]' \
+            "export/windows/rcedit = \"$HOME/.local/bin/rcedit-x64.exe\"" \
+            "export/windows/wine = \"$(command -v wine)\"" \
+            > "$HOME/.config/godot/editor_settings-4.tres"
 
       - name: Export app for preset
         run: |
@@ -79,17 +120,21 @@ jobs:
             --target "${{ matrix.target }}" \
             --preset "${{ matrix.preset }}" \
             --out "${{ matrix.output }}" \
+            --mode "${EXPORT_MODE}" \
             --godot-bin /tmp/godot/Godot_v4.4.1-stable_linux.x86_64
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.preset }}
+          name: ${{ matrix.preset }}-${{ env.EXPORT_MODE }}
           path: ${{ matrix.output }}
           if-no-files-found: error
 
   export-macos:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
+    env:
+      EXPORT_MODE: ${{ inputs.export_mode || 'release' }}
     strategy:
       fail-fast: false
       matrix:
@@ -106,6 +151,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify release tag matches project version
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
           project_version="$(sed -n 's/^config\/version="\([^"]*\)"/\1/p' project.godot | head -n1)"
@@ -136,11 +182,11 @@ jobs:
           GODOT_VERSION: 4.4.1
         run: |
           set -euo pipefail
-          curl -L -o /tmp/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          curl -fL -o /tmp/godot.zip "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
           unzip -q /tmp/godot.zip -d /tmp/godot
           chmod +x /tmp/godot/Godot.app/Contents/MacOS/Godot
           mkdir -p "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
-          curl -L -o /tmp/godot_templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          curl -fL -o /tmp/godot_templates.tpz "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
           unzip -q /tmp/godot_templates.tpz -d /tmp/godot_templates
           cp -R /tmp/godot_templates/templates/* "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable/"
 
@@ -151,16 +197,18 @@ jobs:
             --target "${{ matrix.target }}" \
             --preset "${{ matrix.preset }}" \
             --out "${{ matrix.output }}" \
+            --mode "${EXPORT_MODE}" \
             --godot-bin /tmp/godot/Godot.app/Contents/MacOS/Godot
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.preset }}
+          name: ${{ matrix.preset }}-${{ env.EXPORT_MODE }}
           path: ${{ matrix.output }}
           if-no-files-found: error
 
   publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     needs:
       - export-cross-platform
