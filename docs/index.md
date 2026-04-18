@@ -62,6 +62,7 @@ For more detail, see:
 install
 supported-files
 navigation
+contig-actions
 comparison-view
 genome-and-annotation-tracks
 reads-track

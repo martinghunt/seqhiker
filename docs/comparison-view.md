@@ -40,11 +40,14 @@ Matches are drawn only between neighboring genomes in the stack.
 ## Core interactions
 
 - Drag the "up/down arrow" button to reorder genomes.
+- Right-click a contig in a genome row's map strip to reverse-complement or reorder contigs within that genome.
 - Use the lock buttons between rows to lock or unlock neighboring genomes.
 - Locked genomes pan together.
 - Double-click a match to align that match near the left side of the visible window.
 - Click a match to select it and open details in the right panel.
 - Click empty space to clear the selected match.
+
+For the full contig menu, see [Contig Actions](contig-actions.md).
 
 ## Region selection
 

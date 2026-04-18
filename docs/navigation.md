@@ -14,6 +14,7 @@ In comparison view:
 - double-click in a genome axis/coordinate band to center that position in the visible genome area
 - double-click a match to align that match in the view
 - click and drag across a genome row to select a comparison interval
+- right-click a contig in a map strip to reverse-complement or reorder that contig
 
 ## Trackpad
 
@@ -64,3 +65,10 @@ Pressing 1 later will jump back to that position/zoom. This works for the
 numbers 1-9, giving nine save slots.
 
 Browser mode and comparison mode keep separate temporary slot banks.
+
+## Contig menus
+
+Contig map strips also support a right-click menu for contig-level actions.
+
+See [Contig Actions](contig-actions.md) for reverse-complement and reorder
+operations in browser mode and comparison view.
