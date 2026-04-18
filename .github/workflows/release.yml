@@ -131,6 +131,7 @@ jobs:
           if-no-files-found: error
 
   export-macos:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     env:
       EXPORT_MODE: ${{ inputs.export_mode || 'release' }}
