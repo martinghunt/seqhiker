@@ -521,6 +521,88 @@ func _read_color(read: Dictionary, mate_contig_colors: Dictionary, inferred_ids:
 	return col
 
 
+func _zc_block_color(block_name: String) -> Color:
+	var series_any: Variant = view.palette.get("depth_plot_series", [])
+	var colors: Array = series_any if series_any is Array else []
+	var base: Color = view.palette.get("depth_plot", view.palette.get("read", Color.CYAN))
+	if colors.is_empty():
+		colors = [base]
+	var idx := posmod(block_name.hash(), colors.size())
+	var col: Color = colors[idx] if colors[idx] is Color else base
+	col.a = 0.48
+	return col
+
+
+func _zc_block_text_color() -> Color:
+	var col: Color = view.palette.get("snp_text", view.palette.get("text", Color.WHITE))
+	col.a = maxf(col.a, 0.95)
+	return col
+
+
+func _can_draw_zc_block_labels_for_row_h(row_h: float, font: Font, font_size: int) -> bool:
+	if row_h < 10.0:
+		return false
+	var text_h := font.get_ascent(font_size) + font.get_descent(font_size)
+	return text_h > 0.0 and text_h + 1.0 <= row_h
+
+
+func _zc_block_draws(read: Dictionary, y: float, row_h: float, render_start_bp: float, render_bp_per_px: float, visible_start: int, visible_end: int, screen_right: float) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var blocks: Array = read.get("zc_blocks", [])
+	if blocks.is_empty():
+		return out
+	var read_start := int(read.get("start", 0))
+	var read_end := int(read.get("end", read_start))
+	for block_any in blocks:
+		if typeof(block_any) != TYPE_DICTIONARY:
+			continue
+		var block: Dictionary = block_any
+		var block_name := str(block.get("name", ""))
+		if block_name.is_empty():
+			continue
+		var block_start := maxi(int(block.get("start", 0)), read_start)
+		var block_end_closed := mini(int(block.get("end", block_start)), read_end - 1)
+		if block_end_closed < block_start:
+			continue
+		if block_end_closed < visible_start or block_start > visible_end:
+			continue
+		var bx0 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(block_start), render_start_bp, render_bp_per_px)
+		var bx1 := view.TRACK_LEFT_PAD + _bp_to_x_at(float(block_end_closed + 1), render_start_bp, render_bp_per_px)
+		var left := maxf(view.TRACK_LEFT_PAD, bx0)
+		var right := minf(screen_right, bx1)
+		if right <= left:
+			continue
+		var block_rect := Rect2(left, y, maxf(1.0, right - left), row_h)
+		out.append({
+			"name": block_name,
+			"rect": block_rect
+		})
+	return out
+
+
+func _draw_zc_block_fills_to(target, block_draws: Array[Dictionary]) -> void:
+	for draw_any in block_draws:
+		var draw_data: Dictionary = draw_any
+		_draw_rect_on(target, draw_data.get("rect", Rect2()), _zc_block_color(str(draw_data.get("name", ""))), true)
+
+
+func _draw_zc_block_labels_to(target, block_draws: Array[Dictionary], font: Font, font_size: int, draw_text: bool) -> void:
+	if not draw_text:
+		return
+	for draw_any in block_draws:
+		var draw_data: Dictionary = draw_any
+		var block_name := str(draw_data.get("name", ""))
+		var block_rect: Rect2 = draw_data.get("rect", Rect2())
+		if block_name.is_empty() or block_rect.size.x <= 0.0 or block_rect.size.y <= 0.0:
+			continue
+		var tw := font.get_string_size(block_name, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		if tw + 2.0 > block_rect.size.x:
+			continue
+		var tx := block_rect.position.x + (block_rect.size.x - tw) * 0.5
+		var ty := view._text_baseline_for_center(block_rect.position.y + block_rect.size.y * 0.5, font, font_size)
+		_draw_string_on(target, font, Vector2(tx, ty), block_name, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _zc_block_text_color())
+
+
 func draw_read_tracks(area: Rect2) -> void:
 	_draw_read_tracks_to(view, area, true)
 
@@ -593,9 +675,11 @@ func _draw_read_tracks_to(target, area: Rect2, collect_hitboxes: bool) -> void:
 	var draw_snp_text := can_draw_read_snp_letters() and not pan_animating
 	var snp_font := view.sequence_letter_font()
 	var snp_font_size := maxi(8, read_text_font_size() - 1)
+	var draw_zc_text := _can_draw_zc_block_labels_for_row_h(row_h, snp_font, snp_font_size) and not pan_animating
 	var visible_start_bp := int(floor(_render_left_edge_bp_at(0.0, 0.0)))
 	var visible_end_bp := int(ceil(_render_right_edge_bp_at(0.0, 0.0)))
 	var can_break_by_start := view._read_view_mode != view.READ_VIEW_STRAND and not view._show_soft_clips
+	var zc_label_draws: Array[Dictionary] = []
 	for i in range(view._laid_out_reads.size()):
 		var read: Dictionary = view._laid_out_reads[i]
 		var visible_read_start: int = _render_read_start_bp(read)
@@ -626,6 +710,9 @@ func _draw_read_tracks_to(target, area: Rect2, collect_hitboxes: bool) -> void:
 			_draw_mate_block_to(target, read, y, read_color, 0.0, 0.0)
 		_draw_soft_clip_overhangs_to(target, read, y, read_color, 0.0, 0.0)
 		_draw_rect_on(target, rect, read_color, true)
+		var zc_block_draws := _zc_block_draws(read, y, row_h, 0.0, 0.0, visible_start_bp, visible_end_bp, view.size.x - view.TRACK_RIGHT_PAD)
+		_draw_zc_block_fills_to(target, zc_block_draws)
+		zc_label_draws.append_array(zc_block_draws)
 		var draw_selected := false
 		if track_id == view._selected_read_track_id and i == view._selected_read_index:
 			draw_selected = true
@@ -687,6 +774,7 @@ func _draw_read_tracks_to(target, area: Rect2, collect_hitboxes: bool) -> void:
 					_draw_string_on(target, snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
 			if not pan_animating:
 				_draw_indel_markers_to(target, read, y, 0.0, 0.0)
+	_draw_zc_block_labels_to(target, zc_label_draws, snp_font, snp_font_size, draw_zc_text)
 
 
 func draw_detailed_reads_to(target, area: Rect2, render_start_bp: float, render_bp_per_px: float, render_end_bp: float, track_id: String) -> void:
@@ -720,8 +808,10 @@ func draw_detailed_reads_to(target, area: Rect2, render_start_bp: float, render_
 	var snp_font := view.sequence_letter_font()
 	var snp_font_size := read_text_font_size()
 	var draw_snp_text := view.can_draw_read_snp_letters_for_row_h(view.current_read_row_h())
+	var draw_zc_text := _can_draw_zc_block_labels_for_row_h(row_h, snp_font, snp_font_size)
 	var can_break_by_start := view._read_view_mode != view.READ_VIEW_STRAND and not view._show_soft_clips
 	var render_screen_right := view.TRACK_LEFT_PAD + maxf(0.0, (render_end_bp - render_start_bp) / render_bp_per_px)
+	var zc_label_draws: Array[Dictionary] = []
 	for i in range(view._laid_out_reads.size()):
 		var read: Dictionary = view._laid_out_reads[i]
 		var visible_read_start: int = _render_read_start_bp(read)
@@ -752,6 +842,9 @@ func draw_detailed_reads_to(target, area: Rect2, render_start_bp: float, render_
 			_draw_mate_block_to(target, read, y, read_color, render_start_bp, render_bp_per_px, render_end_bp)
 		_draw_soft_clip_overhangs_to(target, read, y, read_color, render_start_bp, render_bp_per_px)
 		_draw_rect_on(target, rect, read_color, true)
+		var zc_block_draws := _zc_block_draws(read, y, row_h, render_start_bp, render_bp_per_px, visible_start, visible_end_bp, render_screen_right)
+		_draw_zc_block_fills_to(target, zc_block_draws)
+		zc_label_draws.append_array(zc_block_draws)
 		var draw_selected := false
 		if track_id == view._selected_read_track_id and i == view._selected_read_index:
 			draw_selected = true
@@ -791,6 +884,7 @@ func draw_detailed_reads_to(target, area: Rect2, render_start_bp: float, render_
 					var ty := view._text_baseline_for_center(y + row_h * 0.5, snp_font, snp_font_size)
 					_draw_string_on(target, snp_font, Vector2(tx, ty), base_text, HORIZONTAL_ALIGNMENT_LEFT, -1, snp_font_size, view.palette.get("snp_text", Color.WHITE))
 			_draw_indel_markers_to(target, read, y, render_start_bp, render_bp_per_px, render_end_bp)
+	_draw_zc_block_labels_to(target, zc_label_draws, snp_font, snp_font_size, draw_zc_text)
 
 
 func read_y_for_area(read: Dictionary, content_top: float, content_bottom: float, scroll_px: float, strand_split_y: float) -> float:

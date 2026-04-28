@@ -1015,6 +1015,17 @@ func _shift_read_coords(read: Dictionary, offset: int) -> Dictionary:
 	for s in snps:
 		shifted_snps.append(int(s) + offset)
 	shifted["snps"] = shifted_snps
+	var shifted_blocks: Array[Dictionary] = []
+	for block_any in shifted.get("zc_blocks", []):
+		if typeof(block_any) != TYPE_DICTIONARY:
+			continue
+		var block: Dictionary = block_any
+		shifted_blocks.append({
+			"name": str(block.get("name", "")),
+			"start": int(block.get("start", 0)) + offset,
+			"end": int(block.get("end", 0)) + offset
+		})
+	shifted["zc_blocks"] = shifted_blocks
 	return shifted
 
 func _shift_coverage_coords(cov: Dictionary, offset: int) -> Dictionary:

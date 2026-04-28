@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -810,6 +811,59 @@ func TestMateFieldsForRecordKeepsMappedCrossContigMate(t *testing.T) {
 	}
 }
 
+func TestEncodeAlignmentTileIncludesZCBlocks(t *testing.T) {
+	payload := encodeAlignmentTile(0, 100, []Alignment{
+		{
+			Start: 10,
+			End:   30,
+			Name:  "read_zc",
+			Cigar: "20M",
+			ZCBlocks: []ZCBlock{
+				{Name: "alpha", Start: 10, End: 18},
+				{Name: "beta", Start: 16, End: 29},
+			},
+		},
+	}, true)
+	_, _, alns, err := decodeAlignmentTilePayload(payload)
+	if err != nil {
+		t.Fatalf("decodeAlignmentTilePayload returned error: %v", err)
+	}
+	if len(alns) != 1 {
+		t.Fatalf("expected one alignment, got %d", len(alns))
+	}
+	if !reflect.DeepEqual(alns[0].ZCBlocks, []ZCBlock{
+		{Name: "alpha", Start: 10, End: 18},
+		{Name: "beta", Start: 16, End: 29},
+	}) {
+		t.Fatalf("unexpected ZC blocks: %+v", alns[0].ZCBlocks)
+	}
+}
+
+func TestEncodeAlignmentTileOmitsZCBlocksWhenDisabled(t *testing.T) {
+	payload := encodeAlignmentTile(0, 100, []Alignment{
+		{
+			Start:    10,
+			End:      30,
+			Name:     "read_zc_disabled",
+			Cigar:    "20M",
+			ZCBlocks: []ZCBlock{{Name: "alpha", Start: 10, End: 18}},
+		},
+	}, false)
+	if len(payload) == 0 || payload[0] != 2 {
+		t.Fatalf("expected standard read tile type 2, got %d", payload[0])
+	}
+	_, _, alns, err := decodeAlignmentTilePayload(payload)
+	if err != nil {
+		t.Fatalf("decodeAlignmentTilePayload returned error: %v", err)
+	}
+	if len(alns) != 1 {
+		t.Fatalf("expected one alignment, got %d", len(alns))
+	}
+	if len(alns[0].ZCBlocks) != 0 {
+		t.Fatalf("unexpected ZC blocks in standard tile: %+v", alns[0].ZCBlocks)
+	}
+}
+
 func TestLoadBAMFixtureCoverageTiles(t *testing.T) {
 	e := NewEngine()
 	refPath := filepath.Join("testdata", "test_reads.ref.fa")
@@ -863,7 +917,7 @@ func TestLoadBAMFixtureReadBoundariesAreExact(t *testing.T) {
 	chrID := e.chrToID["chrTest"]
 	src := e.bamSources[sourceID]
 	ref := src.RefByChrID[chrID]
-	payload, err := loadIndexedTilePayload(src.Path, src.Index, ref, 0, 3000, readTileCacheKind, 100, true, e.sequences["chrTest"], 0)
+	payload, err := loadIndexedTilePayload(src.Path, src.Index, ref, 0, 3000, readTileCacheKind, 100, true, false, e.sequences["chrTest"], 0)
 	if err != nil {
 		t.Fatalf("loadIndexedTilePayload returned error: %v", err)
 	}
@@ -970,7 +1024,7 @@ func TestLoadBAMFixtureCoverageBoundariesAreExact(t *testing.T) {
 
 	forwardWindowStart := 100
 	forwardWindowEnd := 356 // 256 bp window; one bin per base.
-	covPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, forwardWindowStart, forwardWindowEnd, covTileCacheKind, 0, false, "", 256)
+	covPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, forwardWindowStart, forwardWindowEnd, covTileCacheKind, 0, false, false, "", 256)
 	if err != nil {
 		t.Fatalf("forward-window coverage payload error: %v", err)
 	}
@@ -979,7 +1033,7 @@ func TestLoadBAMFixtureCoverageBoundariesAreExact(t *testing.T) {
 		t.Fatalf("unexpected forward coverage edges around pair1 start/end: bins[99..100]=[%d %d] bins[224..225]=[%d %d]", covBins[99], covBins[100], covBins[224], covBins[225])
 	}
 
-	strandPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, forwardWindowStart, forwardWindowEnd, strandCovTileCacheKind, 0, false, "", 256)
+	strandPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, forwardWindowStart, forwardWindowEnd, strandCovTileCacheKind, 0, false, false, "", 256)
 	if err != nil {
 		t.Fatalf("forward-window strand coverage payload error: %v", err)
 	}
@@ -990,7 +1044,7 @@ func TestLoadBAMFixtureCoverageBoundariesAreExact(t *testing.T) {
 
 	reverseWindowStart := 400
 	reverseWindowEnd := 656 // 256 bp window; one bin per base.
-	reverseStrandPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, reverseWindowStart, reverseWindowEnd, strandCovTileCacheKind, 0, false, "", 256)
+	reverseStrandPayload, err := loadIndexedTilePayload(src.Path, src.Index, ref, reverseWindowStart, reverseWindowEnd, strandCovTileCacheKind, 0, false, false, "", 256)
 	if err != nil {
 		t.Fatalf("reverse-window strand coverage payload error: %v", err)
 	}
@@ -1125,7 +1179,7 @@ func TestGenerateTestDataIncludesSoftClipBoundaryReads(t *testing.T) {
 	src := e.bamSources[sourceID]
 
 	ctgARef := src.RefByChrID[ctgAID]
-	payload, err := loadIndexedTilePayload(src.Path, src.Index, ctgARef, 0, testContigLen, readTileCacheKind, 20000, true, e.sequences["ctgA"], 0)
+	payload, err := loadIndexedTilePayload(src.Path, src.Index, ctgARef, 0, testContigLen, readTileCacheKind, 20000, true, false, e.sequences["ctgA"], 0)
 	if err != nil {
 		t.Fatalf("loadIndexedTilePayload ctgA returned error: %v", err)
 	}
@@ -1151,7 +1205,7 @@ func TestGenerateTestDataIncludesSoftClipBoundaryReads(t *testing.T) {
 	}
 
 	ctgBRef := src.RefByChrID[ctgBID]
-	payload, err = loadIndexedTilePayload(src.Path, src.Index, ctgBRef, 0, testContigLen, readTileCacheKind, 20000, true, e.sequences["ctgB"], 0)
+	payload, err = loadIndexedTilePayload(src.Path, src.Index, ctgBRef, 0, testContigLen, readTileCacheKind, 20000, true, false, e.sequences["ctgB"], 0)
 	if err != nil {
 		t.Fatalf("loadIndexedTilePayload ctgB returned error: %v", err)
 	}
@@ -1349,9 +1403,10 @@ func decodeStopCodonTileForTest(t *testing.T, payload []byte) (int, int, int, [6
 
 func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 	t.Helper()
-	if len(payload) < 13 || payload[0] != 2 {
+	if len(payload) < 13 || (payload[0] != 2 && payload[0] != 3) {
 		t.Fatalf("invalid alignment payload header")
 	}
+	hasZC := payload[0] == 3
 	count := int(binary.LittleEndian.Uint32(payload[9:13]))
 	alns := make([]Alignment, 0, count)
 	off := 13
@@ -1414,6 +1469,24 @@ func decodeAlignmentTileForTest(t *testing.T, payload []byte) []Alignment {
 		off += 2 + 5*snpCount
 		if off > len(payload) {
 			t.Fatalf("alignment snp overflow")
+		}
+		if hasZC {
+			if off+2 > len(payload) {
+				t.Fatalf("missing zc block count")
+			}
+			zcCount := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+			off += 2
+			for j := 0; j < zcCount; j++ {
+				if off+2 > len(payload) {
+					t.Fatalf("missing zc block name length")
+				}
+				blockNameLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+				off += 2
+				if off+blockNameLen+8 > len(payload) {
+					t.Fatalf("alignment zc block overflow")
+				}
+				off += blockNameLen + 8
+			}
 		}
 		mateStart := -1
 		mateEnd := -1

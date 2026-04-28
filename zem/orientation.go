@@ -207,9 +207,10 @@ func reverseUint16s(values []uint16) {
 }
 
 func decodeAlignmentTilePayload(payload []byte) (int, int, []Alignment, error) {
-	if len(payload) < 13 || payload[0] != 2 {
+	if len(payload) < 13 || (payload[0] != 2 && payload[0] != 3) {
 		return 0, 0, nil, fmt.Errorf("invalid alignment payload header")
 	}
+	hasZC := payload[0] == 3
 	start := int(binary.LittleEndian.Uint32(payload[1:5]))
 	end := int(binary.LittleEndian.Uint32(payload[5:9]))
 	count := int(binary.LittleEndian.Uint32(payload[9:13]))
@@ -285,6 +286,35 @@ func decodeAlignmentTilePayload(payload []byte) (int, int, []Alignment, error) {
 				off += 4
 				aln.SNPBases[j] = payload[off]
 				off++
+			}
+		}
+		if hasZC {
+			if off+2 > len(payload) {
+				return 0, 0, nil, fmt.Errorf("missing zc block count")
+			}
+			zcCount := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+			off += 2
+			if zcCount > 0 {
+				aln.ZCBlocks = make([]ZCBlock, 0, zcCount)
+			}
+			for j := 0; j < zcCount; j++ {
+				if off+2 > len(payload) {
+					return 0, 0, nil, fmt.Errorf("missing zc block name length")
+				}
+				nameLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+				off += 2
+				if off+nameLen+8 > len(payload) {
+					return 0, 0, nil, fmt.Errorf("alignment zc block overflow")
+				}
+				block := ZCBlock{
+					Name:  string(payload[off : off+nameLen]),
+					Start: int(binary.LittleEndian.Uint32(payload[off+nameLen : off+nameLen+4])),
+					End:   int(binary.LittleEndian.Uint32(payload[off+nameLen+4 : off+nameLen+8])),
+				}
+				off += nameLen + 8
+				if block.Name != "" && block.End >= block.Start {
+					aln.ZCBlocks = append(aln.ZCBlocks, block)
+				}
 			}
 		}
 		aln.MateStart = -1
@@ -373,6 +403,25 @@ func transformSNPsForLength(snps []uint32, bases []byte, chromLen int) ([]uint32
 	return outPos, outBases
 }
 
+func transformZCBlocksForLength(blocks []ZCBlock, chromLen int) []ZCBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]ZCBlock, 0, len(blocks))
+	for i := len(blocks) - 1; i >= 0; i-- {
+		block := blocks[i]
+		if block.Name == "" || block.End < block.Start {
+			continue
+		}
+		out = append(out, ZCBlock{
+			Name:  block.Name,
+			Start: chromLen - 1 - block.End,
+			End:   chromLen - 1 - block.Start,
+		})
+	}
+	return out
+}
+
 func (e *Engine) transformAlignmentForChromLocked(chr string, aln Alignment) Alignment {
 	chromLen := e.rawChrLength[chr]
 	out := aln
@@ -382,6 +431,7 @@ func (e *Engine) transformAlignmentForChromLocked(chr string, aln Alignment) Ali
 	out.SoftClipLeft = reverseComplementFlexible(aln.SoftClipRight)
 	out.SoftClipRight = reverseComplementFlexible(aln.SoftClipLeft)
 	out.SNPs, out.SNPBases = transformSNPsForLength(aln.SNPs, aln.SNPBases, chromLen)
+	out.ZCBlocks = transformZCBlocksForLength(aln.ZCBlocks, chromLen)
 	out.Flags = e.transformAlignmentFlagsLocked(chr, aln)
 	if aln.MateStart >= 0 && aln.MateEnd > aln.MateStart {
 		out.MateStart, out.MateEnd = reverseIntervalForLength(aln.MateStart, aln.MateEnd, chromLen)

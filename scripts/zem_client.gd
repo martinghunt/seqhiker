@@ -1190,8 +1190,9 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 	if payload.size() < 13:
 		return out
 	var tile_type := payload[0]
-	if tile_type != 2:
+	if tile_type != 2 and tile_type != 3:
 		return out
+	var has_zc_blocks := tile_type == 3
 	var count := payload.decode_u32(9)
 	var off := 13
 	for i in range(count):
@@ -1240,7 +1241,7 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 		off += soft_right_len
 		var snps := PackedInt32Array()
 		var snp_bases := PackedByteArray()
-		if off + 2 <= payload.size():
+		if has_zc_blocks and off + 2 <= payload.size():
 			var snp_count := int(payload.decode_u16(off))
 			off += 2
 			for _s in range(snp_count):
@@ -1253,6 +1254,28 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 		else:
 			snps = PackedInt32Array()
 			snp_bases = PackedByteArray()
+		var zc_blocks: Array[Dictionary] = []
+		if off + 2 <= payload.size():
+			var zc_count := int(payload.decode_u16(off))
+			off += 2
+			for _z in range(zc_count):
+				if off + 2 > payload.size():
+					break
+				var block_name_len := int(payload.decode_u16(off))
+				off += 2
+				if off + block_name_len + 8 > payload.size():
+					break
+				var block_name := _decode_wire_text(payload.slice(off, off + block_name_len))
+				off += block_name_len
+				var block_start := int(payload.decode_u32(off))
+				var block_end := int(payload.decode_u32(off + 4))
+				off += 8
+				if not block_name.is_empty() and block_end >= block_start:
+					zc_blocks.append({
+						"name": block_name,
+						"start": block_start,
+						"end": block_end
+					})
 		out.append({
 			"start": int(start_bp),
 			"end": int(end_bp),
@@ -1265,6 +1288,7 @@ func _parse_tile_reads(payload: PackedByteArray) -> Array[Dictionary]:
 			"soft_clip_right": soft_clip_right,
 			"snps": snps,
 			"snp_bases": snp_bases,
+			"zc_blocks": zc_blocks,
 			"mate_start": -1 if mate_start_u == 0xFFFFFFFF else int(mate_start_u),
 			"mate_end": -1 if mate_end_u == 0xFFFFFFFF else int(mate_end_u),
 			"mate_raw_start": -1 if mate_raw_start_u == 0xFFFFFFFF else int(mate_raw_start_u),

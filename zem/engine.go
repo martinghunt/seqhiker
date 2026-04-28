@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -58,6 +59,13 @@ type Alignment struct {
 	MateRefID     int
 	FragLen       int
 	MateSameRef   bool
+	ZCBlocks      []ZCBlock
+}
+
+type ZCBlock struct {
+	Name  string
+	Start int
+	End   int
 }
 
 type DNAExactHit struct {
@@ -918,7 +926,7 @@ func (e *Engine) resetVariantStateLocked() {
 	e.resetTileCacheLocked()
 }
 
-func encodeAlignmentTile(start, end int, alns []Alignment) []byte {
+func encodeAlignmentTile(start, end int, alns []Alignment, includeZC bool) []byte {
 	payloadLen := 13
 	for _, aln := range alns {
 		nameLen := min(len(aln.Name), 0xFFFF)
@@ -926,13 +934,25 @@ func encodeAlignmentTile(start, end int, alns []Alignment) []byte {
 		leftSoftLen := min(len(aln.SoftClipLeft), 0xFFFF)
 		rightSoftLen := min(len(aln.SoftClipRight), 0xFFFF)
 		snpCount := min(min(len(aln.SNPs), len(aln.SNPBases)), 0xFFFF)
+		zcLen := 0
+		if includeZC {
+			zcLen = 2
+			for _, block := range aln.ZCBlocks {
+				blockNameLen := min(len(block.Name), 0xFFFF)
+				zcLen += 10 + blockNameLen
+			}
+		}
 		// Fixed per-record bytes:
-		// 38 header + 2 cigar_len + 2 left_soft_len + 2 right_soft_len + 2 snp_count + variable fields.
-		payloadLen += 46 + nameLen + cigarLen + leftSoftLen + rightSoftLen + 5*snpCount
+		// 38 header + 2 cigar_len + 2 left_soft_len + 2 right_soft_len + 2 snp_count
+		// + 2 zc_count + variable fields.
+		payloadLen += 46 + nameLen + cigarLen + leftSoftLen + rightSoftLen + 5*snpCount + zcLen
 	}
 
 	buf := make([]byte, payloadLen)
 	buf[0] = 2
+	if includeZC {
+		buf[0] = 3
+	}
 	binary.LittleEndian.PutUint32(buf[1:5], uint32(start))
 	binary.LittleEndian.PutUint32(buf[5:9], uint32(end))
 	binary.LittleEndian.PutUint32(buf[9:13], uint32(len(alns)))
@@ -998,8 +1018,58 @@ func encodeAlignmentTile(start, end int, alns []Alignment) []byte {
 			buf[off] = base
 			off++
 		}
+		if includeZC {
+			zcCount := min(len(aln.ZCBlocks), 0xFFFF)
+			binary.LittleEndian.PutUint16(buf[off:off+2], uint16(zcCount))
+			off += 2
+			for i := 0; i < zcCount; i++ {
+				block := aln.ZCBlocks[i]
+				blockNameLen := min(len(block.Name), 0xFFFF)
+				binary.LittleEndian.PutUint16(buf[off:off+2], uint16(blockNameLen))
+				off += 2
+				copy(buf[off:off+blockNameLen], block.Name[:blockNameLen])
+				off += blockNameLen
+				binary.LittleEndian.PutUint32(buf[off:off+4], uint32(max(0, block.Start)))
+				binary.LittleEndian.PutUint32(buf[off+4:off+8], uint32(max(0, block.End)))
+				off += 8
+			}
+		}
 	}
 	return buf
+}
+
+func recordZCBlocks(rec *sam.Record) []ZCBlock {
+	if rec == nil {
+		return nil
+	}
+	aux, ok := rec.Tag([]byte("ZC"))
+	if !ok || aux.Type() != 'Z' {
+		return nil
+	}
+	raw, ok := aux.Value().(string)
+	if !ok || raw == "" {
+		return nil
+	}
+	fields := strings.Split(strings.TrimRight(raw, "\x00"), ",")
+	if len(fields) < 3 || len(fields)%3 != 0 {
+		return nil
+	}
+	blocks := make([]ZCBlock, 0, len(fields)/3)
+	for i := 0; i+2 < len(fields); i += 3 {
+		name := strings.TrimSpace(fields[i])
+		startText := strings.TrimSpace(fields[i+1])
+		endText := strings.TrimSpace(fields[i+2])
+		if name == "" {
+			continue
+		}
+		start, errStart := strconv.Atoi(startText)
+		end, errEnd := strconv.Atoi(endText)
+		if errStart != nil || errEnd != nil || start < 0 || end < start {
+			continue
+		}
+		blocks = append(blocks, ZCBlock{Name: name, Start: start, End: end})
+	}
+	return blocks
 }
 
 func encodeCoverageTile(start, end int, bins []uint16) []byte {

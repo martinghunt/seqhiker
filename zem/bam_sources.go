@@ -14,6 +14,7 @@ import (
 
 const bamNotCoordinateSortedError = "BAM not sorted by coordinate"
 const bamIndexMissingError = "BAM index not found"
+const loicZCHeaderComment = "Loic special ZC tag format: token_name,start,end triplets with zero-based closed coordinates"
 
 type bamSource struct {
 	ID           uint16
@@ -27,6 +28,7 @@ type bamSource struct {
 	CovPrefixFwd map[uint16][]uint64
 	CovPrefixRev map[uint16][]uint64
 	CovReady     bool
+	HasLoicZC    bool
 }
 
 func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
@@ -64,7 +66,8 @@ func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 
 	refs := make(map[string]*sam.Reference)
 	totalRefLen := 0
-	headerRefs := reader.Header().Refs()
+	header := reader.Header()
+	headerRefs := header.Refs()
 	for _, ref := range headerRefs {
 		if ref == nil {
 			continue
@@ -110,6 +113,7 @@ func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 		CovPrefixFwd: map[uint16][]uint64{},
 		CovPrefixRev: map[uint16][]uint64{},
 		CovReady:     !shouldPrecomputeCov,
+		HasLoicZC:    bamHeaderHasLoicZC(header),
 	}
 	e.bamOrder = append(e.bamOrder, sourceID)
 	e.globalGeneration++
@@ -120,6 +124,18 @@ func (e *Engine) LoadBAM(path string, precomputeCutoffBP int) (uint16, error) {
 	}
 
 	return sourceID, nil
+}
+
+func bamHeaderHasLoicZC(header *sam.Header) bool {
+	if header == nil {
+		return false
+	}
+	for _, comment := range header.Comments {
+		if strings.TrimSpace(comment) == loicZCHeaderComment {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) ensureChromosomeLocked(name string, length int) uint16 {

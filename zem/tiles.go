@@ -79,7 +79,7 @@ func softClipSeqs(rec *sam.Record) (string, string) {
 func (e *Engine) GetTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
 	window := tileWindow(zoom, tileIndex)
 	if zoom > e.maxReadZoom {
-		return encodeAlignmentTile(window.start, window.end, nil), nil
+		return encodeAlignmentTile(window.start, window.end, nil, false), nil
 	}
 	return e.getIndexedTile(sourceID, chrID, zoom, tileIndex, readTileCacheKind, true)
 }
@@ -204,6 +204,7 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 	binCount := coverageTileBinCount(window.start, window.end, 0, ref.Len())
 	generation := src.Generation
 	prefetchRadius := e.prefetchRadius
+	includeZC := src.HasLoicZC
 	refSeq := e.rawSequences[chr]
 	if refSeq == "" {
 		refSeq = e.sequences[chr]
@@ -220,7 +221,7 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 			payload, err = encodeCoverageTileFromStrandPrefixes(rawStart, rawEnd, covPrefixFwd, covPrefixRev, binCount)
 		}
 	} else {
-		payload, err = loadIndexedTilePayload(bamPath, bamIdx, ref, rawStart, rawEnd, kind, maxTileRecs, includeSNPs, refSeq, binCount)
+		payload, err = loadIndexedTilePayload(bamPath, bamIdx, ref, rawStart, rawEnd, kind, maxTileRecs, includeSNPs, includeZC, refSeq, binCount)
 	}
 	if err != nil {
 		return nil, err
@@ -251,7 +252,7 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 			for i := len(alns) - 1; i >= 0; i-- {
 				transformed = append(transformed, e.transformAlignmentForChromLocked(chr, alns[i]))
 			}
-			payload = encodeAlignmentTile(orientedStart, orientedEnd, transformed)
+			payload = encodeAlignmentTile(orientedStart, orientedEnd, transformed, includeZC)
 		}
 	}
 
@@ -397,7 +398,7 @@ func prefixDelta(prefix []uint64, start, end int) uint64 {
 	return prefix[end] - prefix[start]
 }
 
-func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Reference, start, end int, kind uint8, maxTileRecs uint32, includeSNPs bool, refSeq string, binCount int) ([]byte, error) {
+func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Reference, start, end int, kind uint8, maxTileRecs uint32, includeSNPs bool, includeZC bool, refSeq string, binCount int) ([]byte, error) {
 	if start < 0 {
 		start = 0
 	}
@@ -436,7 +437,7 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 			zeros := make([]uint16, max(0, binCount))
 			return encodeStrandCoverageTile(start, end, zeros, zeros), nil
 		}
-		return encodeAlignmentTile(start, end, nil), nil
+		return encodeAlignmentTile(start, end, nil, includeZC), nil
 	}
 
 	it, err := bam.NewIterator(reader, chunks)
@@ -570,18 +571,18 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 		return encodeStrandCoverageTile(start, end, forwardBins, reverseBins), nil
 
 	case readTileCacheKind:
-		alignments, err := collectWindowAlignments(it, ref, start, end, maxTileRecs, includeSNPs, refSeq)
+		alignments, err := collectWindowAlignments(it, ref, start, end, maxTileRecs, includeSNPs, includeZC, refSeq)
 		if err != nil {
 			return nil, err
 		}
-		return encodeAlignmentTile(start, end, alignments), nil
+		return encodeAlignmentTile(start, end, alignments, includeZC), nil
 
 	default:
 		return nil, fmt.Errorf("unknown tile kind %d", kind)
 	}
 }
 
-func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end int, maxTileRecs uint32, includeSNPs bool, refSeq string) ([]Alignment, error) {
+func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end int, maxTileRecs uint32, includeSNPs bool, includeZC bool, refSeq string) ([]Alignment, error) {
 	if maxTileRecs == 0 || end <= start {
 		return nil, nil
 	}
@@ -646,6 +647,10 @@ func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end in
 		snps := recordSNPPositions(rec, start, end, includeSNPs, refSeq)
 		mateStart, mateEnd, mateRawStart, mateRawEnd, mateRefID := mateFieldsForRecord(rec)
 		softClipLeft, softClipRight := softClipSeqs(rec)
+		zcBlocks := []ZCBlock(nil)
+		if includeZC {
+			zcBlocks = recordZCBlocks(rec)
+		}
 		bins[b] = append(bins[b], Alignment{
 			Start:         rec.Start(),
 			End:           rec.End(),
@@ -665,6 +670,7 @@ func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end in
 			MateRefID:     mateRefID,
 			FragLen:       absInt(rec.TempLen),
 			MateSameRef:   isLikelySameRefMate(rec),
+			ZCBlocks:      zcBlocks,
 		})
 		binCounts[b]++
 		if binCounts[b] == capForBin {
@@ -720,7 +726,7 @@ func (e *Engine) prefetchReadTile(sourceID uint16, generation uint64, chrID uint
 	}
 	if zoom > e.maxReadZoom {
 		e.mu.Unlock()
-		return encodeAlignmentTile(tileWindow(zoom, tileIndex).start, tileWindow(zoom, tileIndex).end, nil), nil
+		return encodeAlignmentTile(tileWindow(zoom, tileIndex).start, tileWindow(zoom, tileIndex).end, nil, false), nil
 	}
 	chr, ok := e.idToChr[chrID]
 	if !ok {
@@ -753,6 +759,7 @@ func (e *Engine) prefetchReadTile(sourceID uint16, generation uint64, chrID uint
 	bamPath := src.Path
 	bamIdx := src.Index
 	maxTileRecs := e.maxTileRecs
+	includeZC := src.HasLoicZC
 	window := tileWindow(zoom, tileIndex)
 	orientedStart, orientedEnd := clampWindowToLength(window.start, window.end, chromLen)
 	rawStart, rawEnd := rawWindowForOrientation(window.start, window.end, chromLen, reversed)
@@ -763,7 +770,7 @@ func (e *Engine) prefetchReadTile(sourceID uint16, generation uint64, chrID uint
 	e.mu.Unlock()
 
 	includeSNPs := zoom <= snpDetailMaxZoom
-	payload, err := loadIndexedTilePayload(bamPath, bamIdx, ref, rawStart, rawEnd, readTileCacheKind, maxTileRecs, includeSNPs, refSeq, 0)
+	payload, err := loadIndexedTilePayload(bamPath, bamIdx, ref, rawStart, rawEnd, readTileCacheKind, maxTileRecs, includeSNPs, includeZC, refSeq, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -776,7 +783,7 @@ func (e *Engine) prefetchReadTile(sourceID uint16, generation uint64, chrID uint
 		for i := len(alns) - 1; i >= 0; i-- {
 			transformed = append(transformed, e.transformAlignmentForChromLocked(chr, alns[i]))
 		}
-		payload = encodeAlignmentTile(orientedStart, orientedEnd, transformed)
+		payload = encodeAlignmentTile(orientedStart, orientedEnd, transformed, includeZC)
 	}
 
 	e.mu.Lock()
