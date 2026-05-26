@@ -2,6 +2,12 @@
 
 Genome browser for FASTA, annotation, BAM, and VCF files, with a stacked genome comparison view.
 
+It is heavily inspired by Artemis/ACT. The aim is easier install and use,
+keeping key functionality of Artemis/ACT, but I have added extra
+features. It was developed with substantial coding assistance from
+[OpenAI Codex](https://openai.com/codex), which helped with implementation,
+tests, documentation, and benchmarking under human direction and review.
+
 
 Documentation: https://seqhiker.readthedocs.io/en/
 
