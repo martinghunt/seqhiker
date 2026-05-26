@@ -263,6 +263,7 @@ func _draw_to(target) -> void:
 	_draw_contig_segments(axis_rect, target)
 	_draw_row_features(axis_rect, target)
 	_draw_reference_letters(axis_rect, target)
+	_draw_axis_contig_labels(axis_rect, target)
 	_draw_axis_ticks(axis_rect, target)
 	_draw_region_selection(axis_rect, target)
 
@@ -413,6 +414,46 @@ func _draw_axis_ticks(axis_rect: Rect2, target = self) -> void:
 				_draw_string_on(target, font, Vector2(x - label_w * 0.5, baseline), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors["text_muted"])
 			local_tick += tick_step
 
+func _draw_axis_contig_labels(axis_rect: Rect2, target = self) -> void:
+	var genome_len := int(_genome.get("length", 0))
+	if genome_len <= 0:
+		return
+	var segments: Array = _genome.get("segments", [])
+	if segments.is_empty():
+		segments = [{"name": str(_genome.get("name", "Genome %d" % _genome_id)), "start": 0, "end": genome_len}]
+	var offset := int(round(_offset))
+	var view_end := mini(genome_len, int(round(_offset + _view_span_bp)))
+	if view_end <= offset:
+		return
+	var font := get_theme_default_font()
+	var font_size := maxi(10, get_theme_default_font_size() - 2)
+	var axis_line_y := _axis_line_y(axis_rect)
+	var baseline := axis_line_y - 8.0
+	if _can_draw_nucleotide_letters(axis_rect):
+		baseline = axis_rect.position.y - 5.0
+	for segment_any in segments:
+		var segment: Dictionary = segment_any
+		var seg_start := int(segment.get("start", 0))
+		var seg_end := int(segment.get("end", 0))
+		if seg_end <= offset or seg_start >= view_end:
+			continue
+		var visible_start := maxf(float(seg_start), float(offset))
+		var visible_end := minf(float(seg_end), float(view_end))
+		var x0 := clampf(_bp_edge_x(visible_start, axis_rect), axis_rect.position.x, axis_rect.position.x + axis_rect.size.x)
+		var x1 := clampf(_bp_edge_x(visible_end, axis_rect), axis_rect.position.x, axis_rect.position.x + axis_rect.size.x)
+		if x1 <= x0:
+			continue
+		var label_w := maxf(0.0, x1 - x0 - 8.0)
+		if label_w <= 12.0:
+			continue
+		var raw_label := str(segment.get("name", "")).strip_edges()
+		if raw_label.is_empty():
+			continue
+		var label := FeatureAnnotationUtilsScript.truncate_label_to_width(raw_label, label_w, 4, font, font_size)
+		if label.is_empty():
+			continue
+		_draw_string_on(target, font, Vector2(x0 + 4.0, baseline), label, HORIZONTAL_ALIGNMENT_LEFT, label_w, font_size, _theme_colors["text"])
+
 func _on_axis_value_changed(value: float) -> void:
 	if _syncing:
 		return
@@ -540,6 +581,9 @@ func _can_draw_nucleotide_letters(axis_rect: Rect2) -> bool:
 
 func _bp_center_x(bp: float, axis_rect: Rect2) -> float:
 	return axis_rect.position.x + ((bp - _offset + 0.5) / _view_span_bp) * axis_rect.size.x
+
+func _bp_edge_x(bp: float, axis_rect: Rect2) -> float:
+	return axis_rect.position.x + ((bp - _offset) / _view_span_bp) * axis_rect.size.x
 
 func _is_in_axis_label_band(local_pos: Vector2) -> bool:
 	if axis_bar == null:
