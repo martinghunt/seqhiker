@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Add contig labels to coords axis in comparison view
-- Spinner while computing genome compairons, so seqhiker doesn't appear to be not responding (part of issue #21)
+- Spinner while computing genome comparisons, so seqhiker doesn't appear to be not responding (part of issue #21)
 
 ### Fixed
 - Position of colour nucleotides by base in the settings menu
