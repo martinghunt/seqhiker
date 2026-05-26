@@ -82,13 +82,23 @@ var _invert_mouse_wheel_zoom := false
 var _mouse_wheel_pan_sensitivity := 1.0
 var _loading_message := ""
 var _last_ui_sound_ms := {}
+var _activity_anim_time := 0.0
 var _theme_colors := ThemesLib.new().comparison_theme_colors_from_palette(ThemesLib.THEMES["Slate"])
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	clip_contents = false
+	set_process(false)
 	mouse_exited.connect(_on_mouse_exited)
+
+
+func _process(delta: float) -> void:
+	if _loading_message.is_empty() and not _has_pending_pairs():
+		set_process(false)
+		return
+	_activity_anim_time += delta
+	queue_redraw()
 
 
 func clear_view() -> void:
@@ -179,6 +189,7 @@ func set_theme_colors(next_colors: Dictionary) -> void:
 
 func set_loading_message(message: String) -> void:
 	_loading_message = message
+	_update_activity_process()
 	queue_redraw()
 
 
@@ -344,7 +355,6 @@ func set_block_filters(min_block_len_bp: int, max_block_len_bp: int, min_percent
 
 func set_genomes(genomes: Array) -> void:
 	var had_no_genomes := _order.is_empty()
-	var previous_order := _order
 	var next_by_id := {}
 	var next_order := PackedInt32Array()
 	for genome_any in genomes:
@@ -377,8 +387,6 @@ func set_genomes(genomes: Array) -> void:
 	_layout_rows_and_locks()
 	_schedule_post_layout_refresh()
 	_schedule_detail_request()
-	if previous_order != _order:
-		emit_signal("genome_order_changed", _order)
 	_emit_viewport_changed()
 	queue_redraw()
 
@@ -417,6 +425,7 @@ func set_pair_pending(query_genome_id: int, target_genome_id: int, pending: bool
 		_pending_pair_keys[key] = true
 	else:
 		_pending_pair_keys.erase(key)
+	_update_activity_process()
 	queue_redraw()
 
 func set_colorize_nucleotides(enabled: bool) -> void:
@@ -1993,10 +2002,14 @@ func _draw_pending_pair_placeholder(target, top_id: int, bottom_id: int, x_min: 
 	var font_size := maxi(14, get_theme_default_font_size() + 1)
 	var message := "Running comparison"
 	var text_size := font.get_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var spinner_d := 18.0
+	var gap := 9.0
+	var content_w := spinner_d + gap + text_size.x
 	var pos := Vector2(
-		band_rect.position.x + (band_rect.size.x - text_size.x) * 0.5,
+		band_rect.position.x + (band_rect.size.x - content_w) * 0.5 + spinner_d + gap,
 		band_rect.position.y + (band_rect.size.y + font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5
 	)
+	_draw_spinner_on(target, Vector2(pos.x - gap - spinner_d * 0.5, band_rect.position.y + band_rect.size.y * 0.5), spinner_d * 0.5, _theme_colors.get("text_muted", _theme_colors.get("text", Color.BLACK)))
 	if target == self:
 		draw_string(font, pos, message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text_muted", _theme_colors.get("text", Color.BLACK)))
 	else:
@@ -2031,10 +2044,14 @@ func _draw_pending_preview_pair_placeholder(target) -> void:
 	var font_size := maxi(14, get_theme_default_font_size() + 1)
 	var message := "Running comparison"
 	var text_size := font.get_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var spinner_d := 18.0
+	var gap := 9.0
+	var content_w := spinner_d + gap + text_size.x
 	var pos := Vector2(
-		band_rect.position.x + (band_rect.size.x - text_size.x) * 0.5,
+		band_rect.position.x + (band_rect.size.x - content_w) * 0.5 + spinner_d + gap,
 		band_rect.position.y + (band_rect.size.y + font.get_ascent(font_size) - font.get_descent(font_size)) * 0.5
 	)
+	_draw_spinner_on(target, Vector2(pos.x - gap - spinner_d * 0.5, band_rect.position.y + band_rect.size.y * 0.5), spinner_d * 0.5, _theme_colors.get("text_muted", _theme_colors.get("text", Color.BLACK)))
 	if target == self:
 		draw_string(font, pos, message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text_muted", _theme_colors.get("text", Color.BLACK)))
 	else:
@@ -2048,16 +2065,21 @@ func _draw_pending_comparison_notice() -> void:
 	var font := get_theme_default_font()
 	var font_size := maxi(16, get_theme_default_font_size() + 2)
 	var text_size := font.get_string_size(message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var spinner_d := 20.0
+	var gap := 10.0
+	var content_w := spinner_d + gap + text_size.x
 	var pad_x := 18.0
 	var pad_y := 12.0
 	var box := Rect2(
-		Vector2((size.x - text_size.x) * 0.5 - pad_x, (size.y - text_size.y) * 0.5 - pad_y),
-		Vector2(text_size.x + pad_x * 2.0, text_size.y + pad_y * 2.0)
+		Vector2((size.x - content_w) * 0.5 - pad_x, (size.y - text_size.y) * 0.5 - pad_y),
+		Vector2(content_w + pad_x * 2.0, text_size.y + pad_y * 2.0)
 	)
 	draw_rect(box, _theme_colors.get("panel_alt", Color.WHITE), true)
 	draw_rect(box, _theme_colors.get("border", Color.BLACK), false, 1.0)
 	var baseline := box.position.y + pad_y + font.get_ascent(font_size)
-	draw_string(font, Vector2(box.position.x + pad_x, baseline), message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text", Color.BLACK))
+	var text_pos := Vector2(box.position.x + pad_x + spinner_d + gap, baseline)
+	_draw_spinner_on(self, Vector2(box.position.x + pad_x + spinner_d * 0.5, box.position.y + box.size.y * 0.5), spinner_d * 0.5, _theme_colors.get("text", Color.BLACK))
+	draw_string(font, text_pos, message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text", Color.BLACK))
 
 
 func _has_pending_pairs() -> bool:
@@ -2110,16 +2132,40 @@ func _draw_loading_overlay() -> void:
 	var font_size := maxi(16, get_theme_default_font_size() + 2)
 	var text_w := font.get_string_size(_loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	var text_h := font.get_height(font_size)
+	var spinner_d := 20.0
+	var gap := 10.0
+	var content_w := spinner_d + gap + text_w
 	var pad_x := 18.0
 	var pad_y := 12.0
 	var box := Rect2(
-		Vector2((size.x - text_w) * 0.5 - pad_x, (size.y - text_h) * 0.5 - pad_y),
-		Vector2(text_w + pad_x * 2.0, text_h + pad_y * 2.0)
+		Vector2((size.x - content_w) * 0.5 - pad_x, (size.y - text_h) * 0.5 - pad_y),
+		Vector2(content_w + pad_x * 2.0, text_h + pad_y * 2.0)
 	)
 	draw_rect(box, _theme_colors.get("panel_alt", Color.WHITE), true)
 	draw_rect(box, _theme_colors.get("border", Color.BLACK), false, 1.0)
 	var baseline := box.position.y + pad_y + font.get_ascent(font_size)
-	draw_string(font, Vector2(box.position.x + pad_x, baseline), _loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text", Color.BLACK))
+	_draw_spinner_on(self, Vector2(box.position.x + pad_x + spinner_d * 0.5, box.position.y + box.size.y * 0.5), spinner_d * 0.5, _theme_colors.get("text", Color.BLACK))
+	draw_string(font, Vector2(box.position.x + pad_x + spinner_d + gap, baseline), _loading_message, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, _theme_colors.get("text", Color.BLACK))
+
+func _draw_spinner_on(target, center: Vector2, radius: float, color: Color) -> void:
+	if target != self:
+		return
+	var spoke_count := 12
+	var active := int(floor(_activity_anim_time * 14.0)) % spoke_count
+	for i in range(spoke_count):
+		var age := (i - active + spoke_count) % spoke_count
+		var spoke_col := color
+		spoke_col.a *= clampf(1.0 - float(age) / float(spoke_count), 0.22, 1.0)
+		var angle := -PI * 0.5 + TAU * float(i) / float(spoke_count)
+		var inner := center + Vector2(cos(angle), sin(angle)) * radius * 0.48
+		var outer := center + Vector2(cos(angle), sin(angle)) * radius
+		draw_line(inner, outer, spoke_col, 2.0)
+
+func _update_activity_process() -> void:
+	var active := not _loading_message.is_empty() or _has_pending_pairs()
+	set_process(active)
+	if active:
+		_activity_anim_time = 0.0
 
 func _draw_rect_on(target, rect: Rect2, color: Color, filled: bool, width: float = 1.0) -> void:
 	if target == self:

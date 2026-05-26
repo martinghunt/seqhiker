@@ -2951,6 +2951,8 @@ func _inspect_dropped_files(files: PackedStringArray) -> Dictionary:
 func _exit_tree() -> void:
 	if _tile_controller != null:
 		_tile_controller.shutdown()
+	if _comparison_controller != null and _comparison_controller.has_method("shutdown"):
+		_comparison_controller.shutdown()
 	if _download_thread != null and _download_thread.is_started():
 		_download_thread.wait_to_finish()
 		_download_thread = null

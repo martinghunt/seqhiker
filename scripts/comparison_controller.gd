@@ -10,6 +10,7 @@ var comparison_view: Control = null
 
 var _comparison_genomes: Array[Dictionary] = []
 var _comparison_pair_cache := {}
+var _comparison_pair_jobs := {}
 var _comparison_detail_cache := {}
 var _comparison_reference_cache := {}
 var _comparison_block_cap_label: Label
@@ -25,6 +26,7 @@ var _max_identity_spin: SpinBox
 var _generate_test_genomes_button: Button
 var _contig_context_menu: PopupMenu = null
 var _contig_context_genome_id := -1
+var _next_comparison_pair_job_id := 1
 
 
 func configure(next_host: Node, next_zem: RefCounted, next_themes_lib: RefCounted, next_view: Control) -> void:
@@ -255,6 +257,15 @@ func clear_region_selection() -> void:
 	if comparison_view == null or not comparison_view.has_method("clear_region_selection"):
 		return
 	comparison_view.clear_region_selection()
+
+
+func shutdown() -> void:
+	for key_any in _comparison_pair_jobs.keys():
+		var job: Dictionary = _comparison_pair_jobs[key_any]
+		var thread: Thread = job.get("thread", null)
+		if thread != null and thread.is_started():
+			thread.wait_to_finish()
+	_comparison_pair_jobs.clear()
 
 
 func _on_comparison_contig_context_requested(genome_id: int, segment: Dictionary) -> void:
@@ -588,6 +599,8 @@ func _ensure_pair_blocks(query_genome_id: int, target_genome_id: int) -> void:
 	if comparison_view != null and comparison_view.has_method("pair_pending") and comparison_view.pair_pending(query_genome_id, target_genome_id):
 		return
 	var key := "%d:%d" % [mini(query_genome_id, target_genome_id), maxi(query_genome_id, target_genome_id)]
+	if _comparison_pair_jobs.has(key):
+		return
 	if _comparison_pair_cache.has(key):
 		var cached: Dictionary = _comparison_pair_cache[key]
 		var cached_blocks: Array = cached.get("blocks", [])
@@ -598,32 +611,91 @@ func _ensure_pair_blocks(query_genome_id: int, target_genome_id: int) -> void:
 		_comparison_pair_cache.erase(key)
 	if comparison_view != null and comparison_view.has_method("set_pair_pending"):
 		comparison_view.set_pair_pending(query_genome_id, target_genome_id, true)
-	var resp: Dictionary = zem.get_comparison_blocks_by_genomes(query_genome_id, target_genome_id)
+	_start_pair_fetch_job(key, query_genome_id, target_genome_id)
+
+
+func _start_pair_fetch_job(key: String, query_genome_id: int, target_genome_id: int) -> void:
+	var conn_info: Dictionary = zem.connection_info() if zem != null and zem.has_method("connection_info") else {"host": "127.0.0.1", "port": 9000}
+	var job_id := _next_comparison_pair_job_id
+	_next_comparison_pair_job_id += 1
+	var thread := Thread.new()
+	_comparison_pair_jobs[key] = {
+		"id": job_id,
+		"thread": thread,
+		"query_id": query_genome_id,
+		"target_id": target_genome_id
+	}
+	var err := thread.start(Callable(self, "_pair_fetch_thread_main").bind(
+		job_id,
+		query_genome_id,
+		target_genome_id,
+		str(conn_info.get("host", "127.0.0.1")),
+		int(conn_info.get("port", 9000))
+	))
+	if err != OK:
+		_comparison_pair_jobs.erase(key)
+		if comparison_view != null and comparison_view.has_method("set_pair_pending"):
+			comparison_view.set_pair_pending(query_genome_id, target_genome_id, false)
+		host._set_status("Comparison query failed: could not start worker thread", true)
+
+
+func _pair_fetch_thread_main(job_id: int, query_genome_id: int, target_genome_id: int, server_host: String, server_port: int) -> Dictionary:
+	var worker_zem := ZemClient.new()
+	var resp: Dictionary = {}
+	if not worker_zem.connect_to_server(server_host, server_port, 2000):
+		resp = {"ok": false, "error": "Unable to connect to %s:%d" % [server_host, server_port]}
+	else:
+		resp = worker_zem.get_comparison_blocks_by_genomes(query_genome_id, target_genome_id)
+		if bool(resp.get("ok", false)) and (resp.get("blocks", []) as Array).is_empty():
+			var pairs_resp: Dictionary = worker_zem.list_comparison_pairs()
+			if bool(pairs_resp.get("ok", false)):
+				for pair_any in pairs_resp.get("pairs", []):
+					var pair: Dictionary = pair_any
+					var top_id := int(pair.get("top_genome_id", -1))
+					var bottom_id := int(pair.get("bottom_genome_id", -1))
+					if (top_id == query_genome_id and bottom_id == target_genome_id) or (top_id == target_genome_id and bottom_id == query_genome_id):
+						var pair_blocks_resp: Dictionary = worker_zem.get_comparison_blocks(int(pair.get("id", -1)))
+						if bool(pair_blocks_resp.get("ok", false)):
+							resp["blocks"] = pair_blocks_resp.get("blocks", [])
+						break
+		worker_zem.disconnect_from_server()
+	call_deferred("_on_pair_fetch_thread_completed", job_id)
+	return resp
+
+
+func _on_pair_fetch_thread_completed(job_id: int) -> void:
+	var found_key := ""
+	var job: Dictionary = {}
+	for key_any in _comparison_pair_jobs.keys():
+		var candidate: Dictionary = _comparison_pair_jobs[key_any]
+		if int(candidate.get("id", -1)) == job_id:
+			found_key = str(key_any)
+			job = candidate
+			break
+	if found_key.is_empty():
+		return
+	var thread: Thread = job.get("thread", null)
+	var resp: Dictionary = thread.wait_to_finish() if thread != null else {"ok": false, "error": "Comparison worker missing"}
+	_comparison_pair_jobs.erase(found_key)
+	var query_genome_id := int(job.get("query_id", -1))
+	var target_genome_id := int(job.get("target_id", -1))
 	if not bool(resp.get("ok", false)):
 		if comparison_view != null and comparison_view.has_method("set_pair_pending"):
 			comparison_view.set_pair_pending(query_genome_id, target_genome_id, false)
 		host._set_status("Comparison query failed: %s" % str(resp.get("error", "error")), true)
 		return
 	var blocks: Array = resp.get("blocks", [])
-	if blocks.is_empty():
-		var pairs_resp: Dictionary = zem.list_comparison_pairs()
-		if bool(pairs_resp.get("ok", false)):
-			for pair_any in pairs_resp.get("pairs", []):
-				var pair: Dictionary = pair_any
-				var top_id := int(pair.get("top_genome_id", -1))
-				var bottom_id := int(pair.get("bottom_genome_id", -1))
-				if (top_id == query_genome_id and bottom_id == target_genome_id) or (top_id == target_genome_id and bottom_id == query_genome_id):
-					var pair_blocks_resp: Dictionary = zem.get_comparison_blocks(int(pair.get("id", -1)))
-					if bool(pair_blocks_resp.get("ok", false)):
-						blocks = pair_blocks_resp.get("blocks", [])
-					break
+	if _genome_by_id(query_genome_id).is_empty() or _genome_by_id(target_genome_id).is_empty():
+		if comparison_view != null and comparison_view.has_method("set_pair_pending"):
+			comparison_view.set_pair_pending(query_genome_id, target_genome_id, false)
+		return
 	var payload := {
 		"query_id": query_genome_id,
 		"target_id": target_genome_id,
 		"blocks": blocks
 	}
 	if not blocks.is_empty():
-		_comparison_pair_cache[key] = payload
+		_comparison_pair_cache[found_key] = payload
 	if comparison_view != null and comparison_view.has_method("set_pair_blocks"):
 		comparison_view.set_pair_blocks(query_genome_id, target_genome_id, blocks)
 	elif comparison_view != null and comparison_view.has_method("set_pair_pending"):
