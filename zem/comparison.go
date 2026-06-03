@@ -431,17 +431,39 @@ func (e *Engine) GetComparisonBlockDetail(queryGenomeID uint16, targetGenomeID u
 			return detail, nil
 		}
 	}
+	queryForDetail := cloneComparisonGenomeForDetail(query)
+	targetForDetail := cloneComparisonGenomeForDetail(target)
+	pairID := uint16(0)
+	if exactPair != nil {
+		pairID = exactPair.ID
+	}
 	e.mu.Unlock()
-	detail, ok := buildComparisonBlockDetail(query, target, block)
+	detail, ok := buildComparisonBlockDetail(queryForDetail, targetForDetail, block)
 	if !ok {
 		return ComparisonBlockDetail{}, fmt.Errorf("unable to refine comparison block")
 	}
 	e.mu.Lock()
 	if exactPair != nil {
-		_ = appendComparisonDetailToPairCache(exactPair, block, detail.info())
+		currentPair := e.comparisonPairs[pairID]
+		if currentPair == exactPair && currentPair.TopGenomeID == queryGenomeID && currentPair.BottomGenomeID == targetGenomeID {
+			_ = appendComparisonDetailToPairCache(currentPair, block, detail.info())
+		}
 	}
 	e.mu.Unlock()
 	return detail.info(), nil
+}
+
+func cloneComparisonGenomeForDetail(genome *comparisonGenome) *comparisonGenome {
+	if genome == nil {
+		return nil
+	}
+	clone := *genome
+	clone.Features = append([]Feature(nil), genome.Features...)
+	clone.Segments = append([]comparisonSegment(nil), genome.Segments...)
+	for i := range clone.Segments {
+		clone.Segments[i].RawFeatures = append([]Feature(nil), genome.Segments[i].RawFeatures...)
+	}
+	return &clone
 }
 
 func buildComparisonGenome(path string, snapshot GenomeSnapshot) (*comparisonGenome, error) {
@@ -2165,28 +2187,45 @@ func encodeDNA2Bit(b byte) (uint8, bool) {
 }
 
 func encodeComparisonGenomes(genomes []ComparisonGenomeInfo) []byte {
+	if len(genomes) > 0xFFFF {
+		genomes = genomes[:0xFFFF]
+	}
 	total := 2
 	for _, genome := range genomes {
-		total += 16 + len(genome.Name) + len(genome.Path)
-		for _, segment := range genome.Segments {
-			total += 15 + len(segment.Name)
+		name := wireString16(genome.Name)
+		path := wireString16(genome.Path)
+		total += 16 + len(name) + len(path)
+		segments := genome.Segments
+		if len(segments) > 0xFFFF {
+			segments = segments[:0xFFFF]
+		}
+		for _, segment := range segments {
+			segmentName := wireString16(segment.Name)
+			total += 15 + len(segmentName)
 		}
 	}
 	buf := make([]byte, total)
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(genomes)))
 	off := 2
 	for _, genome := range genomes {
+		name := wireString16(genome.Name)
+		path := wireString16(genome.Path)
+		segments := genome.Segments
+		if len(segments) > 0xFFFF {
+			segments = segments[:0xFFFF]
+		}
 		binary.LittleEndian.PutUint16(buf[off:off+2], genome.ID)
 		binary.LittleEndian.PutUint32(buf[off+2:off+6], genome.Length)
-		binary.LittleEndian.PutUint16(buf[off+6:off+8], genome.SegmentCount)
+		binary.LittleEndian.PutUint16(buf[off+6:off+8], uint16(len(segments)))
 		binary.LittleEndian.PutUint32(buf[off+8:off+12], genome.FeatureCount)
-		binary.LittleEndian.PutUint16(buf[off+12:off+14], uint16(len(genome.Name)))
-		copy(buf[off+14:off+14+len(genome.Name)], genome.Name)
-		off += 14 + len(genome.Name)
-		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(genome.Path)))
-		copy(buf[off+2:off+2+len(genome.Path)], genome.Path)
-		off += 2 + len(genome.Path)
-		for _, segment := range genome.Segments {
+		binary.LittleEndian.PutUint16(buf[off+12:off+14], uint16(len(name)))
+		copy(buf[off+14:off+14+len(name)], name)
+		off += 14 + len(name)
+		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(path)))
+		copy(buf[off+2:off+2+len(path)], path)
+		off += 2 + len(path)
+		for _, segment := range segments {
+			segmentName := wireString16(segment.Name)
 			binary.LittleEndian.PutUint32(buf[off:off+4], segment.Start)
 			binary.LittleEndian.PutUint32(buf[off+4:off+8], segment.End)
 			binary.LittleEndian.PutUint32(buf[off+8:off+12], segment.FeatureCount)
@@ -2194,15 +2233,18 @@ func encodeComparisonGenomes(genomes []ComparisonGenomeInfo) []byte {
 			if segment.Reversed {
 				buf[off+12] = 1
 			}
-			binary.LittleEndian.PutUint16(buf[off+13:off+15], uint16(len(segment.Name)))
-			copy(buf[off+15:off+15+len(segment.Name)], segment.Name)
-			off += 15 + len(segment.Name)
+			binary.LittleEndian.PutUint16(buf[off+13:off+15], uint16(len(segmentName)))
+			copy(buf[off+15:off+15+len(segmentName)], segmentName)
+			off += 15 + len(segmentName)
 		}
 	}
 	return buf
 }
 
 func encodeComparisonPairs(pairs []ComparisonPairInfo) []byte {
+	if len(pairs) > 0xFFFF {
+		pairs = pairs[:0xFFFF]
+	}
 	buf := make([]byte, 2+13*len(pairs))
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(pairs)))
 	off := 2
@@ -2218,6 +2260,9 @@ func encodeComparisonPairs(pairs []ComparisonPairInfo) []byte {
 }
 
 func encodeComparisonBlocks(blocks []ComparisonBlock) []byte {
+	if len(blocks) > 0xFFFF {
+		blocks = blocks[:0xFFFF]
+	}
 	buf := make([]byte, 2+19*len(blocks))
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(blocks)))
 	off := 2
@@ -2236,9 +2281,14 @@ func encodeComparisonBlocks(blocks []ComparisonBlock) []byte {
 }
 
 func encodeComparisonBlockDetail(detail ComparisonBlockDetail) []byte {
+	if len(detail.Variants) > 0xFFFF {
+		detail.Variants = detail.Variants[:0xFFFF]
+	}
 	total := 23 + len(detail.Ops) + 2
 	for _, variant := range detail.Variants {
-		total += 13 + len(variant.RefBases) + len(variant.AltBases)
+		refBases := wireString16(variant.RefBases)
+		altBases := wireString16(variant.AltBases)
+		total += 13 + len(refBases) + len(altBases)
 	}
 	buf := make([]byte, total)
 	binary.LittleEndian.PutUint32(buf[0:4], detail.Block.QueryStart)
@@ -2255,16 +2305,18 @@ func encodeComparisonBlockDetail(detail ComparisonBlockDetail) []byte {
 	binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(detail.Variants)))
 	off += 2
 	for _, variant := range detail.Variants {
+		refBases := wireString16(variant.RefBases)
+		altBases := wireString16(variant.AltBases)
 		buf[off] = variant.Kind
 		binary.LittleEndian.PutUint32(buf[off+1:off+5], variant.QueryPos)
 		binary.LittleEndian.PutUint32(buf[off+5:off+9], variant.TargetPos)
-		binary.LittleEndian.PutUint16(buf[off+9:off+11], uint16(len(variant.RefBases)))
-		binary.LittleEndian.PutUint16(buf[off+11:off+13], uint16(len(variant.AltBases)))
+		binary.LittleEndian.PutUint16(buf[off+9:off+11], uint16(len(refBases)))
+		binary.LittleEndian.PutUint16(buf[off+11:off+13], uint16(len(altBases)))
 		off += 13
-		copy(buf[off:off+len(variant.RefBases)], variant.RefBases)
-		off += len(variant.RefBases)
-		copy(buf[off:off+len(variant.AltBases)], variant.AltBases)
-		off += len(variant.AltBases)
+		copy(buf[off:off+len(refBases)], refBases)
+		off += len(refBases)
+		copy(buf[off:off+len(altBases)], altBases)
+		off += len(altBases)
 	}
 	return buf
 }

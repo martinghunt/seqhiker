@@ -175,6 +175,10 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 		chromLen = e.chrLength[chr]
 	}
 	reversed := e.chrReverse[chr]
+	var transformCtx alignmentTransformContext
+	if reversed {
+		transformCtx = e.alignmentTransformContextLocked(chr)
+	}
 
 	key := tileCacheKey{
 		Generation: src.Generation,
@@ -249,7 +253,7 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 			}
 			transformed := make([]Alignment, 0, len(alns))
 			for i := len(alns) - 1; i >= 0; i-- {
-				transformed = append(transformed, e.transformAlignmentForChromLocked(chr, alns[i]))
+				transformed = append(transformed, transformCtx.transformAlignment(alns[i]))
 			}
 			payload = encodeAlignmentTile(orientedStart, orientedEnd, transformed)
 		}
@@ -732,7 +736,11 @@ func (e *Engine) prefetchReadTile(sourceID uint16, generation uint64, chrID uint
 		chromLen = e.chrLength[chr]
 	}
 	reversed := e.chrReverse[chr]
-	ref := src.Refs[chr]
+	var transformCtx alignmentTransformContext
+	if reversed {
+		transformCtx = e.alignmentTransformContextLocked(chr)
+	}
+	ref := src.RefByChrID[chrID]
 	if ref == nil {
 		e.mu.Unlock()
 		return nil, nil
@@ -774,7 +782,7 @@ func (e *Engine) prefetchReadTile(sourceID uint16, generation uint64, chrID uint
 		}
 		transformed := make([]Alignment, 0, len(alns))
 		for i := len(alns) - 1; i >= 0; i-- {
-			transformed = append(transformed, e.transformAlignmentForChromLocked(chr, alns[i]))
+			transformed = append(transformed, transformCtx.transformAlignment(alns[i]))
 		}
 		payload = encodeAlignmentTile(orientedStart, orientedEnd, transformed)
 	}

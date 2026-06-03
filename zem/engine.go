@@ -320,6 +320,8 @@ func (e *Engine) loadGenomeEntries(entries []string) error {
 		e.chrToID = make(map[string]uint16)
 		e.idToChr = make(map[uint16]string)
 		e.chromOrder = e.chromOrder[:0]
+		// These resets advance globalGeneration and clear tile caches for any
+		// in-flight requests built against the previous primary genome.
 		e.resetBAMStateLocked()
 		e.resetVariantStateLocked()
 
@@ -1137,7 +1139,11 @@ func buildGCPrefix(seq string) ([]uint32, []uint32) {
 func encodeAnnotations(start, end int, feats []Feature) []byte {
 	payloadLen := 12
 	for _, f := range feats {
-		payloadLen += 18 + len(f.SeqName) + len(f.Source) + len(f.Type) + len(f.Attributes)
+		seqName := wireString16(f.SeqName)
+		source := wireString16(f.Source)
+		typ := wireString16(f.Type)
+		attrs := wireString16(f.Attributes)
+		payloadLen += 18 + len(seqName) + len(source) + len(typ) + len(attrs)
 	}
 	buf := make([]byte, payloadLen)
 	binary.LittleEndian.PutUint32(buf[0:4], uint32(start))
@@ -1145,6 +1151,10 @@ func encodeAnnotations(start, end int, feats []Feature) []byte {
 	binary.LittleEndian.PutUint32(buf[8:12], uint32(len(feats)))
 	off := 12
 	for _, f := range feats {
+		seqName := wireString16(f.SeqName)
+		source := wireString16(f.Source)
+		typ := wireString16(f.Type)
+		attrs := wireString16(f.Attributes)
 		binary.LittleEndian.PutUint32(buf[off:off+4], uint32(f.Start))
 		binary.LittleEndian.PutUint32(buf[off+4:off+8], uint32(f.End))
 		buf[off+8] = f.Strand
@@ -1152,18 +1162,18 @@ func encodeAnnotations(start, end int, feats []Feature) []byte {
 		if f.Phase >= 0 && f.Phase <= 2 {
 			buf[off+9] = byte(f.Phase)
 		}
-		binary.LittleEndian.PutUint16(buf[off+10:off+12], uint16(len(f.SeqName)))
-		copy(buf[off+12:off+12+len(f.SeqName)], f.SeqName)
-		off += 12 + len(f.SeqName)
-		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(f.Source)))
-		copy(buf[off+2:off+2+len(f.Source)], f.Source)
-		off += 2 + len(f.Source)
-		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(f.Type)))
-		copy(buf[off+2:off+2+len(f.Type)], f.Type)
-		off += 2 + len(f.Type)
-		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(f.Attributes)))
-		copy(buf[off+2:off+2+len(f.Attributes)], f.Attributes)
-		off += 2 + len(f.Attributes)
+		binary.LittleEndian.PutUint16(buf[off+10:off+12], uint16(len(seqName)))
+		copy(buf[off+12:off+12+len(seqName)], seqName)
+		off += 12 + len(seqName)
+		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(source)))
+		copy(buf[off+2:off+2+len(source)], source)
+		off += 2 + len(source)
+		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(typ)))
+		copy(buf[off+2:off+2+len(typ)], typ)
+		off += 2 + len(typ)
+		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(attrs)))
+		copy(buf[off+2:off+2+len(attrs)], attrs)
+		off += 2 + len(attrs)
 	}
 	return buf
 }

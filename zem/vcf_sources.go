@@ -264,6 +264,9 @@ func (e *Engine) loadVCFSource(path string) (*variantSource, error) {
 		SampleNames:   append([]string(nil), reader.Header.SampleNames...),
 		VariantsByChr: map[uint16][]variantRecord{},
 	}
+	if len(source.SampleNames) > 0xFFFF {
+		source.SampleNames = source.SampleNames[:0xFFFF]
+	}
 	sampleCount := uint16(len(source.SampleNames))
 	for {
 		variant := reader.Read()
@@ -391,11 +394,12 @@ func extractVCFSampleNamesFromHeader(headerText []byte) []string {
 func encodeVariantTile(start, end int, records []variantRecord) []byte {
 	payloadLen := 13
 	for _, record := range records {
-		textBlobLen := 0
-		for _, text := range record.SampleTexts {
-			textBlobLen += 2 + len(text)
-		}
-		payloadLen += 27 + len(record.SampleClasses) + textBlobLen + len(record.ID) + len(record.Ref) + len(record.AltSummary) + len(record.Filter)
+		sampleClasses, _, _, textBlobLen := wireVariantRecordSamples16(record)
+		id := wireString16(record.ID)
+		ref := wireString16(record.Ref)
+		altSummary := wireString16(record.AltSummary)
+		filter := wireString16(record.Filter)
+		payloadLen += 27 + len(sampleClasses) + textBlobLen + len(id) + len(ref) + len(altSummary) + len(filter)
 	}
 	buf := make([]byte, payloadLen)
 	buf[0] = 1
@@ -404,56 +408,97 @@ func encodeVariantTile(start, end int, records []variantRecord) []byte {
 	binary.LittleEndian.PutUint32(buf[9:13], uint32(len(records)))
 	off := 13
 	for _, record := range records {
-		textBlobLen := 0
-		for _, text := range record.SampleTexts {
-			textBlobLen += 2 + len(text)
-		}
+		sampleClasses, sampleTexts, sampleCount, textBlobLen := wireVariantRecordSamples16(record)
+		id := wireString16(record.ID)
+		ref := wireString16(record.Ref)
+		altSummary := wireString16(record.AltSummary)
+		filter := wireString16(record.Filter)
 		binary.LittleEndian.PutUint32(buf[off:off+4], record.Start)
 		binary.LittleEndian.PutUint32(buf[off+4:off+8], record.End)
 		buf[off+8] = record.Kind
-		binary.LittleEndian.PutUint16(buf[off+9:off+11], record.SampleCount)
+		binary.LittleEndian.PutUint16(buf[off+9:off+11], sampleCount)
 		binary.LittleEndian.PutUint32(buf[off+11:off+15], math.Float32bits(record.Qual))
-		binary.LittleEndian.PutUint16(buf[off+15:off+17], uint16(len(record.SampleClasses)))
+		binary.LittleEndian.PutUint16(buf[off+15:off+17], uint16(len(sampleClasses)))
 		binary.LittleEndian.PutUint16(buf[off+17:off+19], uint16(textBlobLen))
-		binary.LittleEndian.PutUint16(buf[off+19:off+21], uint16(len(record.ID)))
-		binary.LittleEndian.PutUint16(buf[off+21:off+23], uint16(len(record.Ref)))
-		binary.LittleEndian.PutUint16(buf[off+23:off+25], uint16(len(record.AltSummary)))
-		binary.LittleEndian.PutUint16(buf[off+25:off+27], uint16(len(record.Filter)))
-		copy(buf[off+27:off+27+len(record.SampleClasses)], record.SampleClasses)
-		off += 27 + len(record.SampleClasses)
-		for _, text := range record.SampleTexts {
+		binary.LittleEndian.PutUint16(buf[off+19:off+21], uint16(len(id)))
+		binary.LittleEndian.PutUint16(buf[off+21:off+23], uint16(len(ref)))
+		binary.LittleEndian.PutUint16(buf[off+23:off+25], uint16(len(altSummary)))
+		binary.LittleEndian.PutUint16(buf[off+25:off+27], uint16(len(filter)))
+		copy(buf[off+27:off+27+len(sampleClasses)], sampleClasses)
+		off += 27 + len(sampleClasses)
+		for _, text := range sampleTexts {
 			binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(text)))
 			off += 2
 			copy(buf[off:off+len(text)], text)
 			off += len(text)
 		}
-		copy(buf[off:off+len(record.ID)], record.ID)
-		off += len(record.ID)
-		copy(buf[off:off+len(record.Ref)], record.Ref)
-		off += len(record.Ref)
-		copy(buf[off:off+len(record.AltSummary)], record.AltSummary)
-		off += len(record.AltSummary)
-		copy(buf[off:off+len(record.Filter)], record.Filter)
-		off += len(record.Filter)
+		copy(buf[off:off+len(id)], id)
+		off += len(id)
+		copy(buf[off:off+len(ref)], ref)
+		off += len(ref)
+		copy(buf[off:off+len(altSummary)], altSummary)
+		off += len(altSummary)
+		copy(buf[off:off+len(filter)], filter)
+		off += len(filter)
 	}
 	return buf
 }
 
+func wireVariantRecordSamples16(record variantRecord) ([]byte, []string, uint16, int) {
+	count := min(int(record.SampleCount), len(record.SampleClasses), len(record.SampleTexts), 0xFFFF)
+	classes := wireBytes16(record.SampleClasses)
+	if len(classes) < count {
+		count = len(classes)
+	}
+	texts := make([]string, 0, count)
+	textBlobLen := 0
+	for i := 0; i < count; i++ {
+		if textBlobLen+2 > 0xFFFF {
+			break
+		}
+		remaining := 0xFFFF - textBlobLen - 2
+		text := record.SampleTexts[i]
+		if len(text) > remaining {
+			text = text[:remaining]
+		}
+		texts = append(texts, text)
+		textBlobLen += 2 + len(text)
+	}
+	classes = classes[:len(texts)]
+	return classes, texts, uint16(len(texts)), textBlobLen
+}
+
 func encodeVariantDetail(detail variantDetail) []byte {
+	sourceName := wireString16(detail.SourceName)
+	sourcePath := wireString16(detail.SourcePath)
+	chrom := wireString16(detail.Chrom)
+	id := wireString16(detail.ID)
+	ref := wireString16(detail.Ref)
+	altSummary := wireString16(detail.AltSummary)
+	filter := wireString16(detail.Filter)
+	info := wireString16(detail.Info)
+	formatKeys := wireStringList16(detail.FormatKeys)
+	sampleCount := min(len(detail.SampleNames), len(detail.SampleValues), len(detail.SampleHasAlt), 0xFFFF)
+	sampleNames := make([]string, sampleCount)
+	sampleValues := make([]string, sampleCount)
+	for i := 0; i < sampleCount; i++ {
+		sampleNames[i] = wireString16(detail.SampleNames[i])
+		sampleValues[i] = wireString16(detail.SampleValues[i])
+	}
 	payloadLen := 35 +
-		len(detail.SourceName) +
-		len(detail.SourcePath) +
-		len(detail.Chrom) +
-		len(detail.ID) +
-		len(detail.Ref) +
-		len(detail.AltSummary) +
-		len(detail.Filter) +
-		len(detail.Info)
-	for _, key := range detail.FormatKeys {
+		len(sourceName) +
+		len(sourcePath) +
+		len(chrom) +
+		len(id) +
+		len(ref) +
+		len(altSummary) +
+		len(filter) +
+		len(info)
+	for _, key := range formatKeys {
 		payloadLen += 2 + len(key)
 	}
-	for i := range detail.SampleNames {
-		payloadLen += 5 + len(detail.SampleNames[i]) + len(detail.SampleValues[i])
+	for i := range sampleNames {
+		payloadLen += 5 + len(sampleNames[i]) + len(sampleValues[i])
 	}
 	buf := make([]byte, payloadLen)
 	binary.LittleEndian.PutUint16(buf[0:2], detail.SourceID)
@@ -461,41 +506,43 @@ func encodeVariantDetail(detail variantDetail) []byte {
 	binary.LittleEndian.PutUint32(buf[6:10], detail.End)
 	buf[10] = detail.Kind
 	binary.LittleEndian.PutUint32(buf[11:15], math.Float32bits(detail.Qual))
-	binary.LittleEndian.PutUint16(buf[15:17], uint16(len(detail.FormatKeys)))
-	binary.LittleEndian.PutUint16(buf[17:19], uint16(len(detail.SampleNames)))
-	binary.LittleEndian.PutUint16(buf[19:21], uint16(len(detail.SourceName)))
-	binary.LittleEndian.PutUint16(buf[21:23], uint16(len(detail.SourcePath)))
-	binary.LittleEndian.PutUint16(buf[23:25], uint16(len(detail.Chrom)))
-	binary.LittleEndian.PutUint16(buf[25:27], uint16(len(detail.ID)))
-	binary.LittleEndian.PutUint16(buf[27:29], uint16(len(detail.Ref)))
+	binary.LittleEndian.PutUint16(buf[15:17], uint16(len(formatKeys)))
+	binary.LittleEndian.PutUint16(buf[17:19], uint16(len(sampleNames)))
+	binary.LittleEndian.PutUint16(buf[19:21], uint16(len(sourceName)))
+	binary.LittleEndian.PutUint16(buf[21:23], uint16(len(sourcePath)))
+	binary.LittleEndian.PutUint16(buf[23:25], uint16(len(chrom)))
+	binary.LittleEndian.PutUint16(buf[25:27], uint16(len(id)))
+	binary.LittleEndian.PutUint16(buf[27:29], uint16(len(ref)))
 	off := 29
-	for _, value := range []string{detail.AltSummary, detail.Filter, detail.Info} {
+	for _, value := range []string{altSummary, filter, info} {
 		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(value)))
 		off += 2
 		copy(buf[off:off+len(value)], value)
 		off += len(value)
 	}
-	for _, value := range []string{detail.SourceName, detail.SourcePath, detail.Chrom, detail.ID, detail.Ref} {
+	for _, value := range []string{sourceName, sourcePath, chrom, id, ref} {
 		copy(buf[off:off+len(value)], value)
 		off += len(value)
 	}
-	for _, key := range detail.FormatKeys {
+	for _, key := range formatKeys {
 		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(key)))
 		off += 2
 		copy(buf[off:off+len(key)], key)
 		off += len(key)
 	}
-	for i := range detail.SampleNames {
+	for i := range sampleNames {
+		sampleName := sampleNames[i]
+		sampleValue := sampleValues[i]
 		buf[off] = detail.SampleHasAlt[i]
 		off++
-		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(detail.SampleNames[i])))
+		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(sampleName)))
 		off += 2
-		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(detail.SampleValues[i])))
+		binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(sampleValue)))
 		off += 2
-		copy(buf[off:off+len(detail.SampleNames[i])], detail.SampleNames[i])
-		off += len(detail.SampleNames[i])
-		copy(buf[off:off+len(detail.SampleValues[i])], detail.SampleValues[i])
-		off += len(detail.SampleValues[i])
+		copy(buf[off:off+len(sampleName)], sampleName)
+		off += len(sampleName)
+		copy(buf[off:off+len(sampleValue)], sampleValue)
+		off += len(sampleValue)
 	}
 	return buf
 }

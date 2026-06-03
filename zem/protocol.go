@@ -101,8 +101,44 @@ func WriteFrame(w io.Writer, msgType uint16, requestID uint16, payload []byte) e
 		return err
 	}
 
-	_, err := w.Write(payload)
-	return err
+	return writeFull(w, payload)
+}
+
+func writeFull(w io.Writer, payload []byte) error {
+	for len(payload) > 0 {
+		n, err := w.Write(payload)
+		if err != nil {
+			return err
+		}
+		if n <= 0 {
+			return io.ErrShortWrite
+		}
+		payload = payload[n:]
+	}
+	return nil
+}
+
+func wireString16(value string) string {
+	if len(value) <= 0xFFFF {
+		return value
+	}
+	return value[:0xFFFF]
+}
+
+func wireStringList16(values []string) []string {
+	count := min(len(values), 0xFFFF)
+	out := make([]string, count)
+	for i := 0; i < count; i++ {
+		out[i] = wireString16(values[i])
+	}
+	return out
+}
+
+func wireBytes16(value []byte) []byte {
+	if len(value) <= 0xFFFF {
+		return value
+	}
+	return value[:0xFFFF]
 }
 
 func decodePathPayload(payload []byte) (string, error) {
@@ -139,28 +175,36 @@ func decodeDownloadGenomePayload(payload []byte) (string, string, uint32, error)
 }
 
 func encodeChromosomes(chroms []ChromInfo) []byte {
+	if len(chroms) > 0xFFFF {
+		chroms = chroms[:0xFFFF]
+	}
 	total := 2
 	for _, c := range chroms {
-		total += 9 + len(c.Name)
+		name := wireString16(c.Name)
+		total += 9 + len(name)
 	}
 	buf := make([]byte, total)
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(chroms)))
 	off := 2
 	for _, c := range chroms {
+		name := wireString16(c.Name)
 		binary.LittleEndian.PutUint16(buf[off:off+2], c.ID)
 		binary.LittleEndian.PutUint32(buf[off+2:off+6], c.Length)
 		buf[off+6] = 0
 		if c.Reversed {
 			buf[off+6] = 1
 		}
-		binary.LittleEndian.PutUint16(buf[off+7:off+9], uint16(len(c.Name)))
-		copy(buf[off+9:off+9+len(c.Name)], c.Name)
-		off += 9 + len(c.Name)
+		binary.LittleEndian.PutUint16(buf[off+7:off+9], uint16(len(name)))
+		copy(buf[off+9:off+9+len(name)], name)
+		off += 9 + len(name)
 	}
 	return buf
 }
 
 func encodeAnnotationCounts(counts []AnnotationCountInfo) []byte {
+	if len(counts) > 0xFFFF {
+		counts = counts[:0xFFFF]
+	}
 	buf := make([]byte, 2+6*len(counts))
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(counts)))
 	off := 2
@@ -173,6 +217,7 @@ func encodeAnnotationCounts(counts []AnnotationCountInfo) []byte {
 }
 
 func ackPayload(msg string) []byte {
+	msg = wireString16(msg)
 	buf := make([]byte, 2+len(msg))
 	binary.LittleEndian.PutUint16(buf[:2], uint16(len(msg)))
 	copy(buf[2:], msg)
@@ -180,6 +225,7 @@ func ackPayload(msg string) []byte {
 }
 
 func encodeBAMLoaded(sourceID uint16, msg string) []byte {
+	msg = wireString16(msg)
 	buf := make([]byte, 4+len(msg))
 	binary.LittleEndian.PutUint16(buf[0:2], sourceID)
 	binary.LittleEndian.PutUint16(buf[2:4], uint16(len(msg)))
@@ -188,6 +234,8 @@ func encodeBAMLoaded(sourceID uint16, msg string) []byte {
 }
 
 func encodeVariantSourceLoaded(sourceID uint16, sampleNames []string, msg string) []byte {
+	msg = wireString16(msg)
+	sampleNames = wireStringList16(sampleNames)
 	total := 6 + len(msg)
 	for _, sample := range sampleNames {
 		total += 2 + len(sample)
@@ -234,10 +282,16 @@ func encodeInputInfo(hasSequence bool, hasAnnotation bool, hasEmbeddedGFF3Sequen
 }
 
 func encodeVariantSources(sources []VariantSourceInfo) []byte {
+	if len(sources) > 0xFFFF {
+		sources = sources[:0xFFFF]
+	}
 	total := 2
 	for _, source := range sources {
-		total += 8 + len(source.Name) + len(source.Path)
-		for _, sample := range source.SampleNames {
+		name := wireString16(source.Name)
+		path := wireString16(source.Path)
+		sampleNames := wireStringList16(source.SampleNames)
+		total += 8 + len(name) + len(path)
+		for _, sample := range sampleNames {
 			total += 2 + len(sample)
 		}
 	}
@@ -245,15 +299,18 @@ func encodeVariantSources(sources []VariantSourceInfo) []byte {
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(len(sources)))
 	off := 2
 	for _, source := range sources {
+		name := wireString16(source.Name)
+		path := wireString16(source.Path)
+		sampleNames := wireStringList16(source.SampleNames)
 		binary.LittleEndian.PutUint16(buf[off:off+2], source.ID)
-		binary.LittleEndian.PutUint16(buf[off+2:off+4], uint16(len(source.Name)))
-		binary.LittleEndian.PutUint16(buf[off+4:off+6], uint16(len(source.Path)))
-		binary.LittleEndian.PutUint16(buf[off+6:off+8], uint16(len(source.SampleNames)))
-		copy(buf[off+8:off+8+len(source.Name)], source.Name)
-		off += 8 + len(source.Name)
-		copy(buf[off:off+len(source.Path)], source.Path)
-		off += len(source.Path)
-		for _, sample := range source.SampleNames {
+		binary.LittleEndian.PutUint16(buf[off+2:off+4], uint16(len(name)))
+		binary.LittleEndian.PutUint16(buf[off+4:off+6], uint16(len(path)))
+		binary.LittleEndian.PutUint16(buf[off+6:off+8], uint16(len(sampleNames)))
+		copy(buf[off+8:off+8+len(name)], name)
+		off += 8 + len(name)
+		copy(buf[off:off+len(path)], path)
+		off += len(path)
+		for _, sample := range sampleNames {
 			binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(sample)))
 			copy(buf[off+2:off+2+len(sample)], sample)
 			off += 2 + len(sample)
@@ -263,6 +320,10 @@ func encodeVariantSources(sources []VariantSourceInfo) []byte {
 }
 
 func encodeDNAExactHits(truncated bool, hits []DNAExactHit) []byte {
+	if len(hits) > 0xFFFF {
+		hits = hits[:0xFFFF]
+		truncated = true
+	}
 	buf := make([]byte, 3+9*len(hits))
 	if truncated {
 		buf[0] = 1
@@ -279,6 +340,7 @@ func encodeDNAExactHits(truncated bool, hits []DNAExactHit) []byte {
 }
 
 func encodeStringList(values []string) []byte {
+	values = wireStringList16(values)
 	total := 2
 	for _, value := range values {
 		total += 2 + len(value)

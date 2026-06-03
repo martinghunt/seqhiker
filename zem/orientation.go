@@ -373,47 +373,75 @@ func transformSNPsForLength(snps []uint32, bases []byte, chromLen int) ([]uint32
 	return outPos, outBases
 }
 
-func (e *Engine) transformAlignmentForChromLocked(chr string, aln Alignment) Alignment {
+type alignmentTransformContext struct {
+	chromLen            int
+	chromReversed       bool
+	mateLenByRefID      map[uint16]int
+	mateReversedByRefID map[uint16]bool
+}
+
+func (e *Engine) alignmentTransformContextLocked(chr string) alignmentTransformContext {
 	chromLen := e.rawChrLength[chr]
+	if chromLen <= 0 {
+		chromLen = e.chrLength[chr]
+	}
+	ctx := alignmentTransformContext{
+		chromLen:            chromLen,
+		chromReversed:       e.chrReverse[chr],
+		mateLenByRefID:      make(map[uint16]int, len(e.idToChr)),
+		mateReversedByRefID: make(map[uint16]bool, len(e.idToChr)),
+	}
+	for id, mateChr := range e.idToChr {
+		mateLen := e.rawChrLength[mateChr]
+		if mateLen <= 0 {
+			mateLen = e.chrLength[mateChr]
+		}
+		ctx.mateLenByRefID[id] = mateLen
+		ctx.mateReversedByRefID[id] = e.chrReverse[mateChr]
+	}
+	return ctx
+}
+
+func (ctx alignmentTransformContext) transformAlignment(aln Alignment) Alignment {
+	if ctx.chromLen <= 0 {
+		return aln
+	}
 	out := aln
-	out.Start, out.End = reverseIntervalForLength(aln.Start, aln.End, chromLen)
+	out.Start, out.End = reverseIntervalForLength(aln.Start, aln.End, ctx.chromLen)
 	out.Reverse = !aln.Reverse
 	out.Cigar = reverseCigarString(aln.Cigar)
 	out.SoftClipLeft = reverseComplementFlexible(aln.SoftClipRight)
 	out.SoftClipRight = reverseComplementFlexible(aln.SoftClipLeft)
-	out.SNPs, out.SNPBases = transformSNPsForLength(aln.SNPs, aln.SNPBases, chromLen)
-	out.Flags = e.transformAlignmentFlagsLocked(chr, aln)
+	out.SNPs, out.SNPBases = transformSNPsForLength(aln.SNPs, aln.SNPBases, ctx.chromLen)
+	out.Flags = ctx.transformAlignmentFlags(aln)
 	if aln.MateStart >= 0 && aln.MateEnd > aln.MateStart {
-		out.MateStart, out.MateEnd = reverseIntervalForLength(aln.MateStart, aln.MateEnd, chromLen)
+		out.MateStart, out.MateEnd = reverseIntervalForLength(aln.MateStart, aln.MateEnd, ctx.chromLen)
 	}
 	if aln.MateRawStart >= 0 && aln.MateRawEnd > aln.MateRawStart {
-		mateLen := chromLen
-		mateReversed := e.chrReverse[chr]
+		mateLen := ctx.chromLen
+		mateReversed := ctx.chromReversed
 		if aln.MateRefID >= 0 {
-			if mateChr, ok := e.idToChr[uint16(aln.MateRefID)]; ok {
-				mateLen = e.rawChrLength[mateChr]
-				mateReversed = e.chrReverse[mateChr]
-			} else {
-				mateReversed = false
+			mateID := uint16(aln.MateRefID)
+			if length, ok := ctx.mateLenByRefID[mateID]; ok && length > 0 {
+				mateLen = length
 			}
+			mateReversed = ctx.mateReversedByRefID[mateID]
 		}
-		if mateReversed {
+		if mateReversed && mateLen > 0 {
 			out.MateRawStart, out.MateRawEnd = reverseIntervalForLength(aln.MateRawStart, aln.MateRawEnd, mateLen)
 		}
 	}
 	return out
 }
 
-func (e *Engine) transformAlignmentFlagsLocked(chr string, aln Alignment) uint16 {
+func (ctx alignmentTransformContext) transformAlignmentFlags(aln Alignment) uint16 {
 	flags := aln.Flags
 	flags ^= 0x10
 	mateReversed := false
 	if aln.MateRefID >= 0 {
-		if mateChr, ok := e.idToChr[uint16(aln.MateRefID)]; ok {
-			mateReversed = e.chrReverse[mateChr]
-		}
+		mateReversed = ctx.mateReversedByRefID[uint16(aln.MateRefID)]
 	} else if aln.MateStart >= 0 || aln.MateRawStart >= 0 {
-		mateReversed = e.chrReverse[chr]
+		mateReversed = ctx.chromReversed
 	}
 	if mateReversed {
 		flags ^= 0x20

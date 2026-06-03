@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1136,6 +1137,131 @@ func TestComparisonMonomerDimerBlocksDoNotDependOnLoadOrder(t *testing.T) {
 	}
 	if len(blocks) == 0 {
 		t.Fatal("expected dimer->monomer comparison to yield blocks")
+	}
+}
+
+func TestEncodeComparisonGenomesTruncatesLongNamesAndUsesWrittenSegmentCount(t *testing.T) {
+	longName := strings.Repeat("A", 0xFFFF+25)
+	payload := encodeComparisonGenomes([]ComparisonGenomeInfo{{
+		ID:           1,
+		Name:         longName,
+		Path:         longName,
+		Length:       10,
+		SegmentCount: 99,
+		FeatureCount: 1,
+		Segments: []ComparisonSegmentInfo{{
+			Name: longName,
+			End:  10,
+		}},
+	}})
+	if got := int(binary.LittleEndian.Uint16(payload[0:2])); got != 1 {
+		t.Fatalf("genome count = %d, want 1", got)
+	}
+	off := 2
+	if got := int(binary.LittleEndian.Uint16(payload[off+6 : off+8])); got != 1 {
+		t.Fatalf("segment count = %d, want written segment count 1", got)
+	}
+	nameLen := int(binary.LittleEndian.Uint16(payload[off+12 : off+14]))
+	if nameLen != 0xFFFF {
+		t.Fatalf("name length = %d, want %d", nameLen, 0xFFFF)
+	}
+	off += 14 + nameLen
+	pathLen := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+	if pathLen != 0xFFFF {
+		t.Fatalf("path length = %d, want %d", pathLen, 0xFFFF)
+	}
+	off += 2 + pathLen
+	segmentNameLen := int(binary.LittleEndian.Uint16(payload[off+13 : off+15]))
+	if segmentNameLen != 0xFFFF {
+		t.Fatalf("segment name length = %d, want %d", segmentNameLen, 0xFFFF)
+	}
+}
+
+func TestEncodeComparisonBlockDetailTruncatesVariantStringsAndKeepsRecordsAligned(t *testing.T) {
+	longBases := strings.Repeat("G", 0xFFFF+25)
+	payload := encodeComparisonBlockDetail(ComparisonBlockDetail{
+		Block: ComparisonBlock{
+			QueryEnd:         1,
+			TargetEnd:        1,
+			PercentIdentX100: 9000,
+			SameStrand:       true,
+		},
+		Ops: "M",
+		Variants: []ComparisonVariantInfo{
+			{
+				Kind:      variantKindComplex,
+				RefBases:  longBases,
+				AltBases:  longBases,
+				QueryPos:  1,
+				TargetPos: 1,
+			},
+			{
+				Kind:      variantKindSNP,
+				RefBases:  "C",
+				AltBases:  "T",
+				QueryPos:  2,
+				TargetPos: 2,
+			},
+		},
+	})
+	opsLen := int(binary.LittleEndian.Uint32(payload[19:23]))
+	off := 23 + opsLen
+	variantCount := int(binary.LittleEndian.Uint16(payload[off : off+2]))
+	if variantCount != 2 {
+		t.Fatalf("variant count = %d, want 2", variantCount)
+	}
+	off += 2
+	refLen := int(binary.LittleEndian.Uint16(payload[off+9 : off+11]))
+	altLen := int(binary.LittleEndian.Uint16(payload[off+11 : off+13]))
+	if refLen != 0xFFFF || altLen != 0xFFFF {
+		t.Fatalf("first variant lengths = %d/%d, want %d/%d", refLen, altLen, 0xFFFF, 0xFFFF)
+	}
+	off += 13 + refLen + altLen
+	if payload[off] != variantKindSNP {
+		t.Fatalf("second variant kind = %d, want %d", payload[off], variantKindSNP)
+	}
+	secondRefLen := int(binary.LittleEndian.Uint16(payload[off+9 : off+11]))
+	secondAltLen := int(binary.LittleEndian.Uint16(payload[off+11 : off+13]))
+	off += 13
+	secondRef := string(payload[off : off+secondRefLen])
+	off += secondRefLen
+	secondAlt := string(payload[off : off+secondAltLen])
+	if secondRef != "C" || secondAlt != "T" {
+		t.Fatalf("second variant did not stay aligned: ref=%q alt=%q", secondRef, secondAlt)
+	}
+}
+
+func TestCloneComparisonGenomeForDetailSnapshotsMutableSlices(t *testing.T) {
+	original := &comparisonGenome{
+		Name:     "original",
+		Sequence: "ACGT",
+		Features: []Feature{{
+			Type: "gene",
+		}},
+		Segments: []comparisonSegment{{
+			Name: "chr1",
+			RawFeatures: []Feature{{
+				Type: "raw_gene",
+			}},
+		}},
+	}
+	clone := cloneComparisonGenomeForDetail(original)
+	original.Sequence = "TTTT"
+	original.Features[0].Type = "changed"
+	original.Segments[0].Name = "changed"
+	original.Segments[0].RawFeatures[0].Type = "changed"
+
+	if clone.Sequence != "ACGT" {
+		t.Fatalf("clone sequence changed: %q", clone.Sequence)
+	}
+	if clone.Features[0].Type != "gene" {
+		t.Fatalf("clone features changed: %+v", clone.Features)
+	}
+	if clone.Segments[0].Name != "chr1" {
+		t.Fatalf("clone segment changed: %+v", clone.Segments[0])
+	}
+	if clone.Segments[0].RawFeatures[0].Type != "raw_gene" {
+		t.Fatalf("clone raw features changed: %+v", clone.Segments[0].RawFeatures)
 	}
 }
 

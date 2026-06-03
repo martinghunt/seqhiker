@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 )
 
+const maxIncomingFramePayloadBytes uint32 = 64 << 20
+
 type serverState struct {
 	listener net.Listener
 	stopping atomic.Bool
@@ -49,6 +51,11 @@ func handleConnection(conn net.Conn, engine *Engine, state *serverState) {
 			if err != io.EOF {
 				log.Println("Header read error:", err)
 			}
+			return
+		}
+		if header.Length > maxIncomingFramePayloadBytes {
+			log.Printf("Payload too large from %s: %d bytes", conn.RemoteAddr(), header.Length)
+			sendError(conn, header.RequestID, fmt.Sprintf("payload too large: %d bytes", header.Length))
 			return
 		}
 
@@ -575,6 +582,7 @@ func decodeLoadBAMPayload(payload []byte) (string, int, error) {
 }
 
 func sendError(conn net.Conn, requestID uint16, msg string) {
+	msg = wireString16(msg)
 	data := make([]byte, 2+len(msg))
 	binary.LittleEndian.PutUint16(data[:2], uint16(len(msg)))
 	copy(data[2:], []byte(msg))

@@ -133,6 +133,89 @@ func TestGetVariantDetailVCF(t *testing.T) {
 	}
 }
 
+func TestEncodeVariantTileTruncatesSampleTextBlobAndKeepsRecordsAligned(t *testing.T) {
+	longText := strings.Repeat("A", 0xFFFF+25)
+	payload := encodeVariantTile(0, 100, []variantRecord{
+		{
+			Start:         1,
+			End:           2,
+			Kind:          variantKindSNP,
+			SampleCount:   1,
+			SampleClasses: []byte{variantGTHet},
+			SampleTexts:   []string{longText},
+			Qual:          50,
+			ID:            "long",
+			Ref:           "A",
+			AltSummary:    "G",
+			Filter:        "PASS",
+		},
+		{
+			Start:         3,
+			End:           4,
+			Kind:          variantKindSNP,
+			SampleCount:   1,
+			SampleClasses: []byte{variantGTRef},
+			SampleTexts:   []string{"A/A"},
+			Qual:          40,
+			ID:            "second",
+			Ref:           "C",
+			AltSummary:    "T",
+			Filter:        "PASS",
+		},
+	})
+	_, _, records := decodeVariantTileForTest(t, payload)
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
+	}
+	if records[0].SampleCount != 1 || len(records[0].SampleClasses) != 1 || len(records[0].SampleTexts) != 1 {
+		t.Fatalf("unexpected first record sample payload: %+v", records[0])
+	}
+	if got := len(records[0].SampleTexts[0]); got != 0xFFFF-2 {
+		t.Fatalf("first sample text len = %d, want %d", got, 0xFFFF-2)
+	}
+	if records[1].ID != "second" || records[1].SampleTexts[0] != "A/A" {
+		t.Fatalf("second record did not stay aligned: %+v", records[1])
+	}
+}
+
+func TestEncodeVariantDetailTruncatesLongFieldsAndCapsMismatchedSamples(t *testing.T) {
+	longText := strings.Repeat("I", 0xFFFF+25)
+	payload := encodeVariantDetail(variantDetail{
+		SourceID:     7,
+		SourceName:   "source",
+		SourcePath:   "path",
+		Chrom:        "chr1",
+		Start:        10,
+		End:          11,
+		Kind:         variantKindSNP,
+		ID:           "record",
+		Ref:          "A",
+		AltSummary:   "G",
+		Qual:         42,
+		Filter:       "PASS",
+		Info:         longText,
+		FormatKeys:   []string{longText, "DP"},
+		SampleNames:  []string{"sample1", "sample2"},
+		SampleValues: []string{longText},
+		SampleHasAlt: []byte{1, 0},
+	})
+	detail := decodeVariantDetailForTest(t, payload)
+	if got := len(detail["info"].(string)); got != 0xFFFF {
+		t.Fatalf("info len = %d, want %d", got, 0xFFFF)
+	}
+	formatKeys := detail["format_keys"].([]string)
+	if len(formatKeys) != 2 || len(formatKeys[0]) != 0xFFFF || formatKeys[1] != "DP" {
+		t.Fatalf("unexpected format keys: count=%d firstLen=%d values=%q", len(formatKeys), len(formatKeys[0]), formatKeys)
+	}
+	samples := detail["samples"].([]map[string]any)
+	if len(samples) != 1 {
+		t.Fatalf("expected mismatched sample arrays to cap at 1 sample, got %d", len(samples))
+	}
+	if got := len(samples[0]["value"].(string)); got != 0xFFFF {
+		t.Fatalf("sample value len = %d, want %d", got, 0xFFFF)
+	}
+}
+
 func TestChromosomeOrientationTransformsVariantTilesAndDetails(t *testing.T) {
 	dir := t.TempDir()
 	genomePath := filepath.Join(dir, "ref.fa")

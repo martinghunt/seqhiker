@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	listenAddr := flag.String("listen", ":9000", "TCP listen address")
+	listenAddr := flag.String("listen", "127.0.0.1:9000", "TCP listen address")
 	tileCacheMB := flag.Int("tile-cache-mb", 512, "tile cache size in MiB")
 	showVersion := flag.Bool("version", false, "print zem version and exit")
 	flag.Parse()

@@ -81,6 +81,42 @@ func TestEncodeAnnotationsPreservesPhase(t *testing.T) {
 	}
 }
 
+func TestEncodeAnnotationsTruncatesLongFieldsAndKeepsRecordsAligned(t *testing.T) {
+	longAttrs := strings.Repeat("A", 0xFFFF+25)
+	payload := encodeAnnotations(0, 20, []Feature{
+		{
+			SeqName:    "chr1",
+			Source:     "src",
+			Type:       "gene",
+			Start:      1,
+			End:        5,
+			Strand:     '+',
+			Phase:      -1,
+			Attributes: longAttrs,
+		},
+		{
+			SeqName:    "chr1",
+			Source:     "src",
+			Type:       "CDS",
+			Start:      6,
+			End:        9,
+			Strand:     '-',
+			Phase:      1,
+			Attributes: "ID=second",
+		},
+	})
+	_, _, feats := decodeAnnotationsForTest(t, payload)
+	if len(feats) != 2 {
+		t.Fatalf("expected 2 features, got %d", len(feats))
+	}
+	if got := len(feats[0].Attributes); got != 0xFFFF {
+		t.Fatalf("first feature attrs len = %d, want %d", got, 0xFFFF)
+	}
+	if feats[1].Type != "CDS" || feats[1].Attributes != "ID=second" || feats[1].Phase != 1 {
+		t.Fatalf("second feature did not stay aligned: %+v", feats[1])
+	}
+}
+
 func TestInspectInputEmbeddedGFF3ReportsSequenceAndAnnotation(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "embedded.gff3")
@@ -325,6 +361,42 @@ func TestResetBrowserStateClearsLoadedGenome(t *testing.T) {
 	}
 	if got := len(e.ListChromosomes()); got != 0 {
 		t.Fatalf("expected no chromosomes after reset, got %d", got)
+	}
+}
+
+func TestSequenceReloadAdvancesGenerationAndClearsTileCache(t *testing.T) {
+	dir := t.TempDir()
+	firstPath := filepath.Join(dir, "first.fa")
+	secondPath := filepath.Join(dir, "second.fa")
+	if err := os.WriteFile(firstPath, []byte(">chr1\nACGTACGT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secondPath, []byte(">chr2\nTTTTCCCC\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewEngine()
+	if err := e.LoadGenome(firstPath); err != nil {
+		t.Fatalf("LoadGenome first returned error: %v", err)
+	}
+	e.mu.Lock()
+	generationBeforeReload := e.globalGeneration
+	e.putCachedTileLocked(tileCacheKey{Generation: generationBeforeReload, Kind: plotTileCacheKind, ChrID: 1}, []byte{1, 2, 3})
+	if len(e.tileCache) == 0 {
+		t.Fatal("failed to seed tile cache")
+	}
+	e.mu.Unlock()
+
+	if err := e.LoadGenome(secondPath); err != nil {
+		t.Fatalf("LoadGenome second returned error: %v", err)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.globalGeneration <= generationBeforeReload {
+		t.Fatalf("globalGeneration did not advance: before=%d after=%d", generationBeforeReload, e.globalGeneration)
+	}
+	if len(e.tileCache) != 0 {
+		t.Fatalf("expected sequence reload to clear tile cache, got %d entries", len(e.tileCache))
 	}
 }
 
@@ -949,6 +1021,48 @@ func TestSetChromosomeOrientationTransformsReadTiles(t *testing.T) {
 	}
 	if found.Cigar != "41M1D38M1I70M" {
 		t.Fatalf("unexpected transformed cigar: %+v", *found)
+	}
+}
+
+func TestAlignmentTransformContextUsesSnapshot(t *testing.T) {
+	e := NewEngine()
+	e.mu.Lock()
+	e.rawChrLength["chr1"] = 100
+	e.chrLength["chr1"] = 100
+	e.chrReverse["chr1"] = true
+	e.idToChr[1] = "chr1"
+	e.rawChrLength["mate"] = 50
+	e.chrLength["mate"] = 50
+	e.chrReverse["mate"] = true
+	e.idToChr[2] = "mate"
+	ctx := e.alignmentTransformContextLocked("chr1")
+	e.rawChrLength["chr1"] = 1000
+	e.rawChrLength["mate"] = 1000
+	e.chrReverse["chr1"] = false
+	e.chrReverse["mate"] = false
+	e.mu.Unlock()
+
+	out := ctx.transformAlignment(Alignment{
+		Start:        10,
+		End:          20,
+		Flags:        0,
+		MateStart:    30,
+		MateEnd:      40,
+		MateRawStart: 5,
+		MateRawEnd:   15,
+		MateRefID:    2,
+	})
+	if out.Start != 80 || out.End != 90 {
+		t.Fatalf("alignment transform did not use snapshotted chromosome length: %+v", out)
+	}
+	if out.MateStart != 60 || out.MateEnd != 70 {
+		t.Fatalf("mate same-reference transform did not use snapshotted chromosome length: %+v", out)
+	}
+	if out.MateRawStart != 35 || out.MateRawEnd != 45 {
+		t.Fatalf("mate raw transform did not use snapshotted mate length/orientation: %+v", out)
+	}
+	if out.Flags != 0x30 {
+		t.Fatalf("flags = %#x, want mate/read reverse bits flipped", out.Flags)
 	}
 }
 
