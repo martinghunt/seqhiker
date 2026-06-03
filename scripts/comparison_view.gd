@@ -562,7 +562,7 @@ func _input(event: InputEvent) -> void:
 				pan_sign = 1.0
 			else:
 				pan_sign = -1.0 if wheel_event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0
-			pan_all_by_fraction(pan_sign * 0.12 * _mouse_wheel_pan_sensitivity)
+			pan_all_by_fraction(pan_sign * 0.12 * _mouse_wheel_pan_sensitivity * _wheel_scroll_amount(wheel_event))
 			_emit_ui_sound_throttled("pan_left" if pan_sign < 0.0 else "pan_right", 130)
 			accept_event()
 			return
@@ -570,7 +570,7 @@ func _input(event: InputEvent) -> void:
 		if _invert_mouse_wheel_zoom:
 			zoom_in = not zoom_in
 		var wheel_factor := 0.88 if zoom_in else 1.14
-		var scaled_factor := pow(wheel_factor, _mouse_wheel_zoom_sensitivity)
+		var scaled_factor := pow(wheel_factor, _mouse_wheel_zoom_sensitivity * _wheel_scroll_amount(wheel_event))
 		zoom_by_at_x(scaled_factor, local_wheel_point.x, 0.12)
 		_emit_ui_sound_throttled("zoom_in" if zoom_in else "zoom_out", 130)
 		accept_event()
@@ -644,6 +644,12 @@ func _emit_ui_sound_throttled(sound_id: String, min_interval_ms: int) -> void:
 		return
 	_last_ui_sound_ms[sound_id] = now_ms
 	emit_signal("ui_sound_requested", sound_id)
+
+func _wheel_scroll_amount(event: InputEventMouseButton) -> float:
+	var amount := absf(event.factor)
+	if amount <= 0.0:
+		return 1.0
+	return amount
 
 
 func _gui_input(event: InputEvent) -> void:

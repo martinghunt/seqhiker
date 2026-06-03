@@ -1955,11 +1955,9 @@ func _update_debug_stats_label() -> void:
 	if not _debug_enabled:
 		_debug_stats_label.text = ""
 		return
-	var version_resp: Dictionary = _zem.get_server_version()
 	var status_prefix := "ERROR" if _last_status_is_error else "OK"
 	var status_message := _last_status_message
-	if bool(version_resp.get("ok", false)):
-		_connected_zem_version = str(version_resp.get("version", "")).strip_edges()
+	if not _connected_zem_version.is_empty() and not _last_status_is_error:
 		status_prefix = "OK"
 		var conn_info: Dictionary = _zem.connection_info()
 		status_message = "Connected %s:%d" % [str(conn_info.get("host", "127.0.0.1")), int(conn_info.get("port", ZEM_DEFAULT_PORT))]
