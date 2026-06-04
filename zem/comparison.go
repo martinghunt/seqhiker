@@ -30,9 +30,10 @@ const (
 	comparisonChainSplitGapMaxSpan           = 12000
 	comparisonRefineGapMaxSpan               = 8192
 	comparisonRefineBandPad                  = 96
-	comparisonMaxRefinedBlockCount           = 256
+	comparisonMaxRefinedBlockCount           = 1024
 	comparisonRefinementCellBudget     int64 = 80000000
 	comparisonRedundantOverlapX100           = 9000
+	comparisonMaxDetailOps                   = 200000
 	comparisonAffineMatch                    = 2
 	comparisonAffineMismatch                 = -3
 	comparisonAffineGapOpen                  = -5
@@ -683,10 +684,9 @@ func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []compariso
 	if query == nil || target == nil {
 		return nil
 	}
-	if blocks, ok := exactCanonicalComparisonBlocks(query, target); ok {
-		return blocks
-	}
 	out := make([]comparisonCanonicalBlock, 0, 64)
+	exactBlocks := exactCanonicalComparisonBlocks(query, target)
+	out = append(out, exactBlocks...)
 	querySketches := buildComparisonSegmentSketches(query, false)
 	targetSketches := buildComparisonSegmentSketches(target, true)
 	for qi := range query.Segments {
@@ -697,8 +697,8 @@ func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []compariso
 			if ti >= len(targetSketches) || targetSketches[ti].Genome == nil {
 				continue
 			}
-			for _, block := range buildComparisonBlocksFromSketches(querySketches[qi], targetSketches[ti]) {
-				out = append(out, comparisonCanonicalBlock{
+			for _, block := range buildComparisonBlocksFromSketchesWithoutExactFastPath(querySketches[qi], targetSketches[ti]) {
+				canonicalBlock := comparisonCanonicalBlock{
 					QuerySegment:     qi,
 					QueryStart:       int(block.QueryStart),
 					QueryEnd:         int(block.QueryEnd),
@@ -707,7 +707,11 @@ func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []compariso
 					TargetEnd:        int(block.TargetEnd),
 					PercentIdentX100: block.PercentIdentX100,
 					SameStrand:       block.SameStrand,
-				})
+				}
+				if comparisonCanonicalBlockIsExactDiagonalSubblock(canonicalBlock, exactBlocks) {
+					continue
+				}
+				out = append(out, canonicalBlock)
 			}
 		}
 	}
@@ -715,9 +719,9 @@ func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []compariso
 	return out
 }
 
-func exactCanonicalComparisonBlocks(query, target *comparisonGenome) ([]comparisonCanonicalBlock, bool) {
+func exactCanonicalComparisonBlocks(query, target *comparisonGenome) []comparisonCanonicalBlock {
 	if query == nil || target == nil {
-		return nil, false
+		return nil
 	}
 	if len(query.Segments) == 0 || len(target.Segments) == 0 || len(query.Segments) != len(target.Segments) {
 		if blocks, ok := exactWholeComparisonBlocks(query, target); ok {
@@ -732,16 +736,16 @@ func exactCanonicalComparisonBlocks(query, target *comparisonGenome) ([]comparis
 					SameStrand:       block.SameStrand,
 				})
 			}
-			return out, true
+			return out
 		}
-		return nil, false
+		return nil
 	}
 	out := make([]comparisonCanonicalBlock, 0, len(query.Segments))
 	for i := range query.Segments {
 		querySeq := query.Segments[i].RawSequence
 		targetSeq := target.Segments[i].RawSequence
 		if len(querySeq) != len(targetSeq) || len(querySeq) < comparisonMinBlockLen {
-			return nil, false
+			return nil
 		}
 		sameStrand := true
 		switch {
@@ -750,7 +754,7 @@ func exactCanonicalComparisonBlocks(query, target *comparisonGenome) ([]comparis
 		case sequencesAreReverseComplements(querySeq, targetSeq):
 			sameStrand = false
 		default:
-			return nil, false
+			return nil
 		}
 		out = append(out, comparisonCanonicalBlock{
 			QuerySegment:     i,
@@ -763,7 +767,26 @@ func exactCanonicalComparisonBlocks(query, target *comparisonGenome) ([]comparis
 			SameStrand:       sameStrand,
 		})
 	}
-	return out, true
+	return out
+}
+
+func comparisonCanonicalBlockIsExactDiagonalSubblock(block comparisonCanonicalBlock, exactBlocks []comparisonCanonicalBlock) bool {
+	if len(exactBlocks) == 0 || !block.SameStrand || block.PercentIdentX100 != 10000 {
+		return false
+	}
+	if block.QueryStart != block.TargetStart || block.QueryEnd != block.TargetEnd {
+		return false
+	}
+	for _, exactBlock := range exactBlocks {
+		if !exactBlock.SameStrand || exactBlock.QuerySegment != block.QuerySegment || exactBlock.TargetSegment != block.TargetSegment {
+			continue
+		}
+		if block.QueryStart >= exactBlock.QueryStart && block.QueryEnd <= exactBlock.QueryEnd &&
+			block.TargetStart >= exactBlock.TargetStart && block.TargetEnd <= exactBlock.TargetEnd {
+			return true
+		}
+	}
+	return false
 }
 
 func buildComparisonSegmentSketches(genome *comparisonGenome, includeIndexes bool) []comparisonSequenceSketch {
@@ -910,6 +933,11 @@ func exactComparisonBlockDetail(query, target *comparisonGenome, summary Compari
 	}
 	if exactPID, ok := exactComparisonBlockPercentIdentity(query, target, summary); ok && exactPID == 10000 {
 		summary.PercentIdentX100 = 10000
+		if qLen > comparisonMaxDetailOps {
+			return comparisonBlockDetail{
+				Summary: summary,
+			}, true
+		}
 		return comparisonBlockDetail{
 			Summary: summary,
 			Ops:     strings.Repeat("M", qLen),
@@ -1203,6 +1231,12 @@ func buildComparisonBlocksFromSketches(querySketch, targetSketch comparisonSeque
 	if blocks, ok := exactWholeComparisonBlocks(query, target); ok {
 		return blocks
 	}
+	return buildComparisonBlocksFromSketchesWithoutExactFastPath(querySketch, targetSketch)
+}
+
+func buildComparisonBlocksFromSketchesWithoutExactFastPath(querySketch, targetSketch comparisonSequenceSketch) []ComparisonBlock {
+	query := querySketch.Genome
+	target := targetSketch.Genome
 	if query == nil || target == nil || len(querySketch.Seeds) == 0 || (len(targetSketch.ForwardIndex) == 0 && len(targetSketch.ReverseIndex) == 0) {
 		return nil
 	}
@@ -1325,6 +1359,9 @@ func comparisonBlockIsRedundant(candidate ComparisonBlock, accepted []Comparison
 		return true
 	}
 	for _, block := range accepted {
+		if !comparisonBlocksHaveSimilarPlacement(candidate, block) {
+			continue
+		}
 		qOverlap := intervalOverlapInt(int(candidate.QueryStart), int(candidate.QueryEnd), int(block.QueryStart), int(block.QueryEnd))
 		tOverlap := intervalOverlapInt(int(candidate.TargetStart), int(candidate.TargetEnd), int(block.TargetStart), int(block.TargetEnd))
 		if qOverlap*10000 >= qSpan*comparisonRedundantOverlapX100 && tOverlap*10000 >= tSpan*comparisonRedundantOverlapX100 {
@@ -1332,6 +1369,20 @@ func comparisonBlockIsRedundant(candidate ComparisonBlock, accepted []Comparison
 		}
 	}
 	return false
+}
+
+func comparisonBlocksHaveSimilarPlacement(a, b ComparisonBlock) bool {
+	if a.SameStrand != b.SameStrand {
+		return false
+	}
+	if a.SameStrand {
+		aDiag := int(a.TargetStart) - int(a.QueryStart)
+		bDiag := int(b.TargetStart) - int(b.QueryStart)
+		return absInt(aDiag-bDiag) <= comparisonChainMergeIndelMaxSpan
+	}
+	aDiag := int(a.TargetEnd) - int(a.QueryStart)
+	bDiag := int(b.TargetEnd) - int(b.QueryStart)
+	return absInt(aDiag-bDiag) <= comparisonChainMergeIndelMaxSpan
 }
 
 func intervalOverlapInt(aStart, aEnd, bStart, bEnd int) int {

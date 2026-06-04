@@ -372,6 +372,52 @@ func TestComparisonBlocksUseRefinedIdentityForDivergentBlock(t *testing.T) {
 	}
 }
 
+func TestCanonicalSelfComparisonKeepsRepeatMatches(t *testing.T) {
+	repeat := comparisonDeterministicTestDNA(520)
+	left := uniqueishDNA(650)
+	middle := comparisonDeterministicTestDNA(760)
+	right := uniqueishDNA(690)
+	seq := left + repeat + middle + repeat + right
+	genome := &comparisonGenome{
+		ID:   1,
+		Name: "self",
+		Segments: []comparisonSegment{{
+			Name:        "chr1",
+			RawSequence: seq,
+		}},
+	}
+	genome.rebuildDerived()
+
+	blocks := buildCanonicalComparisonBlocks(genome, genome)
+	if len(blocks) < 2 {
+		t.Fatalf("expected exact self block plus repeat blocks, got %+v", blocks)
+	}
+	foundExact := false
+	foundRepeat := false
+	for _, block := range blocks {
+		if block.QuerySegment == 0 && block.TargetSegment == 0 && block.QueryStart == 0 && block.TargetStart == 0 &&
+			block.QueryEnd == len(seq) && block.TargetEnd == len(seq) && block.PercentIdentX100 == 10000 {
+			foundExact = true
+			continue
+		}
+		if block.QuerySegment != 0 || block.TargetSegment != 0 || !block.SameStrand || block.PercentIdentX100 != 10000 {
+			continue
+		}
+		if block.QueryStart == block.TargetStart && block.QueryEnd == block.TargetEnd {
+			t.Fatalf("unexpected exact diagonal subblock survived alongside full self block: %+v", block)
+		}
+		if block.QueryEnd-block.QueryStart >= 300 && block.TargetEnd-block.TargetStart >= 300 {
+			foundRepeat = true
+		}
+	}
+	if !foundExact {
+		t.Fatalf("missing full exact self block: %+v", blocks)
+	}
+	if !foundRepeat {
+		t.Fatalf("missing off-diagonal repeat block: %+v", blocks)
+	}
+}
+
 func BenchmarkBuildCanonicalComparisonBlocksMultiSegment(b *testing.B) {
 	makeSegment := func(i int) string {
 		seq := comparisonDeterministicTestDNA(4200 + i*137)
@@ -521,6 +567,28 @@ func TestComparisonRefinementCapturesReverseOrientationVariants(t *testing.T) {
 	}
 	if len(block.Variants) == 0 {
 		t.Fatal("expected reverse-orientation variants")
+	}
+}
+
+func TestExactLargeComparisonDetailOmitsHugeOps(t *testing.T) {
+	seq := comparisonDeterministicTestDNA(comparisonMaxDetailOps + 1)
+	query := &comparisonGenome{ID: 1, Name: "q", Length: len(seq), Sequence: seq}
+	target := &comparisonGenome{ID: 2, Name: "t", Length: len(seq), Sequence: seq}
+	detail, ok := buildComparisonBlockDetail(query, target, ComparisonBlock{
+		QueryStart:  0,
+		QueryEnd:    uint32(len(seq)),
+		TargetStart: 0,
+		TargetEnd:   uint32(len(seq)),
+		SameStrand:  true,
+	})
+	if !ok {
+		t.Fatal("expected exact large detail request to succeed")
+	}
+	if detail.Summary.PercentIdentX100 != 10000 {
+		t.Fatalf("unexpected identity for exact large detail: %+v", detail.Summary)
+	}
+	if detail.Ops != "" {
+		t.Fatalf("expected huge exact detail to omit ops, got length %d", len(detail.Ops))
 	}
 }
 

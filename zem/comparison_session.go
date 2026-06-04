@@ -11,7 +11,8 @@ import (
 
 var comparisonSessionMagicV1 = []byte{'S', 'H', 'C', 'M', 'P', 0x01}
 var comparisonSessionMagicV2 = []byte{'S', 'H', 'C', 'M', 'P', 0x02}
-var comparisonSessionMagic = []byte{'S', 'H', 'C', 'M', 'P', 0x03}
+var comparisonSessionMagicV3 = []byte{'S', 'H', 'C', 'M', 'P', 0x03}
+var comparisonSessionMagic = []byte{'S', 'H', 'C', 'M', 'P', 0x04}
 
 func isComparisonSessionFile(path string) (bool, error) {
 	f, err := os.Open(path)
@@ -27,7 +28,7 @@ func isComparisonSessionFile(path string) (bool, error) {
 		}
 		return false, err
 	}
-	return n == len(comparisonSessionMagic) && (bytes.Equal(header, comparisonSessionMagic) || bytes.Equal(header, comparisonSessionMagicV2) || bytes.Equal(header, comparisonSessionMagicV1)), nil
+	return n == len(comparisonSessionMagic) && (bytes.Equal(header, comparisonSessionMagic) || bytes.Equal(header, comparisonSessionMagicV3) || bytes.Equal(header, comparisonSessionMagicV2) || bytes.Equal(header, comparisonSessionMagicV1)), nil
 }
 
 func (e *Engine) SaveComparisonSession(path string) error {
@@ -74,6 +75,8 @@ func (e *Engine) LoadComparisonSession(path string) error {
 	sessionVersion := 0
 	switch {
 	case bytes.Equal(header, comparisonSessionMagic):
+		sessionVersion = 4
+	case bytes.Equal(header, comparisonSessionMagicV3):
 		sessionVersion = 3
 	case bytes.Equal(header, comparisonSessionMagicV2):
 		sessionVersion = 2
@@ -384,6 +387,10 @@ func readComparisonPair(r io.Reader, sessionVersion int) (*comparisonPair, error
 				return nil, err
 			}
 			canonicalBlocks = append(canonicalBlocks, block)
+		}
+		if sessionVersion < 4 {
+			canonicalBlocks = nil
+			status = comparisonStatusPending
 		}
 	} else {
 		for i := 0; i < int(blockCount); i++ {

@@ -28,6 +28,7 @@ const MIN_VIEW_SPAN_BP := 50.0
 const DEFAULT_VIEW_SPAN_BP := 10000.0
 const MAX_VIEW_SPAN_OVERSCAN_FRAC := 0.15
 const DETAIL_MAX_BLOCKS_PER_PAIR := 96
+const DETAIL_MAX_OPS_BP := 200000
 const REGION_SELECT_DRAG_THRESHOLD_PX := 6.0
 
 var _genomes_by_id := {}
@@ -1162,13 +1163,39 @@ func _emit_detail_request_if_needed() -> void:
 		var top_id := int(_order[idx])
 		var bottom_id := int(_order[idx + 1])
 		var visible_blocks: Array = _display_blocks_for_pair(top_id, bottom_id)
-		for i in range(mini(DETAIL_MAX_BLOCKS_PER_PAIR, visible_blocks.size())):
+		var detail_candidates: Array = _detail_request_blocks_for_pair(visible_blocks)
+		for i in range(mini(DETAIL_MAX_BLOCKS_PER_PAIR, detail_candidates.size())):
 			blocks.append({
 				"query_genome_id": top_id,
 				"target_genome_id": bottom_id,
-				"block": visible_blocks[i].duplicate(true)
+				"block": detail_candidates[i].duplicate(true)
 			})
 	emit_signal("detail_requested", {"genomes": genomes, "blocks": blocks})
+
+
+func _detail_request_blocks_for_pair(visible_blocks: Array) -> Array:
+	var candidates: Array = []
+	for block_any in visible_blocks:
+		var block: Dictionary = block_any
+		var span := _block_span_bp(block)
+		if span <= 0 or span > DETAIL_MAX_OPS_BP:
+			continue
+		candidates.append(block)
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_span := _block_span_bp(a)
+		var b_span := _block_span_bp(b)
+		if a_span == b_span:
+			return float(a.get("percent_identity", 0.0)) > float(b.get("percent_identity", 0.0))
+		return a_span < b_span
+	)
+	return candidates
+
+
+func _block_span_bp(block: Dictionary) -> int:
+	return maxi(
+		int(absf(float(block.get("query_end", 0)) - float(block.get("query_start", 0)))),
+		int(absf(float(block.get("target_end", 0)) - float(block.get("target_start", 0))))
+	)
 
 
 func _detail_mode_active() -> bool:
