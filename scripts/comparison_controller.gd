@@ -15,6 +15,7 @@ var _comparison_detail_cache := {}
 var _comparison_reference_cache := {}
 var _comparison_block_cap_label: Label
 var _comparison_block_cap_spin: SpinBox
+var _show_whole_genome_self_match_check: CheckButton
 var _min_block_len_label: Label
 var _min_block_len_spin: SpinBox
 var _max_block_len_label: Label
@@ -119,6 +120,12 @@ func setup_settings(view_box: VBoxContainer) -> void:
 	_comparison_block_cap_spin.value = 500
 	_comparison_block_cap_spin.value_changed.connect(_on_comparison_block_cap_changed)
 
+	_show_whole_genome_self_match_check = CheckButton.new()
+	_show_whole_genome_self_match_check.text = "Show Whole-Genome Self Match"
+	_show_whole_genome_self_match_check.tooltip_text = "For self-comparisons, draw the 100% identity match from the genome to itself. Smaller repeat matches are still shown."
+	_show_whole_genome_self_match_check.button_pressed = false
+	_show_whole_genome_self_match_check.toggled.connect(_on_show_whole_genome_self_match_toggled)
+
 	_min_block_len_label = Label.new()
 	_min_block_len_label.text = "Minimum Match Length (bp)"
 	_min_block_len_spin = SpinBox.new()
@@ -157,6 +164,7 @@ func setup_settings(view_box: VBoxContainer) -> void:
 
 	view_box.add_child(_comparison_block_cap_label)
 	view_box.add_child(_comparison_block_cap_spin)
+	view_box.add_child(_show_whole_genome_self_match_check)
 	view_box.add_child(_min_block_len_label)
 	view_box.add_child(_min_block_len_spin)
 	view_box.add_child(_max_block_len_label)
@@ -167,6 +175,7 @@ func setup_settings(view_box: VBoxContainer) -> void:
 	view_box.add_child(_max_identity_spin)
 	refresh_settings(int(host._app_mode))
 	_on_comparison_block_cap_changed(_comparison_block_cap_spin.value)
+	_on_show_whole_genome_self_match_toggled(_show_whole_genome_self_match_check.button_pressed)
 	_on_comparison_filters_changed(0.0)
 
 
@@ -180,7 +189,7 @@ func refresh_settings(app_mode: int) -> void:
 		_comparison_block_cap_label.visible = visible
 	if _comparison_block_cap_spin != null:
 		_comparison_block_cap_spin.visible = visible
-	for node in [_min_block_len_label, _min_block_len_spin, _max_block_len_label, _max_block_len_spin, _min_identity_label, _min_identity_spin, _max_identity_label, _max_identity_spin]:
+	for node in [_show_whole_genome_self_match_check, _min_block_len_label, _min_block_len_spin, _max_block_len_label, _max_block_len_spin, _min_identity_label, _min_identity_spin, _max_identity_label, _max_identity_spin]:
 		if node != null:
 			node.visible = visible
 
@@ -734,6 +743,10 @@ func _queue_pair_fetches_for_order(order: PackedInt32Array) -> void:
 func _on_comparison_block_cap_changed(value: float) -> void:
 	if comparison_view != null and comparison_view.has_method("set_max_draw_blocks_per_pair"):
 		comparison_view.set_max_draw_blocks_per_pair(int(value))
+
+func _on_show_whole_genome_self_match_toggled(enabled: bool) -> void:
+	if comparison_view != null and comparison_view.has_method("set_show_whole_genome_self_match"):
+		comparison_view.set_show_whole_genome_self_match(enabled)
 
 func _on_comparison_filters_changed(_value: float) -> void:
 	if comparison_view == null or not comparison_view.has_method("set_block_filters"):

@@ -68,6 +68,7 @@ var _region_select_end_edge := 0.0
 var _view_span_bp := DEFAULT_VIEW_SPAN_BP
 var _syncing_offsets := false
 var _max_draw_blocks_per_pair := 500
+var _show_whole_genome_self_match := false
 var _min_block_len_bp := 0
 var _max_block_len_bp := 0
 var _min_percent_identity := 0.0
@@ -361,6 +362,14 @@ func _feature_key(feature: Dictionary) -> String:
 
 func set_max_draw_blocks_per_pair(value: int) -> void:
 	_max_draw_blocks_per_pair = maxi(1, value)
+	queue_redraw()
+
+
+func set_show_whole_genome_self_match(enabled: bool) -> void:
+	if _show_whole_genome_self_match == enabled:
+		return
+	_show_whole_genome_self_match = enabled
+	_schedule_detail_request()
 	queue_redraw()
 
 
@@ -1648,6 +1657,9 @@ func _visible_blocks_for_pair(blocks: Array, top_genome_id: int, bottom_genome_i
 	var top_vis_end := top_end + tolerance
 	var bottom_vis_start := bottom_offset - tolerance
 	var bottom_vis_end := bottom_end + tolerance
+	var whole_genome_self_match_len := 0
+	if not _show_whole_genome_self_match:
+		whole_genome_self_match_len = _self_match_genome_length(top_genome_id, bottom_genome_id)
 	var visible_blocks := []
 	for block_any in blocks:
 		var block: Dictionary = block_any
@@ -1662,6 +1674,8 @@ func _visible_blocks_for_pair(blocks: Array, top_genome_id: int, bottom_genome_i
 		if _max_block_len_bp > 0 and span_len > _max_block_len_bp:
 			continue
 		if pct < _min_percent_identity or pct > _max_percent_identity:
+			continue
+		if whole_genome_self_match_len > 0 and _is_whole_genome_self_match_block(block, whole_genome_self_match_len):
 			continue
 		var top_intersects := q1 > top_vis_start and q0 < top_vis_end
 		var bottom_intersects := t1 > bottom_vis_start and t0 < bottom_vis_end
@@ -1678,6 +1692,42 @@ func _visible_blocks_for_pair(blocks: Array, top_genome_id: int, bottom_genome_i
 	if visible_blocks.size() > _max_draw_blocks_per_pair:
 		visible_blocks.resize(_max_draw_blocks_per_pair)
 	return visible_blocks
+
+
+func _self_match_genome_length(top_genome_id: int, bottom_genome_id: int) -> int:
+	var top_genome: Dictionary = _genomes_by_id.get(top_genome_id, {})
+	var bottom_genome: Dictionary = _genomes_by_id.get(bottom_genome_id, {})
+	if top_genome.is_empty() or bottom_genome.is_empty():
+		return 0
+	var genome_len := int(top_genome.get("length", 0))
+	if genome_len <= 0 or int(bottom_genome.get("length", 0)) != genome_len:
+		return 0
+	if not _is_same_genome_source(top_genome_id, bottom_genome_id, top_genome, bottom_genome):
+		return 0
+	return genome_len
+
+
+func _is_whole_genome_self_match_block(block: Dictionary, genome_len: int) -> bool:
+	if not bool(block.get("same_strand", true)):
+		return false
+	if int(block.get("percent_identity_x100", 0)) != 10000:
+		return false
+	return (
+		int(block.get("query_start", -1)) == 0
+		and int(block.get("target_start", -1)) == 0
+		and int(block.get("query_end", -1)) == genome_len
+		and int(block.get("target_end", -1)) == genome_len
+	)
+
+
+func _is_same_genome_source(top_genome_id: int, bottom_genome_id: int, top_genome: Dictionary, bottom_genome: Dictionary) -> bool:
+	if top_genome_id == bottom_genome_id:
+		return true
+	var top_path := str(top_genome.get("path", ""))
+	var bottom_path := str(bottom_genome.get("path", ""))
+	if not top_path.is_empty() or not bottom_path.is_empty():
+		return not top_path.is_empty() and top_path == bottom_path
+	return str(top_genome.get("name", "")) == str(bottom_genome.get("name", ""))
 
 
 func _project_block_polygon(block: Dictionary, top_offset: float, bottom_offset: float, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float) -> PackedVector2Array:
