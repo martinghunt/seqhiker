@@ -383,6 +383,36 @@ func BenchmarkBuildCanonicalComparisonBlocksMultiSegment(b *testing.B) {
 	}
 }
 
+func TestBandedAffineAlignHandlesLongNarrowBand(t *testing.T) {
+	query := comparisonDeterministicTestDNA(2500)
+	target := query[:1200] + "ACGTAC" + query[1200:]
+	aln, ok := bandedAffineAlign(query, target, absInt(len(query)-len(target))+comparisonRefineBandPad)
+	if !ok {
+		t.Fatal("expected long narrow-band alignment to succeed")
+	}
+	if len(aln.Ops) != len(target) {
+		t.Fatalf("unexpected ops length: got %d want %d", len(aln.Ops), len(target))
+	}
+	if !strings.Contains(string(aln.Ops), "DDDDDD") {
+		t.Fatalf("expected inserted target bases to be represented in ops, got %q", aln.Ops)
+	}
+	if got := aln.percentIdentityX100(); got < 9900 {
+		t.Fatalf("unexpectedly low identity: got %d", got)
+	}
+}
+
+func BenchmarkBandedAffineAlignNarrowBand(b *testing.B) {
+	query := comparisonDeterministicTestDNA(4096)
+	target := query[:2048] + "ACGTACGT" + query[2048:]
+	band := absInt(len(query)-len(target)) + comparisonRefineBandPad
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, ok := bandedAffineAlign(query, target, band); !ok {
+			b.Fatal("expected alignment")
+		}
+	}
+}
+
 func TestComparisonRefinementCapturesSNPAndIndel(t *testing.T) {
 	query := &comparisonGenome{
 		ID:       1,
@@ -887,6 +917,34 @@ func TestComparisonHighlyRepetitiveSeedsAreFiltered(t *testing.T) {
 	blocks := buildComparisonBlocks(query, target)
 	if len(blocks) != 0 {
 		t.Fatalf("expected repetitive seeds to be filtered out, got %+v", blocks)
+	}
+}
+
+func TestBuildSeedIndexStoresSampledRepetitivePositions(t *testing.T) {
+	const repeatHash = uint64(42)
+	seeds := make([]minimizerSeed, 0, 1003)
+	allRepeatPositions := make([]int, 1000)
+	for i := range allRepeatPositions {
+		pos := i * 7
+		allRepeatPositions[i] = pos
+		seeds = append(seeds, minimizerSeed{Hash: repeatHash, Pos: pos})
+	}
+	seeds = append(seeds,
+		minimizerSeed{Hash: 7, Pos: 11},
+		minimizerSeed{Hash: 7, Pos: 23},
+		minimizerSeed{Hash: 7, Pos: 37},
+	)
+
+	index := buildSeedIndex(seeds)
+	wantRepeatPositions := sampleComparisonSeedPositions(allRepeatPositions)
+	if !slices.Equal(index[repeatHash], wantRepeatPositions) {
+		t.Fatalf("sampled repeat positions differ:\ngot  %v\nwant %v", index[repeatHash], wantRepeatPositions)
+	}
+	if len(index[repeatHash]) != comparisonMaxSeedHits {
+		t.Fatalf("repeat hash stored %d positions, want %d", len(index[repeatHash]), comparisonMaxSeedHits)
+	}
+	if want := []int{11, 23, 37}; !slices.Equal(index[7], want) {
+		t.Fatalf("non-repetitive positions changed: got %v want %v", index[7], want)
 	}
 }
 

@@ -1518,17 +1518,39 @@ func sampleComparisonSeedPositions(positions []int) []int {
 	if len(positions) <= comparisonMaxSeedHits {
 		return positions
 	}
-	sampled := make([]int, 0, comparisonMaxSeedHits)
+	ordinals := comparisonSeedSampleOrdinals(len(positions))
+	sampled := make([]int, 0, len(ordinals))
+	for _, idx := range ordinals {
+		sampled = append(sampled, positions[idx])
+	}
+	return sampled
+}
+
+func comparisonSeedSampleOrdinals(count int) []int {
+	if count <= 0 {
+		return nil
+	}
+	if count <= comparisonMaxSeedHits {
+		ordinals := make([]int, count)
+		for i := range ordinals {
+			ordinals[i] = i
+		}
+		return ordinals
+	}
+	if comparisonMaxSeedHits <= 1 {
+		return []int{0}
+	}
+	ordinals := make([]int, 0, comparisonMaxSeedHits)
 	lastIdx := -1
 	for i := 0; i < comparisonMaxSeedHits; i++ {
-		idx := i * (len(positions) - 1) / (comparisonMaxSeedHits - 1)
+		idx := i * (count - 1) / (comparisonMaxSeedHits - 1)
 		if idx == lastIdx {
 			continue
 		}
-		sampled = append(sampled, positions[idx])
+		ordinals = append(ordinals, idx)
 		lastIdx = idx
 	}
-	return sampled
+	return ordinals
 }
 
 func shouldSplitComparisonChain(qGap, tGap int) bool {
@@ -1884,6 +1906,144 @@ type affineAlignment struct {
 	Ops []byte
 }
 
+type bandedAffineLayout struct {
+	starts  []int
+	widths  []int
+	offsets []int
+	cells   int
+}
+
+func newBandedAffineLayout(m, n, band int) (bandedAffineLayout, bool) {
+	if band < 0 {
+		return bandedAffineLayout{}, false
+	}
+	centerDelta := n - m
+	layout := bandedAffineLayout{
+		starts:  make([]int, m+1),
+		widths:  make([]int, m+1),
+		offsets: make([]int, m+1),
+	}
+	for i := 0; i <= m; i++ {
+		start := i + centerDelta - band
+		if start < 0 {
+			start = 0
+		}
+		end := i + centerDelta + band
+		if end > n {
+			end = n
+		}
+		layout.starts[i] = start
+		if end >= start {
+			layout.widths[i] = end - start + 1
+		}
+		layout.offsets[i] = layout.cells
+		layout.cells += layout.widths[i]
+	}
+	return layout, layout.contains(m, n)
+}
+
+func (l bandedAffineLayout) contains(i, j int) bool {
+	_, ok := l.index(i, j)
+	return ok
+}
+
+func (l bandedAffineLayout) index(i, j int) (int, bool) {
+	if i < 0 || i >= len(l.widths) {
+		return 0, false
+	}
+	offset := j - l.starts[i]
+	if offset < 0 || offset >= l.widths[i] {
+		return 0, false
+	}
+	return l.offsets[i] + offset, true
+}
+
+type bandedAffineScores struct {
+	layout bandedAffineLayout
+	data   [][]int32
+	absent int32
+}
+
+func newBandedAffineScores(layout bandedAffineLayout, absent int32) bandedAffineScores {
+	flat := make([]int32, layout.cells)
+	for i := range flat {
+		flat[i] = absent
+	}
+	data := make([][]int32, len(layout.widths))
+	for i, width := range layout.widths {
+		if width > 0 {
+			offset := layout.offsets[i]
+			data[i] = flat[offset : offset+width]
+		}
+	}
+	return bandedAffineScores{
+		layout: layout,
+		data:   data,
+		absent: absent,
+	}
+}
+
+func (m bandedAffineScores) at(i, j int) int32 {
+	if i < 0 || i >= len(m.data) {
+		return m.absent
+	}
+	offset := j - m.layout.starts[i]
+	if offset < 0 || offset >= len(m.data[i]) {
+		return m.absent
+	}
+	return m.data[i][offset]
+}
+
+func (m bandedAffineScores) set(i, j int, value int32) {
+	if i < 0 || i >= len(m.data) {
+		return
+	}
+	offset := j - m.layout.starts[i]
+	if offset < 0 || offset >= len(m.data[i]) {
+		return
+	}
+	m.data[i][offset] = value
+}
+
+type bandedAffineTraces struct {
+	layout bandedAffineLayout
+	data   [][]byte
+}
+
+func newBandedAffineTraces(layout bandedAffineLayout) bandedAffineTraces {
+	flat := make([]byte, layout.cells)
+	data := make([][]byte, len(layout.widths))
+	for i, width := range layout.widths {
+		if width > 0 {
+			offset := layout.offsets[i]
+			data[i] = flat[offset : offset+width]
+		}
+	}
+	return bandedAffineTraces{layout: layout, data: data}
+}
+
+func (t bandedAffineTraces) at(i, j int) byte {
+	if i < 0 || i >= len(t.data) {
+		return 0
+	}
+	offset := j - t.layout.starts[i]
+	if offset < 0 || offset >= len(t.data[i]) {
+		return 0
+	}
+	return t.data[i][offset]
+}
+
+func (t bandedAffineTraces) set(i, j int, value byte) {
+	if i < 0 || i >= len(t.data) {
+		return
+	}
+	offset := j - t.layout.starts[i]
+	if offset < 0 || offset >= len(t.data[i]) {
+		return
+	}
+	t.data[i][offset] = value
+}
+
 func (a affineAlignment) percentIdentityX100() uint16 {
 	matches := 0
 	aligned := 0
@@ -1998,92 +2158,65 @@ func bandedAffineAlign(query, target string, band int) (affineAlignment, bool) {
 	if m == 0 && n == 0 {
 		return affineAlignment{}, true
 	}
-	const negInf = -1 << 30
-	M := make([][]int, m+1)
-	Ix := make([][]int, m+1)
-	Iy := make([][]int, m+1)
-	traceM := make([][]byte, m+1)
-	traceIx := make([][]byte, m+1)
-	traceIy := make([][]byte, m+1)
-	valid := make([][]bool, m+1)
-	for i := 0; i <= m; i++ {
-		M[i] = make([]int, n+1)
-		Ix[i] = make([]int, n+1)
-		Iy[i] = make([]int, n+1)
-		traceM[i] = make([]byte, n+1)
-		traceIx[i] = make([]byte, n+1)
-		traceIy[i] = make([]byte, n+1)
-		valid[i] = make([]bool, n+1)
-		for j := 0; j <= n; j++ {
-			M[i][j] = negInf
-			Ix[i][j] = negInf
-			Iy[i][j] = negInf
-		}
-	}
-	centerDelta := n - m
-	inBand := func(i, j int) bool {
-		return absInt((j-i)-centerDelta) <= band
-	}
-	for i := 0; i <= m; i++ {
-		for j := 0; j <= n; j++ {
-			if !inBand(i, j) {
-				continue
-			}
-			valid[i][j] = true
-		}
-	}
-	if !valid[m][n] {
+	const negInf int32 = -1 << 30
+	layout, ok := newBandedAffineLayout(m, n, band)
+	if !ok {
 		return affineAlignment{}, false
 	}
-	M[0][0] = 0
+	M := newBandedAffineScores(layout, negInf)
+	Ix := newBandedAffineScores(layout, negInf)
+	Iy := newBandedAffineScores(layout, negInf)
+	traceM := newBandedAffineTraces(layout)
+	traceIx := newBandedAffineTraces(layout)
+	traceIy := newBandedAffineTraces(layout)
+	M.set(0, 0, 0)
 	for i := 1; i <= m; i++ {
-		if !valid[i][0] {
+		if !layout.contains(i, 0) {
 			continue
 		}
 		if i == 1 {
-			Ix[i][0] = comparisonAffineGapOpen + comparisonAffineGapExtend
-			traceIx[i][0] = 'M'
-		} else if Ix[i-1][0] > negInf {
-			Ix[i][0] = Ix[i-1][0] + comparisonAffineGapExtend
-			traceIx[i][0] = 'X'
+			Ix.set(i, 0, comparisonAffineGapOpen+comparisonAffineGapExtend)
+			traceIx.set(i, 0, 'M')
+		} else if prev := Ix.at(i-1, 0); prev > negInf {
+			Ix.set(i, 0, prev+comparisonAffineGapExtend)
+			traceIx.set(i, 0, 'X')
 		}
 	}
 	for j := 1; j <= n; j++ {
-		if !valid[0][j] {
+		if !layout.contains(0, j) {
 			continue
 		}
 		if j == 1 {
-			Iy[0][j] = comparisonAffineGapOpen + comparisonAffineGapExtend
-			traceIy[0][j] = 'M'
-		} else if Iy[0][j-1] > negInf {
-			Iy[0][j] = Iy[0][j-1] + comparisonAffineGapExtend
-			traceIy[0][j] = 'Y'
+			Iy.set(0, j, comparisonAffineGapOpen+comparisonAffineGapExtend)
+			traceIy.set(0, j, 'M')
+		} else if prev := Iy.at(0, j-1); prev > negInf {
+			Iy.set(0, j, prev+comparisonAffineGapExtend)
+			traceIy.set(0, j, 'Y')
 		}
 	}
 	for i := 1; i <= m; i++ {
-		for j := 1; j <= n; j++ {
-			if !valid[i][j] {
-				continue
+		rowStart := max(1, layout.starts[i])
+		rowEnd := layout.starts[i] + layout.widths[i] - 1
+		for j := rowStart; j <= rowEnd; j++ {
+			bestM := M.at(i-1, j-1)
+			traceM.set(i, j, 'M')
+			if score := Ix.at(i-1, j-1); score > bestM {
+				bestM = score
+				traceM.set(i, j, 'X')
 			}
-			bestM := M[i-1][j-1]
-			traceM[i][j] = 'M'
-			if Ix[i-1][j-1] > bestM {
-				bestM = Ix[i-1][j-1]
-				traceM[i][j] = 'X'
-			}
-			if Iy[i-1][j-1] > bestM {
-				bestM = Iy[i-1][j-1]
-				traceM[i][j] = 'Y'
+			if score := Iy.at(i-1, j-1); score > bestM {
+				bestM = score
+				traceM.set(i, j, 'Y')
 			}
 			if bestM > negInf {
-				score := comparisonAffineMismatch
+				score := int32(comparisonAffineMismatch)
 				if query[i-1] == target[j-1] {
 					score = comparisonAffineMatch
 				}
-				M[i][j] = bestM + score
+				M.set(i, j, bestM+score)
 			}
-			fromM := M[i-1][j]
-			fromX := Ix[i-1][j]
+			fromM := M.at(i-1, j)
+			fromX := Ix.at(i-1, j)
 			if fromM > negInf {
 				fromM += comparisonAffineGapOpen + comparisonAffineGapExtend
 			}
@@ -2091,14 +2224,14 @@ func bandedAffineAlign(query, target string, band int) (affineAlignment, bool) {
 				fromX += comparisonAffineGapExtend
 			}
 			if fromM >= fromX {
-				Ix[i][j] = fromM
-				traceIx[i][j] = 'M'
+				Ix.set(i, j, fromM)
+				traceIx.set(i, j, 'M')
 			} else {
-				Ix[i][j] = fromX
-				traceIx[i][j] = 'X'
+				Ix.set(i, j, fromX)
+				traceIx.set(i, j, 'X')
 			}
-			fromM = M[i][j-1]
-			fromY := Iy[i][j-1]
+			fromM = M.at(i, j-1)
+			fromY := Iy.at(i, j-1)
 			if fromM > negInf {
 				fromM += comparisonAffineGapOpen + comparisonAffineGapExtend
 			}
@@ -2106,22 +2239,22 @@ func bandedAffineAlign(query, target string, band int) (affineAlignment, bool) {
 				fromY += comparisonAffineGapExtend
 			}
 			if fromM >= fromY {
-				Iy[i][j] = fromM
-				traceIy[i][j] = 'M'
+				Iy.set(i, j, fromM)
+				traceIy.set(i, j, 'M')
 			} else {
-				Iy[i][j] = fromY
-				traceIy[i][j] = 'Y'
+				Iy.set(i, j, fromY)
+				traceIy.set(i, j, 'Y')
 			}
 		}
 	}
 	state := byte('M')
-	best := M[m][n]
-	if Ix[m][n] > best {
-		best = Ix[m][n]
+	best := M.at(m, n)
+	if score := Ix.at(m, n); score > best {
+		best = score
 		state = 'X'
 	}
-	if Iy[m][n] > best {
-		best = Iy[m][n]
+	if score := Iy.at(m, n); score > best {
+		best = score
 		state = 'Y'
 	}
 	if best <= negInf {
@@ -2132,10 +2265,10 @@ func bandedAffineAlign(query, target string, band int) (affineAlignment, bool) {
 	for i > 0 || j > 0 {
 		switch state {
 		case 'M':
-			prev := traceM[i][j]
 			if i <= 0 || j <= 0 {
 				return affineAlignment{}, false
 			}
+			prev := traceM.at(i, j)
 			if query[i-1] == target[j-1] {
 				ops = append(ops, 'M')
 			} else {
@@ -2145,18 +2278,18 @@ func bandedAffineAlign(query, target string, band int) (affineAlignment, bool) {
 			j--
 			state = prev
 		case 'X':
-			prev := traceIx[i][j]
 			if i <= 0 {
 				return affineAlignment{}, false
 			}
+			prev := traceIx.at(i, j)
 			ops = append(ops, 'I')
 			i--
 			state = prev
 		case 'Y':
-			prev := traceIy[i][j]
 			if j <= 0 {
 				return affineAlignment{}, false
 			}
+			prev := traceIy.at(i, j)
 			ops = append(ops, 'D')
 			j--
 			state = prev
@@ -2171,8 +2304,46 @@ func bandedAffineAlign(query, target string, band int) (affineAlignment, bool) {
 }
 
 func buildSeedIndex(seeds []minimizerSeed) map[uint64][]int {
-	index := make(map[uint64][]int, len(seeds))
+	counts := make(map[uint64]int, len(seeds))
+	needsSampling := false
 	for _, seed := range seeds {
+		counts[seed.Hash]++
+		if counts[seed.Hash] > comparisonMaxSeedHits {
+			needsSampling = true
+		}
+	}
+	index := make(map[uint64][]int, len(counts))
+	if !needsSampling {
+		for hash, count := range counts {
+			index[hash] = make([]int, 0, count)
+		}
+		for _, seed := range seeds {
+			index[seed.Hash] = append(index[seed.Hash], seed.Pos)
+		}
+		return index
+	}
+	sampleOrdinals := make(map[uint64][]int)
+	for hash, count := range counts {
+		capacity := count
+		if capacity > comparisonMaxSeedHits {
+			capacity = comparisonMaxSeedHits
+			sampleOrdinals[hash] = comparisonSeedSampleOrdinals(count)
+		}
+		index[hash] = make([]int, 0, capacity)
+	}
+	seen := make(map[uint64]int, len(counts))
+	nextSample := make(map[uint64]int, len(sampleOrdinals))
+	for _, seed := range seeds {
+		ordinal := seen[seed.Hash]
+		seen[seed.Hash] = ordinal + 1
+		if counts[seed.Hash] > comparisonMaxSeedHits {
+			ordinals := sampleOrdinals[seed.Hash]
+			next := nextSample[seed.Hash]
+			if next >= len(ordinals) || ordinal != ordinals[next] {
+				continue
+			}
+			nextSample[seed.Hash] = next + 1
+		}
 		index[seed.Hash] = append(index[seed.Hash], seed.Pos)
 	}
 	return index
