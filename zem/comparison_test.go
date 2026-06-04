@@ -328,6 +328,50 @@ func TestBuildComparisonBlocksFromSketchesMatchesDirectBlocks(t *testing.T) {
 	}
 }
 
+func TestComparisonBlocksUseRefinedIdentityForDivergentBlock(t *testing.T) {
+	querySeq := uniqueishDNA(1800)
+	mutated := []byte(querySeq)
+	for _, idx := range []int{211, 503, 947, 1319, 1591} {
+		switch mutated[idx] {
+		case 'A':
+			mutated[idx] = 'C'
+		case 'C':
+			mutated[idx] = 'G'
+		case 'G':
+			mutated[idx] = 'T'
+		default:
+			mutated[idx] = 'A'
+		}
+	}
+	targetSeq := string(mutated[:700]) + "ACGTAC" + string(mutated[700:])
+	query := &comparisonGenome{ID: 1, Name: "q", Length: len(querySeq), Sequence: querySeq}
+	target := &comparisonGenome{ID: 2, Name: "t", Length: len(targetSeq), Sequence: targetSeq}
+
+	blocks := buildComparisonBlocks(query, target)
+	if len(blocks) == 0 {
+		t.Fatal("expected comparison blocks")
+	}
+	var best ComparisonBlock
+	for _, block := range blocks {
+		if int(block.QueryEnd-block.QueryStart) > int(best.QueryEnd-best.QueryStart) {
+			best = block
+		}
+	}
+	if best.PercentIdentX100 == 10000 {
+		t.Fatalf("expected divergent block identity below 100%%, got %+v", best)
+	}
+	if best.PercentIdentX100 < 9900 {
+		t.Fatalf("expected high refined identity for small edits, got %+v", best)
+	}
+	detail, ok := buildComparisonBlockDetail(query, target, best)
+	if !ok {
+		t.Fatalf("expected block detail for %+v", best)
+	}
+	if absInt(int(detail.Summary.PercentIdentX100)-int(best.PercentIdentX100)) > 10 {
+		t.Fatalf("block identity differs from detail: block=%d detail=%d", best.PercentIdentX100, detail.Summary.PercentIdentX100)
+	}
+}
+
 func BenchmarkBuildCanonicalComparisonBlocksMultiSegment(b *testing.B) {
 	makeSegment := func(i int) string {
 		seq := comparisonDeterministicTestDNA(4200 + i*137)
@@ -937,14 +981,16 @@ func TestBuildSeedIndexStoresSampledRepetitivePositions(t *testing.T) {
 
 	index := buildSeedIndex(seeds)
 	wantRepeatPositions := sampleComparisonSeedPositions(allRepeatPositions)
-	if !slices.Equal(index[repeatHash], wantRepeatPositions) {
-		t.Fatalf("sampled repeat positions differ:\ngot  %v\nwant %v", index[repeatHash], wantRepeatPositions)
+	gotRepeatPositions := index[repeatHash].slice()
+	if !slices.Equal(gotRepeatPositions, wantRepeatPositions) {
+		t.Fatalf("sampled repeat positions differ:\ngot  %v\nwant %v", gotRepeatPositions, wantRepeatPositions)
 	}
-	if len(index[repeatHash]) != comparisonMaxSeedHits {
-		t.Fatalf("repeat hash stored %d positions, want %d", len(index[repeatHash]), comparisonMaxSeedHits)
+	if len(gotRepeatPositions) != comparisonMaxSeedHits {
+		t.Fatalf("repeat hash stored %d positions, want %d", len(gotRepeatPositions), comparisonMaxSeedHits)
 	}
-	if want := []int{11, 23, 37}; !slices.Equal(index[7], want) {
-		t.Fatalf("non-repetitive positions changed: got %v want %v", index[7], want)
+	gotNonRepetitivePositions := index[7].slice()
+	if want := []int{11, 23, 37}; !slices.Equal(gotNonRepetitivePositions, want) {
+		t.Fatalf("non-repetitive positions changed: got %v want %v", gotNonRepetitivePositions, want)
 	}
 }
 
