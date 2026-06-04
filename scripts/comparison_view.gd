@@ -298,6 +298,26 @@ func clear_selected_feature() -> void:
 		if row != null and row.has_method("clear_selected_feature"):
 			row.clear_selected_feature()
 
+func select_search_region(genome_id: int, start_bp: int, end_bp: int) -> void:
+	if not _genomes_by_id.has(genome_id):
+		return
+	var genome_len := float(_genomes_by_id.get(genome_id, {}).get("length", 0))
+	if genome_len <= 0.0:
+		return
+	var start_edge := clampf(float(start_bp), 0.0, genome_len)
+	var end_edge := clampf(float(maxi(start_bp + 1, end_bp)), 0.0, genome_len)
+	if end_edge <= start_edge:
+		end_edge = minf(genome_len, start_edge + 1.0)
+	_selected_match_key = ""
+	clear_selected_feature()
+	_region_select_dragging = false
+	_region_select_has_selection = true
+	_region_select_genome_id = genome_id
+	_region_select_start_edge = start_edge
+	_region_select_end_edge = end_edge
+	_update_region_selection_rows()
+	queue_redraw()
+
 func focus_genome_range(genome_id: int, start_bp: int, end_bp: int) -> void:
 	if not _genomes_by_id.has(genome_id):
 		return

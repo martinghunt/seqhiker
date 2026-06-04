@@ -233,7 +233,12 @@ func focus_search_hit(hit: Dictionary) -> void:
 	if genome_id < 0:
 		return
 	comparison_view.focus_genome_range(genome_id, int(hit.get("start", 0)), int(hit.get("end", 0)))
-	if str(hit.get("kind", "")) == "annotation" and comparison_view.has_method("select_feature"):
+	var hit_kind := str(hit.get("kind", ""))
+	if hit_kind == "dna" and comparison_view.has_method("select_search_region"):
+		comparison_view.select_search_region(genome_id, int(hit.get("start", 0)), int(hit.get("end", 0)))
+	elif hit_kind == "annotation" and comparison_view.has_method("select_feature"):
+		if comparison_view.has_method("clear_region_selection"):
+			comparison_view.clear_region_selection()
 		comparison_view.select_feature(genome_id, hit)
 
 
