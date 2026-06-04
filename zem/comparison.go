@@ -82,6 +82,13 @@ type minimizerSeed struct {
 	Pos  int
 }
 
+type comparisonSequenceSketch struct {
+	Genome       *comparisonGenome
+	Seeds        []minimizerSeed
+	ForwardIndex map[uint64][]int
+	ReverseIndex map[uint64][]int
+}
+
 type comparisonAnchor struct {
 	QPos   int
 	TPos   int
@@ -647,27 +654,17 @@ func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []compariso
 		return nil
 	}
 	out := make([]comparisonCanonicalBlock, 0, 64)
-	for qi, querySegment := range query.Segments {
-		if len(querySegment.RawSequence) < comparisonMinimizerK {
+	querySketches := buildComparisonSegmentSketches(query, false)
+	targetSketches := buildComparisonSegmentSketches(target, true)
+	for qi := range query.Segments {
+		if qi >= len(querySketches) || querySketches[qi].Genome == nil {
 			continue
 		}
-		queryGenome := &comparisonGenome{
-			ID:       query.ID,
-			Name:     querySegment.Name,
-			Length:   len(querySegment.RawSequence),
-			Sequence: querySegment.RawSequence,
-		}
-		for ti, targetSegment := range target.Segments {
-			if len(targetSegment.RawSequence) < comparisonMinimizerK {
+		for ti := range target.Segments {
+			if ti >= len(targetSketches) || targetSketches[ti].Genome == nil {
 				continue
 			}
-			targetGenome := &comparisonGenome{
-				ID:       target.ID,
-				Name:     targetSegment.Name,
-				Length:   len(targetSegment.RawSequence),
-				Sequence: targetSegment.RawSequence,
-			}
-			for _, block := range buildComparisonBlocks(queryGenome, targetGenome) {
+			for _, block := range buildComparisonBlocksFromSketches(querySketches[qi], targetSketches[ti]) {
 				out = append(out, comparisonCanonicalBlock{
 					QuerySegment:     qi,
 					QueryStart:       int(block.QueryStart),
@@ -682,6 +679,35 @@ func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []compariso
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return canonicalComparisonBlockLess(out[i], out[j]) })
+	return out
+}
+
+func buildComparisonSegmentSketches(genome *comparisonGenome, includeIndexes bool) []comparisonSequenceSketch {
+	if genome == nil || len(genome.Segments) == 0 {
+		return nil
+	}
+	out := make([]comparisonSequenceSketch, len(genome.Segments))
+	for i, segment := range genome.Segments {
+		if len(segment.RawSequence) < comparisonMinimizerK {
+			continue
+		}
+		localGenome := &comparisonGenome{
+			ID:       genome.ID,
+			Name:     segment.Name,
+			Length:   len(segment.RawSequence),
+			Sequence: segment.RawSequence,
+		}
+		seeds := extractMinimizers(segment.RawSequence, comparisonMinimizerK, comparisonMinimizerWindow, false)
+		sketch := comparisonSequenceSketch{
+			Genome: localGenome,
+			Seeds:  seeds,
+		}
+		if includeIndexes {
+			sketch.ForwardIndex = buildSeedIndex(seeds)
+			sketch.ReverseIndex = buildSeedIndex(extractMinimizers(segment.RawSequence, comparisonMinimizerK, comparisonMinimizerWindow, true))
+		}
+		out[i] = sketch
+	}
 	return out
 }
 
@@ -1062,7 +1088,20 @@ func buildComparisonBlocks(query, target *comparisonGenome) []ComparisonBlock {
 	}
 
 	sameAnchors, reverseAnchors := buildComparisonAnchors(query, target)
+	return buildComparisonBlocksFromAnchors(query, target, sameAnchors, reverseAnchors)
+}
 
+func buildComparisonBlocksFromSketches(querySketch, targetSketch comparisonSequenceSketch) []ComparisonBlock {
+	query := querySketch.Genome
+	target := targetSketch.Genome
+	if query == nil || target == nil || len(querySketch.Seeds) == 0 || (len(targetSketch.ForwardIndex) == 0 && len(targetSketch.ReverseIndex) == 0) {
+		return nil
+	}
+	sameAnchors, reverseAnchors := buildComparisonAnchorsFromSketches(querySketch, targetSketch)
+	return buildComparisonBlocksFromAnchors(query, target, sameAnchors, reverseAnchors)
+}
+
+func buildComparisonBlocksFromAnchors(query, target *comparisonGenome, sameAnchors, reverseAnchors []comparisonAnchor) []ComparisonBlock {
 	chains := make([]comparisonRefinedChain, 0, 64)
 	chains = append(chains, buildRefinedChainsFromSegmentPairs(query, target, sameAnchors, true)...)
 	chains = append(chains, buildRefinedChainsFromSegmentPairs(query, target, reverseAnchors, false)...)
@@ -1433,6 +1472,33 @@ func buildComparisonAnchors(query, target *comparisonGenome) ([]comparisonAnchor
 			}
 		}
 		if positions, ok := targetReverse[seed.Hash]; ok {
+			for _, tPos := range sampleComparisonSeedPositions(positions) {
+				tTrans, ok := comparisonReverseDisplayPos(target, tPos, comparisonMinimizerK)
+				if !ok {
+					continue
+				}
+				reverseAnchors = append(reverseAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tTrans})
+			}
+		}
+	}
+	return sameAnchors, reverseAnchors
+}
+
+func buildComparisonAnchorsFromSketches(querySketch, targetSketch comparisonSequenceSketch) ([]comparisonAnchor, []comparisonAnchor) {
+	query := querySketch.Genome
+	target := targetSketch.Genome
+	if query == nil || target == nil {
+		return nil, nil
+	}
+	sameAnchors := make([]comparisonAnchor, 0, 1024)
+	reverseAnchors := make([]comparisonAnchor, 0, 1024)
+	for _, seed := range querySketch.Seeds {
+		if positions, ok := targetSketch.ForwardIndex[seed.Hash]; ok {
+			for _, tPos := range sampleComparisonSeedPositions(positions) {
+				sameAnchors = append(sameAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tPos})
+			}
+		}
+		if positions, ok := targetSketch.ReverseIndex[seed.Hash]; ok {
 			for _, tPos := range sampleComparisonSeedPositions(positions) {
 				tTrans, ok := comparisonReverseDisplayPos(target, tPos, comparisonMinimizerK)
 				if !ok {

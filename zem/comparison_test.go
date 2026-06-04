@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -258,6 +259,127 @@ func TestComparisonBuildsReverseBlocks(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("no reverse block found: %+v", blocks)
+	}
+}
+
+func TestBuildComparisonBlocksFromSketchesMatchesDirectBlocks(t *testing.T) {
+	tests := []struct {
+		name      string
+		querySeq  string
+		targetSeq string
+	}{
+		{
+			name:      "forward",
+			querySeq:  uniqueishDNA(1200),
+			targetSeq: strings.Repeat("N", 37) + uniqueishDNA(1200) + strings.Repeat("N", 23),
+		},
+		{
+			name:      "reverse",
+			querySeq:  uniqueishDNA(1200),
+			targetSeq: strings.Repeat("N", 29) + reverseComplementString(uniqueishDNA(1200)) + strings.Repeat("N", 31),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := &comparisonGenome{
+				ID:       1,
+				Name:     "q",
+				Length:   len(tt.querySeq),
+				Sequence: tt.querySeq,
+			}
+			target := &comparisonGenome{
+				ID:       2,
+				Name:     "t",
+				Length:   len(tt.targetSeq),
+				Sequence: tt.targetSeq,
+			}
+			direct := buildComparisonBlocks(query, target)
+			if len(direct) == 0 {
+				t.Fatal("expected direct comparison blocks")
+			}
+
+			querySegmented := &comparisonGenome{
+				ID:   query.ID,
+				Name: query.Name,
+				Segments: []comparisonSegment{{
+					Name:        "q1",
+					RawSequence: tt.querySeq,
+				}},
+			}
+			querySegmented.rebuildDerived()
+			targetSegmented := &comparisonGenome{
+				ID:   target.ID,
+				Name: target.Name,
+				Segments: []comparisonSegment{{
+					Name:        "t1",
+					RawSequence: tt.targetSeq,
+				}},
+			}
+			targetSegmented.rebuildDerived()
+			querySketches := buildComparisonSegmentSketches(querySegmented, false)
+			targetSketches := buildComparisonSegmentSketches(targetSegmented, true)
+			cached := buildComparisonBlocksFromSketches(querySketches[0], targetSketches[0])
+
+			if !slices.Equal(direct, cached) {
+				t.Fatalf("cached sketch blocks differ from direct blocks:\ndirect=%+v\ncached=%+v", direct, cached)
+			}
+		})
+	}
+}
+
+func BenchmarkBuildCanonicalComparisonBlocksMultiSegment(b *testing.B) {
+	makeSegment := func(i int) string {
+		seq := comparisonDeterministicTestDNA(4200 + i*137)
+		return seq[i*137:]
+	}
+	mutate := func(seq string) string {
+		out := []byte(seq)
+		for i := 811; i < len(out); i += 997 {
+			switch out[i] {
+			case 'A':
+				out[i] = 'C'
+			case 'C':
+				out[i] = 'G'
+			case 'G':
+				out[i] = 'T'
+			default:
+				out[i] = 'A'
+			}
+		}
+		return string(out)
+	}
+	query := &comparisonGenome{
+		ID:   1,
+		Name: "q",
+	}
+	target := &comparisonGenome{
+		ID:   2,
+		Name: "t",
+	}
+	for i := 0; i < 4; i++ {
+		seq := makeSegment(i)
+		query.Segments = append(query.Segments, comparisonSegment{
+			Name:        fmt.Sprintf("q%d", i+1),
+			RawSequence: seq,
+		})
+		target.Segments = append(target.Segments, comparisonSegment{
+			Name:        fmt.Sprintf("t%d", i+1),
+			RawSequence: mutate(seq),
+		})
+	}
+	query.rebuildDerived()
+	target.rebuildDerived()
+	if blocks := buildCanonicalComparisonBlocks(query, target); len(blocks) == 0 {
+		b.Fatal("expected comparison blocks")
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if blocks := buildCanonicalComparisonBlocks(query, target); len(blocks) == 0 {
+			b.Fatal("expected comparison blocks")
+		}
 	}
 }
 
