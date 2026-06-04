@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -422,6 +424,20 @@ func TestSearchDNAExact(t *testing.T) {
 	}
 	if hits[2].Start != 1 || hits[2].End != 4 || hits[2].Strand != '-' {
 		t.Fatalf("unexpected reverse-complement hit: %+v", hits[2])
+	}
+}
+
+func TestSearchDNAExactContextCanceled(t *testing.T) {
+	e := NewEngine()
+	e.sequences["chr1"] = strings.Repeat("ACGT", 1024)
+	e.chrToID["chr1"] = 1
+	e.idToChr[1] = "chr1"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := e.SearchDNAExactContext(ctx, 1, "ACG", true, 10)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("SearchDNAExactContext error = %v, want context.Canceled", err)
 	}
 }
 
@@ -1147,7 +1163,7 @@ func TestCoverageTailTilesUseProportionalBinCount(t *testing.T) {
 }
 
 func TestDispatchGetVersion(t *testing.T) {
-	msgType, payload, err := dispatch(NewEngine(), MsgGetVersion, nil)
+	msgType, payload, err := dispatch(context.Background(), NewEngine(), MsgGetVersion, nil)
 	if err != nil {
 		t.Fatalf("dispatch returned error: %v", err)
 	}
@@ -1156,6 +1172,37 @@ func TestDispatchGetVersion(t *testing.T) {
 	}
 	if got := decodeWireAckForTest(t, payload); got != ZemVersion {
 		t.Fatalf("unexpected version payload: got %q, want %q", got, ZemVersion)
+	}
+}
+
+func TestDispatchSearchDNAExactContextCanceled(t *testing.T) {
+	e := NewEngine()
+	e.sequences["chr1"] = strings.Repeat("ACGT", 1024)
+	e.chrToID["chr1"] = 1
+	e.idToChr[1] = "chr1"
+
+	pattern := "ACG"
+	payload := make([]byte, 7+len(pattern))
+	binary.LittleEndian.PutUint16(payload[0:2], 1)
+	binary.LittleEndian.PutUint16(payload[2:4], 10)
+	payload[4] = 1
+	binary.LittleEndian.PutUint16(payload[5:7], uint16(len(pattern)))
+	copy(payload[7:], pattern)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := dispatch(ctx, e, MsgSearchDNAExact, payload)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("dispatch error = %v, want context.Canceled", err)
+	}
+}
+
+func TestLoadIndexedTilePayloadContextCanceledBeforeRefUse(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := loadIndexedTilePayloadContext(ctx, "", nil, nil, 0, 0, readTileCacheKind, 100, false, "", 0)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("loadIndexedTilePayloadContext error = %v, want context.Canceled", err)
 	}
 }
 

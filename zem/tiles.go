@@ -2,6 +2,7 @@ package main
 
 import (
 	"container/list"
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"github.com/biogo/hts/bam"
 	"github.com/biogo/hts/sam"
 )
+
+const contextCheckRecordInterval = 1024
 
 type windowRange struct {
 	start int
@@ -77,19 +80,49 @@ func softClipSeqs(rec *sam.Record) (string, string) {
 }
 
 func (e *Engine) GetTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
+	return e.GetTileContext(context.Background(), sourceID, chrID, zoom, tileIndex)
+}
+
+func (e *Engine) GetTileContext(ctx context.Context, sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	window := tileWindow(zoom, tileIndex)
 	if zoom > e.maxReadZoom {
 		return encodeAlignmentTile(window.start, window.end, nil), nil
 	}
-	return e.getIndexedTile(sourceID, chrID, zoom, tileIndex, readTileCacheKind, true)
+	return e.getIndexedTileContext(ctx, sourceID, chrID, zoom, tileIndex, readTileCacheKind, true)
 }
 
 func (e *Engine) GetCoverageTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
-	return e.getIndexedTile(sourceID, chrID, zoom, tileIndex, covTileCacheKind, false)
+	return e.GetCoverageTileContext(context.Background(), sourceID, chrID, zoom, tileIndex)
+}
+
+func (e *Engine) GetCoverageTileContext(ctx context.Context, sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return e.getIndexedTileContext(ctx, sourceID, chrID, zoom, tileIndex, covTileCacheKind, false)
 }
 
 func (e *Engine) GetStrandCoverageTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
-	return e.getIndexedTile(sourceID, chrID, zoom, tileIndex, strandCovTileCacheKind, false)
+	return e.GetStrandCoverageTileContext(context.Background(), sourceID, chrID, zoom, tileIndex)
+}
+
+func (e *Engine) GetStrandCoverageTileContext(ctx context.Context, sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return e.getIndexedTileContext(ctx, sourceID, chrID, zoom, tileIndex, strandCovTileCacheKind, false)
 }
 
 func (e *Engine) GetGCPlotTile(chrID uint16, zoom uint8, tileIndex uint32, windowLen uint32) ([]byte, error) {
@@ -153,6 +186,16 @@ func (e *Engine) GetGCPlotTile(chrID uint16, zoom uint8, tileIndex uint32, windo
 }
 
 func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32, kind uint8, prefetch bool) ([]byte, error) {
+	return e.getIndexedTileContext(context.Background(), sourceID, chrID, zoom, tileIndex, kind, prefetch)
+}
+
+func (e *Engine) getIndexedTileContext(ctx context.Context, sourceID uint16, chrID uint16, zoom uint8, tileIndex uint32, kind uint8, prefetch bool) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	e.mu.Lock()
 	src, err := e.resolveBAMSourceLocked(sourceID)
 	if err != nil {
@@ -224,7 +267,7 @@ func (e *Engine) getIndexedTile(sourceID uint16, chrID uint16, zoom uint8, tileI
 			payload, err = encodeCoverageTileFromStrandPrefixes(rawStart, rawEnd, covPrefixFwd, covPrefixRev, binCount)
 		}
 	} else {
-		payload, err = loadIndexedTilePayload(bamPath, bamIdx, ref, rawStart, rawEnd, kind, maxTileRecs, includeSNPs, refSeq, binCount)
+		payload, err = loadIndexedTilePayloadContext(ctx, bamPath, bamIdx, ref, rawStart, rawEnd, kind, maxTileRecs, includeSNPs, refSeq, binCount)
 	}
 	if err != nil {
 		return nil, err
@@ -402,6 +445,16 @@ func prefixDelta(prefix []uint64, start, end int) uint64 {
 }
 
 func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Reference, start, end int, kind uint8, maxTileRecs uint32, includeSNPs bool, refSeq string, binCount int) ([]byte, error) {
+	return loadIndexedTilePayloadContext(context.Background(), bamPath, bamIdx, ref, start, end, kind, maxTileRecs, includeSNPs, refSeq, binCount)
+}
+
+func loadIndexedTilePayloadContext(ctx context.Context, bamPath string, bamIdx *bam.Index, ref *sam.Reference, start, end int, kind uint8, maxTileRecs uint32, includeSNPs bool, refSeq string, binCount int) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if start < 0 {
 		start = 0
 	}
@@ -421,12 +474,18 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 		return nil, err
 	}
 	defer file.Close()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	reader, err := bam.NewReader(file, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer reader.Close()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	chunks, err := bamIdx.Chunks(ref, start, end)
 	if err != nil {
@@ -458,7 +517,14 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 		sumDepthBp := make([]uint64, len(bins))
 		span := max(1, end-start)
 		seen := make(map[string]struct{})
+		scanned := 0
 		for it.Next() {
+			scanned++
+			if scanned%contextCheckRecordInterval == 0 {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+			}
 			rec := it.Record()
 			if rec == nil || rec.Flags&sam.Unmapped != 0 || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
 				continue
@@ -494,6 +560,9 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 				}
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if err := it.Error(); err != nil {
 			return nil, err
 		}
@@ -518,7 +587,14 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 		sumDepthBpRev := make([]uint64, len(reverseBins))
 		span := max(1, end-start)
 		seen := make(map[string]struct{})
+		scanned := 0
 		for it.Next() {
+			scanned++
+			if scanned%contextCheckRecordInterval == 0 {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+			}
 			rec := it.Record()
 			if rec == nil || rec.Flags&sam.Unmapped != 0 || rec.Ref == nil || rec.Ref.ID() != ref.ID() {
 				continue
@@ -558,6 +634,9 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 				}
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if err := it.Error(); err != nil {
 			return nil, err
 		}
@@ -574,7 +653,7 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 		return encodeStrandCoverageTile(start, end, forwardBins, reverseBins), nil
 
 	case readTileCacheKind:
-		alignments, err := collectWindowAlignments(it, ref, start, end, maxTileRecs, includeSNPs, refSeq)
+		alignments, err := collectWindowAlignmentsContext(ctx, it, ref, start, end, maxTileRecs, includeSNPs, refSeq)
 		if err != nil {
 			return nil, err
 		}
@@ -586,6 +665,16 @@ func loadIndexedTilePayload(bamPath string, bamIdx *bam.Index, ref *sam.Referenc
 }
 
 func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end int, maxTileRecs uint32, includeSNPs bool, refSeq string) ([]Alignment, error) {
+	return collectWindowAlignmentsContext(context.Background(), it, ref, start, end, maxTileRecs, includeSNPs, refSeq)
+}
+
+func collectWindowAlignmentsContext(ctx context.Context, it *bam.Iterator, ref *sam.Reference, start, end int, maxTileRecs uint32, includeSNPs bool, refSeq string) ([]Alignment, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if maxTileRecs == 0 || end <= start {
 		return nil, nil
 	}
@@ -615,6 +704,11 @@ func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end in
 	seen := make(map[string]struct{})
 	for it.Next() {
 		scanned++
+		if scanned%contextCheckRecordInterval == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 		if scanned > maxScannedTileReads {
 			break
 		}
@@ -677,6 +771,9 @@ func collectWindowAlignments(it *bam.Iterator, ref *sam.Reference, start, end in
 				break
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if err := it.Error(); err != nil {
 		return nil, err

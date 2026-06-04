@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -16,6 +17,44 @@ const maxIncomingFramePayloadBytes uint32 = 64 << 20
 type serverState struct {
 	listener net.Listener
 	stopping atomic.Bool
+	done     chan struct{}
+}
+
+func newServerState(listener net.Listener) *serverState {
+	return &serverState{
+		listener: listener,
+		done:     make(chan struct{}),
+	}
+}
+
+func (s *serverState) stop() {
+	if s == nil {
+		return
+	}
+	if s.stopping.Swap(true) {
+		return
+	}
+	if s.done != nil {
+		close(s.done)
+	}
+	if s.listener != nil {
+		_ = s.listener.Close()
+	}
+}
+
+func (s *serverState) connectionContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	if s == nil || s.done == nil {
+		return ctx, cancel
+	}
+	go func() {
+		select {
+		case <-s.done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
 }
 
 func StartServer(addr string, engine *Engine) error {
@@ -24,7 +63,7 @@ func StartServer(addr string, engine *Engine) error {
 		return err
 	}
 	defer ln.Close()
-	state := &serverState{listener: ln}
+	state := newServerState(ln)
 
 	log.Println("Genome engine listening on", addr)
 
@@ -44,6 +83,8 @@ func StartServer(addr string, engine *Engine) error {
 func handleConnection(conn net.Conn, engine *Engine, state *serverState) {
 	defer conn.Close()
 	log.Println("Client connected:", conn.RemoteAddr())
+	ctx, cancel := state.connectionContext()
+	defer cancel()
 
 	for {
 		header, err := ReadFrameHeader(conn)
@@ -67,13 +108,11 @@ func handleConnection(conn net.Conn, engine *Engine, state *serverState) {
 		}
 		if header.MessageType == MsgShutdown {
 			_ = WriteFrame(conn, MsgAck, header.RequestID, ackPayload("bye"))
-			if !state.stopping.Swap(true) {
-				_ = state.listener.Close()
-			}
+			state.stop()
 			return
 		}
 
-		responseType, response, err := dispatch(engine, header.MessageType, payload)
+		responseType, response, err := dispatch(ctx, engine, header.MessageType, payload)
 		if err != nil {
 			sendError(conn, header.RequestID, err.Error())
 			continue
@@ -87,7 +126,13 @@ func handleConnection(conn net.Conn, engine *Engine, state *serverState) {
 	}
 }
 
-func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, error) {
+func dispatch(ctx context.Context, engine *Engine, msgType uint16, payload []byte) (uint16, []byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, nil, err
+	}
 	switch msgType {
 	case MsgLoadGenome:
 		path, err := decodePathPayload(payload)
@@ -235,7 +280,7 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		chrID := binary.LittleEndian.Uint16(payload[off : off+2])
 		zoom := payload[off+2]
 		tileIndex := binary.LittleEndian.Uint32(payload[off+3 : off+7])
-		resp, err := engine.GetTile(sourceID, chrID, zoom, tileIndex)
+		resp, err := engine.GetTileContext(ctx, sourceID, chrID, zoom, tileIndex)
 		return MsgGetTile, resp, err
 
 	case MsgGetCoverageTile:
@@ -251,7 +296,7 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		chrID := binary.LittleEndian.Uint16(payload[off : off+2])
 		zoom := payload[off+2]
 		tileIndex := binary.LittleEndian.Uint32(payload[off+3 : off+7])
-		resp, err := engine.GetCoverageTile(sourceID, chrID, zoom, tileIndex)
+		resp, err := engine.GetCoverageTileContext(ctx, sourceID, chrID, zoom, tileIndex)
 		return MsgGetCoverageTile, resp, err
 
 	case MsgGetStrandCoverageTile:
@@ -267,7 +312,7 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 		chrID := binary.LittleEndian.Uint16(payload[off : off+2])
 		zoom := payload[off+2]
 		tileIndex := binary.LittleEndian.Uint32(payload[off+3 : off+7])
-		resp, err := engine.GetStrandCoverageTile(sourceID, chrID, zoom, tileIndex)
+		resp, err := engine.GetStrandCoverageTileContext(ctx, sourceID, chrID, zoom, tileIndex)
 		return MsgGetStrandCoverageTile, resp, err
 
 	case MsgGetGCPlotTile:
@@ -365,7 +410,7 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 			return 0, nil, fmt.Errorf("invalid dna search payload length")
 		}
 		pattern := string(payload[7 : 7+patternLen])
-		resp, err := engine.SearchDNAExact(chrID, pattern, includeRevComp, maxHits)
+		resp, err := engine.SearchDNAExactContext(ctx, chrID, pattern, includeRevComp, maxHits)
 		return MsgSearchDNAExact, resp, err
 
 	case MsgSearchComparisonDNAExact:
@@ -380,7 +425,7 @@ func dispatch(engine *Engine, msgType uint16, payload []byte) (uint16, []byte, e
 			return 0, nil, fmt.Errorf("invalid comparison dna search payload length")
 		}
 		pattern := string(payload[7 : 7+patternLen])
-		resp, err := engine.SearchComparisonDNAExact(genomeID, pattern, includeRevComp, maxHits)
+		resp, err := engine.SearchComparisonDNAExactContext(ctx, genomeID, pattern, includeRevComp, maxHits)
 		return MsgSearchComparisonDNAExact, resp, err
 
 	case MsgDownloadGenome:
