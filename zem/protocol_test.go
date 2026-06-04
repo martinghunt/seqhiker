@@ -120,3 +120,34 @@ func TestHandleConnectionRejectsOversizedInboundFrame(t *testing.T) {
 		t.Fatal("server did not close oversized connection")
 	}
 }
+
+func TestDecodeTileRequestPayload(t *testing.T) {
+	legacy := make([]byte, 7)
+	binary.LittleEndian.PutUint16(legacy[0:2], 3)
+	legacy[2] = 4
+	binary.LittleEndian.PutUint32(legacy[3:7], 5)
+	req, err := decodeTileRequestPayload(legacy, "tile")
+	if err != nil {
+		t.Fatalf("decode legacy tile request: %v", err)
+	}
+	if req.sourceID != 0 || req.chrID != 3 || req.zoom != 4 || req.tileIndex != 5 {
+		t.Fatalf("unexpected legacy tile request: %+v", req)
+	}
+
+	withSource := make([]byte, 9)
+	binary.LittleEndian.PutUint16(withSource[0:2], 7)
+	binary.LittleEndian.PutUint16(withSource[2:4], 8)
+	withSource[4] = 9
+	binary.LittleEndian.PutUint32(withSource[5:9], 10)
+	req, err = decodeTileRequestPayload(withSource, "tile")
+	if err != nil {
+		t.Fatalf("decode source tile request: %v", err)
+	}
+	if req.sourceID != 7 || req.chrID != 8 || req.zoom != 9 || req.tileIndex != 10 {
+		t.Fatalf("unexpected source tile request: %+v", req)
+	}
+
+	if _, err := decodeTileRequestPayload(make([]byte, 8), "tile"); err == nil {
+		t.Fatal("expected malformed 8-byte tile payload to be rejected")
+	}
+}

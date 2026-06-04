@@ -268,51 +268,27 @@ func dispatch(ctx context.Context, engine *Engine, msgType uint16, payload []byt
 		return MsgListVariantSources, encodeVariantSources(engine.ListVariantSources()), nil
 
 	case MsgGetTile:
-		if len(payload) < 7 {
-			return 0, nil, fmt.Errorf("invalid tile payload")
+		req, err := decodeTileRequestPayload(payload, "tile")
+		if err != nil {
+			return 0, nil, err
 		}
-		sourceID := uint16(0)
-		off := 0
-		if len(payload) >= 9 {
-			sourceID = binary.LittleEndian.Uint16(payload[0:2])
-			off = 2
-		}
-		chrID := binary.LittleEndian.Uint16(payload[off : off+2])
-		zoom := payload[off+2]
-		tileIndex := binary.LittleEndian.Uint32(payload[off+3 : off+7])
-		resp, err := engine.GetTileContext(ctx, sourceID, chrID, zoom, tileIndex)
+		resp, err := engine.GetTileContext(ctx, req.sourceID, req.chrID, req.zoom, req.tileIndex)
 		return MsgGetTile, resp, err
 
 	case MsgGetCoverageTile:
-		if len(payload) < 7 {
-			return 0, nil, fmt.Errorf("invalid coverage tile payload")
+		req, err := decodeTileRequestPayload(payload, "coverage tile")
+		if err != nil {
+			return 0, nil, err
 		}
-		sourceID := uint16(0)
-		off := 0
-		if len(payload) >= 9 {
-			sourceID = binary.LittleEndian.Uint16(payload[0:2])
-			off = 2
-		}
-		chrID := binary.LittleEndian.Uint16(payload[off : off+2])
-		zoom := payload[off+2]
-		tileIndex := binary.LittleEndian.Uint32(payload[off+3 : off+7])
-		resp, err := engine.GetCoverageTileContext(ctx, sourceID, chrID, zoom, tileIndex)
+		resp, err := engine.GetCoverageTileContext(ctx, req.sourceID, req.chrID, req.zoom, req.tileIndex)
 		return MsgGetCoverageTile, resp, err
 
 	case MsgGetStrandCoverageTile:
-		if len(payload) < 7 {
-			return 0, nil, fmt.Errorf("invalid strand coverage tile payload")
+		req, err := decodeTileRequestPayload(payload, "strand coverage tile")
+		if err != nil {
+			return 0, nil, err
 		}
-		sourceID := uint16(0)
-		off := 0
-		if len(payload) >= 9 {
-			sourceID = binary.LittleEndian.Uint16(payload[0:2])
-			off = 2
-		}
-		chrID := binary.LittleEndian.Uint16(payload[off : off+2])
-		zoom := payload[off+2]
-		tileIndex := binary.LittleEndian.Uint32(payload[off+3 : off+7])
-		resp, err := engine.GetStrandCoverageTileContext(ctx, sourceID, chrID, zoom, tileIndex)
+		resp, err := engine.GetStrandCoverageTileContext(ctx, req.sourceID, req.chrID, req.zoom, req.tileIndex)
 		return MsgGetStrandCoverageTile, resp, err
 
 	case MsgGetGCPlotTile:
@@ -611,6 +587,30 @@ func dispatch(ctx context.Context, engine *Engine, msgType uint16, payload []byt
 	default:
 		return 0, nil, fmt.Errorf("unknown message type %d", msgType)
 	}
+}
+
+type tileRequestPayload struct {
+	sourceID  uint16
+	chrID     uint16
+	zoom      uint8
+	tileIndex uint32
+}
+
+func decodeTileRequestPayload(payload []byte, label string) (tileRequestPayload, error) {
+	var req tileRequestPayload
+	off := 0
+	switch len(payload) {
+	case 7:
+	case 9:
+		req.sourceID = binary.LittleEndian.Uint16(payload[0:2])
+		off = 2
+	default:
+		return req, fmt.Errorf("invalid %s payload length: %d", label, len(payload))
+	}
+	req.chrID = binary.LittleEndian.Uint16(payload[off : off+2])
+	req.zoom = payload[off+2]
+	req.tileIndex = binary.LittleEndian.Uint32(payload[off+3 : off+7])
+	return req, nil
 }
 
 func decodeLoadBAMPayload(payload []byte) (string, int, error) {
