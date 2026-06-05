@@ -418,6 +418,69 @@ func TestCanonicalSelfComparisonKeepsRepeatMatches(t *testing.T) {
 	}
 }
 
+func TestCanonicalSelfComparisonDropsTrivialOverlappingSelfBlocks(t *testing.T) {
+	unit := comparisonDeterministicTestDNA(560)
+	core := uniqueishDNA(60000)
+	seq := uniqueishDNA(1200) + unit + unit + core + comparisonDeterministicTestDNA(1200)
+	genome := &comparisonGenome{
+		ID:   1,
+		Name: "self",
+		Segments: []comparisonSegment{{
+			Name:        "chr1",
+			RawSequence: seq,
+		}},
+	}
+	genome.rebuildDerived()
+
+	artifactQueryStart := 1200 + len(unit)
+	artifactQueryEnd := artifactQueryStart + len(core)
+	artifact := comparisonCanonicalBlock{
+		QuerySegment:     0,
+		QueryStart:       artifactQueryStart,
+		QueryEnd:         artifactQueryEnd,
+		TargetSegment:    0,
+		TargetStart:      1200,
+		TargetEnd:        artifactQueryEnd,
+		PercentIdentX100: 9972,
+		SameStrand:       true,
+	}
+	if !comparisonCanonicalBlockIsTrivialSelfOverlap(genome, genome, artifact) {
+		t.Fatalf("expected shifted same-locus self overlap to be treated as trivial: %+v", artifact)
+	}
+	nonOverlappingRepeat := comparisonCanonicalBlock{
+		QuerySegment:     0,
+		QueryStart:       1200,
+		QueryEnd:         1760,
+		TargetSegment:    0,
+		TargetStart:      1760,
+		TargetEnd:        2320,
+		PercentIdentX100: 10000,
+		SameStrand:       true,
+	}
+	if comparisonCanonicalBlockIsTrivialSelfOverlap(genome, genome, nonOverlappingRepeat) {
+		t.Fatalf("non-overlapping repeat should remain visible: %+v", nonOverlappingRepeat)
+	}
+
+	blocks := buildCanonicalComparisonBlocks(genome, genome)
+	if len(blocks) == 0 {
+		t.Fatal("expected self-comparison blocks")
+	}
+	for _, block := range blocks {
+		if block.QuerySegment != 0 || block.TargetSegment != 0 || !block.SameStrand {
+			continue
+		}
+		if block.QueryStart == 0 && block.TargetStart == 0 && block.QueryEnd == len(seq) && block.TargetEnd == len(seq) {
+			continue
+		}
+		qLen := block.QueryEnd - block.QueryStart
+		tLen := block.TargetEnd - block.TargetStart
+		overlap := intervalOverlapInt(block.QueryStart, block.QueryEnd, block.TargetStart, block.TargetEnd)
+		if overlap*10000 >= min(qLen, tLen)*comparisonRedundantOverlapX100 {
+			t.Fatalf("unexpected trivial overlapping self block: %+v", block)
+		}
+	}
+}
+
 func BenchmarkBuildCanonicalComparisonBlocksMultiSegment(b *testing.B) {
 	makeSegment := func(i int) string {
 		seq := comparisonDeterministicTestDNA(4200 + i*137)

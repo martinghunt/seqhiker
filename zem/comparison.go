@@ -708,6 +708,9 @@ func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []compariso
 					PercentIdentX100: block.PercentIdentX100,
 					SameStrand:       block.SameStrand,
 				}
+				if comparisonCanonicalBlockIsTrivialSelfOverlap(query, target, canonicalBlock) {
+					continue
+				}
 				if comparisonCanonicalBlockIsExactDiagonalSubblock(canonicalBlock, exactBlocks) {
 					continue
 				}
@@ -785,6 +788,35 @@ func comparisonCanonicalBlockIsExactDiagonalSubblock(block comparisonCanonicalBl
 			block.TargetStart >= exactBlock.TargetStart && block.TargetEnd <= exactBlock.TargetEnd {
 			return true
 		}
+	}
+	return false
+}
+
+func comparisonCanonicalBlockIsTrivialSelfOverlap(query, target *comparisonGenome, block comparisonCanonicalBlock) bool {
+	if !comparisonGenomesAreSameSource(query, target) || !block.SameStrand || block.QuerySegment != block.TargetSegment {
+		return false
+	}
+	qLen := block.QueryEnd - block.QueryStart
+	tLen := block.TargetEnd - block.TargetStart
+	if qLen <= 0 || tLen <= 0 {
+		return true
+	}
+	overlap := intervalOverlapInt(block.QueryStart, block.QueryEnd, block.TargetStart, block.TargetEnd)
+	if overlap <= 0 {
+		return false
+	}
+	return overlap*10000 >= min(qLen, tLen)*comparisonRedundantOverlapX100
+}
+
+func comparisonGenomesAreSameSource(query, target *comparisonGenome) bool {
+	if query == nil || target == nil {
+		return false
+	}
+	if query == target {
+		return true
+	}
+	if query.Path != "" || target.Path != "" {
+		return query.Path != "" && filepath.Clean(query.Path) == filepath.Clean(target.Path)
 	}
 	return false
 }
