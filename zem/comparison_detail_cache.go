@@ -13,7 +13,7 @@ import (
 
 var comparisonDetailCacheMagic = [8]byte{'Z', 'C', 'M', 'P', 'D', 'T', 'L', '1'}
 
-const comparisonDetailCacheVersion = 3
+const comparisonDetailCacheVersion = 4
 
 type comparisonDetailIndexEntry struct {
 	Offset int64

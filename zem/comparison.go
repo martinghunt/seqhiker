@@ -999,12 +999,19 @@ func buildComparisonBlockDetailByAlignment(query, target *comparisonGenome, summ
 	if !ok {
 		return comparisonBlockDetail{}, false
 	}
-	block.Summary.PercentIdentX100 = aln.percentIdentityX100()
+	stats := comparisonAlignmentStats{}
+	stats.addOps(aln.Ops)
+	trimmedSummary, ok := trimComparisonSummaryTerminalGaps(block.Summary, stats)
+	if !ok {
+		return comparisonBlockDetail{}, false
+	}
+	trimmedOps := trimComparisonTerminalGapOps(aln.Ops, stats)
+	block.Summary = trimmedSummary
 	if int(block.Summary.PercentIdentX100) < comparisonMinPercentIdentX100 {
 		return comparisonBlockDetail{}, false
 	}
-	block.Variants = aln.variantsForBlock(block.Summary)
-	block.Ops = string(aln.Ops)
+	block.Variants = affineAlignment{Ops: trimmedOps}.variantsForBlock(block.Summary)
+	block.Ops = string(trimmedOps)
 	return block, true
 }
 
@@ -1173,15 +1180,20 @@ func stitchComparisonDetails(query, target *comparisonGenome, details []comparis
 		TargetEnd:   uint32(len(target.Sequence)),
 		SameStrand:  true,
 	}
-	aln := affineAlignment{Ops: ops}
-	summary.PercentIdentX100 = aln.percentIdentityX100()
-	if int(summary.PercentIdentX100) < comparisonMinPercentIdentX100 {
+	stats := comparisonAlignmentStats{}
+	stats.addOps(ops)
+	trimmedSummary, ok := trimComparisonSummaryTerminalGaps(summary, stats)
+	if !ok {
+		return comparisonBlockDetail{}, false
+	}
+	trimmedOps := trimComparisonTerminalGapOps(ops, stats)
+	if int(trimmedSummary.PercentIdentX100) < comparisonMinPercentIdentX100 {
 		return comparisonBlockDetail{}, false
 	}
 	return comparisonBlockDetail{
-		Summary:  summary,
-		Ops:      string(ops),
-		Variants: aln.variantsForBlock(summary),
+		Summary:  trimmedSummary,
+		Ops:      string(trimmedOps),
+		Variants: affineAlignment{Ops: trimmedOps}.variantsForBlock(trimmedSummary),
 	}, true
 }
 
@@ -2099,10 +2111,19 @@ func buildComparisonDetailFromRefinedChain(query, target *comparisonGenome, chai
 }
 
 type comparisonAlignmentStats struct {
-	matches    int
-	aligned    int
-	ops        []byte
-	collectOps bool
+	matches      int
+	aligned      int
+	ops          []byte
+	collectOps   bool
+	seenPairedOp bool
+	leadingGap   comparisonTerminalGapRun
+	trailingGap  comparisonTerminalGapRun
+}
+
+type comparisonTerminalGapRun struct {
+	aligned int
+	query   int
+	target  int
 }
 
 func (s *comparisonAlignmentStats) addOps(ops []byte) {
@@ -2111,8 +2132,10 @@ func (s *comparisonAlignmentStats) addOps(ops []byte) {
 		case 'M':
 			s.matches++
 			s.aligned++
+			s.addTerminalGapAccounting(op)
 		case 'X', 'I', 'D':
 			s.aligned++
+			s.addTerminalGapAccounting(op)
 		}
 	}
 	if s.collectOps {
@@ -2126,13 +2149,10 @@ func (s *comparisonAlignmentStats) addMatches(n int) {
 	}
 	s.matches += n
 	s.aligned += n
+	s.addPairedOps(n)
 	if s.collectOps {
 		s.ops = appendRepeatedOp(s.ops, 'M', n)
 	}
-}
-
-func (s comparisonAlignmentStats) percentIdentityX100() uint16 {
-	return comparisonPercentIdentityX100(s.matches, s.aligned)
 }
 
 func comparisonPercentIdentityX100(matches, aligned int) uint16 {
@@ -2149,13 +2169,95 @@ func comparisonPercentIdentityX100(matches, aligned int) uint16 {
 	return uint16(pct)
 }
 
+func (s *comparisonAlignmentStats) addTerminalGapAccounting(op byte) {
+	switch op {
+	case 'I':
+		run := comparisonTerminalGapRun{aligned: 1, query: 1}
+		if !s.seenPairedOp {
+			s.leadingGap.add(run)
+		}
+		s.trailingGap.add(run)
+	case 'D':
+		run := comparisonTerminalGapRun{aligned: 1, target: 1}
+		if !s.seenPairedOp {
+			s.leadingGap.add(run)
+		}
+		s.trailingGap.add(run)
+	case 'M', 'X':
+		s.seenPairedOp = true
+		s.trailingGap = comparisonTerminalGapRun{}
+	}
+}
+
+func (s *comparisonAlignmentStats) addPairedOps(n int) {
+	if n <= 0 {
+		return
+	}
+	s.seenPairedOp = true
+	s.trailingGap = comparisonTerminalGapRun{}
+}
+
+func (r *comparisonTerminalGapRun) add(next comparisonTerminalGapRun) {
+	r.aligned += next.aligned
+	r.query += next.query
+	r.target += next.target
+}
+
+func trimComparisonSummaryTerminalGaps(summary ComparisonBlock, stats comparisonAlignmentStats) (ComparisonBlock, bool) {
+	if !stats.seenPairedOp {
+		return ComparisonBlock{}, false
+	}
+	trimmedAligned := stats.aligned - stats.leadingGap.aligned - stats.trailingGap.aligned
+	if trimmedAligned <= 0 {
+		return ComparisonBlock{}, false
+	}
+	qStart := int(summary.QueryStart) + stats.leadingGap.query
+	qEnd := int(summary.QueryEnd) - stats.trailingGap.query
+	tStart := int(summary.TargetStart)
+	tEnd := int(summary.TargetEnd)
+	if summary.SameStrand {
+		tStart += stats.leadingGap.target
+		tEnd -= stats.trailingGap.target
+	} else {
+		tEnd -= stats.leadingGap.target
+		tStart += stats.trailingGap.target
+	}
+	if qEnd <= qStart || tEnd <= tStart {
+		return ComparisonBlock{}, false
+	}
+	out := summary
+	out.QueryStart = uint32(qStart)
+	out.QueryEnd = uint32(qEnd)
+	out.TargetStart = uint32(tStart)
+	out.TargetEnd = uint32(tEnd)
+	out.PercentIdentX100 = comparisonPercentIdentityX100(stats.matches, trimmedAligned)
+	return out, true
+}
+
+func trimComparisonTerminalGapOps(ops []byte, stats comparisonAlignmentStats) []byte {
+	start := stats.leadingGap.aligned
+	end := len(ops) - stats.trailingGap.aligned
+	if start < 0 {
+		start = 0
+	}
+	if end < start {
+		end = start
+	}
+	if end > len(ops) {
+		end = len(ops)
+	}
+	return ops[start:end]
+}
+
 func buildComparisonSummaryFromRefinedChain(query, target *comparisonGenome, chain comparisonRefinedChain) (ComparisonBlock, bool) {
 	stats, ok := buildComparisonAlignmentStatsFromRefinedChain(query, target, chain, false, false)
 	if !ok {
 		return ComparisonBlock{}, false
 	}
-	summary := chain.Summary
-	summary.PercentIdentX100 = stats.percentIdentityX100()
+	summary, ok := trimComparisonSummaryTerminalGaps(chain.Summary, stats)
+	if !ok {
+		return ComparisonBlock{}, false
+	}
 	if int(summary.PercentIdentX100) < comparisonMinPercentIdentX100 {
 		return ComparisonBlock{}, false
 	}
@@ -2171,11 +2273,17 @@ func buildComparisonDetailFromRefinedChainWithMode(query, target *comparisonGeno
 		Summary: chain.Summary,
 		Ops:     string(stats.ops),
 	}
-	detail.Summary.PercentIdentX100 = stats.percentIdentityX100()
+	trimmedSummary, ok := trimComparisonSummaryTerminalGaps(detail.Summary, stats)
+	if !ok {
+		return comparisonBlockDetail{}, false
+	}
+	trimmedOps := trimComparisonTerminalGapOps(stats.ops, stats)
+	detail.Summary = trimmedSummary
+	detail.Ops = string(trimmedOps)
 	if int(detail.Summary.PercentIdentX100) < comparisonMinPercentIdentX100 {
 		return comparisonBlockDetail{}, false
 	}
-	detail.Variants = affineAlignment{Ops: stats.ops}.variantsForBlock(detail.Summary)
+	detail.Variants = affineAlignment{Ops: trimmedOps}.variantsForBlock(detail.Summary)
 	return detail, true
 }
 

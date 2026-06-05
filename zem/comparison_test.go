@@ -633,6 +633,126 @@ func TestComparisonRefinementCapturesReverseOrientationVariants(t *testing.T) {
 	}
 }
 
+func TestComparisonDetailTrimsTerminalGapOverhangs(t *testing.T) {
+	core := uniqueishDNA(1200)
+	extra := "AACCGGTTAACCGGTTAACCGGTT"
+	tests := []struct {
+		name       string
+		querySeq   string
+		targetSeq  string
+		wantQStart uint32
+		wantQEnd   uint32
+		wantTStart uint32
+		wantTEnd   uint32
+	}{
+		{
+			name:       "target leading overhang",
+			querySeq:   core,
+			targetSeq:  extra + core,
+			wantQEnd:   uint32(len(core)),
+			wantTStart: uint32(len(extra)),
+			wantTEnd:   uint32(len(extra) + len(core)),
+		},
+		{
+			name:      "target trailing overhang",
+			querySeq:  core,
+			targetSeq: core + extra,
+			wantQEnd:  uint32(len(core)),
+			wantTEnd:  uint32(len(core)),
+		},
+		{
+			name:       "query leading overhang",
+			querySeq:   extra + core,
+			targetSeq:  core,
+			wantQStart: uint32(len(extra)),
+			wantQEnd:   uint32(len(extra) + len(core)),
+			wantTEnd:   uint32(len(core)),
+		},
+		{
+			name:      "query trailing overhang",
+			querySeq:  core + extra,
+			targetSeq: core,
+			wantQEnd:  uint32(len(core)),
+			wantTEnd:  uint32(len(core)),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := &comparisonGenome{ID: 1, Name: "q", Length: len(tt.querySeq), Sequence: tt.querySeq}
+			target := &comparisonGenome{ID: 2, Name: "t", Length: len(tt.targetSeq), Sequence: tt.targetSeq}
+			detail, ok := buildComparisonBlockDetail(query, target, ComparisonBlock{
+				QueryStart:  0,
+				QueryEnd:    uint32(len(tt.querySeq)),
+				TargetStart: 0,
+				TargetEnd:   uint32(len(tt.targetSeq)),
+				SameStrand:  true,
+			})
+			if !ok {
+				t.Fatal("expected detail")
+			}
+			if detail.Summary.QueryStart != tt.wantQStart || detail.Summary.QueryEnd != tt.wantQEnd ||
+				detail.Summary.TargetStart != tt.wantTStart || detail.Summary.TargetEnd != tt.wantTEnd {
+				t.Fatalf("unexpected trimmed summary: got %+v", detail.Summary)
+			}
+			if detail.Summary.PercentIdentX100 != 10000 {
+				t.Fatalf("expected exact identity after trimming terminal gaps, got %+v", detail.Summary)
+			}
+			if detail.Ops != strings.Repeat("M", len(core)) {
+				t.Fatalf("unexpected ops after trimming: len=%d ops=%q", len(detail.Ops), detail.Ops)
+			}
+		})
+	}
+}
+
+func TestComparisonDetailTrimsReverseTerminalGapOverhangs(t *testing.T) {
+	core := uniqueishDNA(1200)
+	extra := "AACCGGTTAACCGGTTAACCGGTT"
+	tests := []struct {
+		name       string
+		targetSeq  string
+		wantTStart uint32
+		wantTEnd   uint32
+	}{
+		{
+			name:      "target high-coordinate overhang",
+			targetSeq: reverseComplementString(core) + extra,
+			wantTEnd:  uint32(len(core)),
+		},
+		{
+			name:       "target low-coordinate overhang",
+			targetSeq:  extra + reverseComplementString(core),
+			wantTStart: uint32(len(extra)),
+			wantTEnd:   uint32(len(extra) + len(core)),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := &comparisonGenome{ID: 1, Name: "q", Length: len(core), Sequence: core}
+			target := &comparisonGenome{ID: 2, Name: "t", Length: len(tt.targetSeq), Sequence: tt.targetSeq}
+			detail, ok := buildComparisonBlockDetail(query, target, ComparisonBlock{
+				QueryStart:  0,
+				QueryEnd:    uint32(len(core)),
+				TargetStart: 0,
+				TargetEnd:   uint32(len(tt.targetSeq)),
+				SameStrand:  false,
+			})
+			if !ok {
+				t.Fatal("expected detail")
+			}
+			if detail.Summary.QueryStart != 0 || detail.Summary.QueryEnd != uint32(len(core)) ||
+				detail.Summary.TargetStart != tt.wantTStart || detail.Summary.TargetEnd != tt.wantTEnd {
+				t.Fatalf("unexpected trimmed reverse summary: got %+v", detail.Summary)
+			}
+			if detail.Summary.PercentIdentX100 != 10000 {
+				t.Fatalf("expected exact reverse identity after trimming terminal gaps, got %+v", detail.Summary)
+			}
+			if detail.Ops != strings.Repeat("M", len(core)) {
+				t.Fatalf("unexpected reverse ops after trimming: len=%d ops=%q", len(detail.Ops), detail.Ops)
+			}
+		})
+	}
+}
+
 func TestExactLargeComparisonDetailOmitsHugeOps(t *testing.T) {
 	seq := comparisonDeterministicTestDNA(comparisonMaxDetailOps + 1)
 	query := &comparisonGenome{ID: 1, Name: "q", Length: len(seq), Sequence: seq}
