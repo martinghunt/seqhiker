@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Add contig labels to coords axis in comparison view
-- Spinner while computing genome comparisons, so seqhiker doesn't appear to be not responding (part of issue #21)
+- Progress bar and current processing text while computing genome comparisons, so seqhiker doesn't appear to be not responding (part of issue #21)
 - Highlight the selected DNA search hit in comparison mode.
 - Comparison view setting toggle to show the whole-genome self match, off by default.
 
@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Position of colour nucleotides by base in the settings menu
 - Various fixes to the backend to better handle if seqhiker crashes or is force quit
+- Reordering genomes in comparison mode no longer recomputes unchanged adjacent comparisons, including comparisons with no matches.
 
 ## [1.1.0] - "Hooloovoo Blue" - 2026-04-18
 

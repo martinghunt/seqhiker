@@ -542,6 +542,14 @@ func dispatch(ctx context.Context, engine *Engine, msgType uint16, payload []byt
 		}
 		return MsgGetComparisonBlocksByGenomes, encodeComparisonBlocks(blocks), nil
 
+	case MsgGetComparisonProgress:
+		if len(payload) < 4 {
+			return 0, nil, fmt.Errorf("invalid comparison progress payload")
+		}
+		queryGenomeID := binary.LittleEndian.Uint16(payload[0:2])
+		targetGenomeID := binary.LittleEndian.Uint16(payload[2:4])
+		return MsgGetComparisonProgress, encodeComparisonProgress(engine.GetComparisonProgress(queryGenomeID, targetGenomeID)), nil
+
 	case MsgGetComparisonAnnotations:
 		if len(payload) < 16 {
 			return 0, nil, fmt.Errorf("invalid comparison annotation payload")

@@ -98,6 +98,12 @@ type ComparisonPairInfo struct {
 	Status         uint8
 }
 
+type ComparisonProgressInfo struct {
+	Active       bool
+	ProgressX100 uint32
+	Message      string
+}
+
 type ComparisonBlock struct {
 	QueryStart       uint32
 	QueryEnd         uint32
@@ -177,6 +183,8 @@ type Engine struct {
 	comparisonPairOrder    []uint16
 	nextComparisonPairID   uint16
 	comparisonCacheDir     string
+	comparisonProgressMu   sync.RWMutex
+	comparisonProgress     map[string]ComparisonProgressInfo
 }
 
 func NewEngine() *Engine {
@@ -213,6 +221,7 @@ func NewEngine() *Engine {
 		comparisonPairOrder:    make([]uint16, 0, 4),
 		nextComparisonPairID:   1,
 		comparisonCacheDir:     defaultComparisonCacheDir(),
+		comparisonProgress:     make(map[string]ComparisonProgressInfo),
 	}
 }
 

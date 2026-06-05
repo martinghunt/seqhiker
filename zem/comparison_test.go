@@ -188,6 +188,47 @@ func TestComparisonPairsFollowGenomeOrder(t *testing.T) {
 	}
 }
 
+func TestComparisonProgressTrackerReportsAndClears(t *testing.T) {
+	e := NewEngine()
+	query := &comparisonGenome{
+		ID: 7,
+		Segments: []comparisonSegment{
+			{Name: "q1", RawSequence: "AAAA"},
+			{Name: "q2", RawSequence: "CCCC"},
+		},
+	}
+	target := &comparisonGenome{
+		ID:       3,
+		Segments: []comparisonSegment{{Name: "t1", RawSequence: "GGGGGG"}},
+	}
+
+	tracker := e.beginComparisonProgress(query, target)
+	if tracker == nil {
+		t.Fatal("expected progress tracker")
+	}
+	progress := e.GetComparisonProgress(query.ID, target.ID)
+	if !progress.Active || progress.ProgressX100 != 0 || progress.Message != "Preparing comparison" {
+		t.Fatalf("unexpected initial progress: %+v", progress)
+	}
+
+	tracker.updateCurrent("Finding seed matches", 24, 0.25)
+	progress = e.GetComparisonProgress(query.ID, target.ID)
+	if !progress.Active || progress.ProgressX100 != 1250 || progress.Message != "Finding seed matches" {
+		t.Fatalf("unexpected within-pair progress: %+v", progress)
+	}
+
+	tracker.complete("Comparing q1 vs t1", 24)
+	progress = e.GetComparisonProgress(target.ID, query.ID)
+	if !progress.Active || progress.ProgressX100 != 5000 || progress.Message != "Comparing q1 vs t1" {
+		t.Fatalf("unexpected halfway progress: %+v", progress)
+	}
+
+	tracker.finish()
+	if progress = e.GetComparisonProgress(query.ID, target.ID); progress.Active || progress.ProgressX100 != 0 || progress.Message != "" {
+		t.Fatalf("expected finished progress to be cleared, got %+v", progress)
+	}
+}
+
 func TestComparisonBuildsForwardBlocks(t *testing.T) {
 	core := uniqueishDNA(400)
 	top := &comparisonGenome{

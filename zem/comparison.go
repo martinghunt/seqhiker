@@ -153,6 +153,8 @@ type comparisonRefinedChain struct {
 	Anchors       []comparisonAnchor
 }
 
+type comparisonProgressReporter func(message string, fraction float64)
+
 func encodeSequenceSlice(start int, end int, slice string) []byte {
 	buf := make([]byte, 12+len(slice))
 	binary.LittleEndian.PutUint32(buf[0:4], uint32(start))
@@ -634,7 +636,9 @@ func (e *Engine) ensureComparisonPairBlocksLocked(pair *comparisonPair) error {
 	if query == nil || target == nil {
 		return fmt.Errorf("comparison genomes %d/%d not loaded", pair.TopGenomeID, pair.BottomGenomeID)
 	}
-	pair.CanonicalBlocks = buildCanonicalComparisonBlocks(query, target)
+	progress := e.beginComparisonProgress(query, target)
+	defer progress.finish()
+	pair.CanonicalBlocks = buildCanonicalComparisonBlocksWithProgress(query, target, progress)
 	pair.DetailPath = ""
 	pair.DetailIndex = nil
 	pair.Status = comparisonStatusReady
@@ -669,7 +673,9 @@ func (e *Engine) getOrBuildComparisonPairLocked(queryGenomeID uint16, targetGeno
 			return swapComparisonBlocks(displayComparisonBlocks(storedTop, storedBottom, pair.CanonicalBlocks)), queryGenomeID, targetGenomeID, nil
 		}
 	}
-	canonicalBlocks := buildCanonicalComparisonBlocks(query, target)
+	progress := e.beginComparisonProgress(query, target)
+	defer progress.finish()
+	canonicalBlocks := buildCanonicalComparisonBlocksWithProgress(query, target, progress)
 	return displayComparisonBlocks(query, target, canonicalBlocks), queryGenomeID, targetGenomeID, nil
 }
 
@@ -680,7 +686,142 @@ func comparisonCanonicalGenomeIDs(a uint16, b uint16) (uint16, uint16) {
 	return b, a
 }
 
+type comparisonProgressTracker struct {
+	engine    *Engine
+	key       string
+	total     uint64
+	completed uint64
+}
+
+func comparisonProgressKey(a, b uint16) string {
+	if a > b {
+		a, b = b, a
+	}
+	return fmt.Sprintf("%d:%d", a, b)
+}
+
+func (e *Engine) beginComparisonProgress(query, target *comparisonGenome) *comparisonProgressTracker {
+	if e == nil || query == nil || target == nil {
+		return nil
+	}
+	totalTargetLen := uint64(comparisonRawSegmentsLength(target))
+	var total uint64
+	for _, segment := range query.Segments {
+		total += uint64(len(segment.RawSequence)) * totalTargetLen
+	}
+	if total == 0 {
+		total = 1
+	}
+	tracker := &comparisonProgressTracker{
+		engine: e,
+		key:    comparisonProgressKey(query.ID, target.ID),
+		total:  total,
+	}
+	tracker.update("Preparing comparison", 0)
+	return tracker
+}
+
+func (t *comparisonProgressTracker) update(message string, additionalCompleted uint64) {
+	if t == nil || t.engine == nil {
+		return
+	}
+	completed := t.completed + additionalCompleted
+	if completed > t.total {
+		completed = t.total
+	}
+	progressX100 := uint32(0)
+	if t.total > 0 {
+		progressX100 = uint32(completed * 10000 / t.total)
+	}
+	t.engine.comparisonProgressMu.Lock()
+	t.engine.comparisonProgress[t.key] = ComparisonProgressInfo{
+		Active:       true,
+		ProgressX100: progressX100,
+		Message:      message,
+	}
+	t.engine.comparisonProgressMu.Unlock()
+}
+
+func (t *comparisonProgressTracker) addCompleted(units uint64) {
+	if t == nil {
+		return
+	}
+	t.completed += units
+	if t.completed > t.total {
+		t.completed = t.total
+	}
+}
+
+func (t *comparisonProgressTracker) complete(message string, units uint64) {
+	if t == nil {
+		return
+	}
+	t.update(message, units)
+	t.addCompleted(units)
+}
+
+func (t *comparisonProgressTracker) updateCurrent(message string, currentUnits uint64, currentFraction float64) {
+	if t == nil {
+		return
+	}
+	if currentFraction < 0 {
+		currentFraction = 0
+	}
+	if currentFraction > 1 {
+		currentFraction = 1
+	}
+	additionalCompleted := uint64(float64(currentUnits) * currentFraction)
+	if currentFraction >= 1 || additionalCompleted > currentUnits {
+		additionalCompleted = currentUnits
+	}
+	t.update(message, additionalCompleted)
+}
+
+func (t *comparisonProgressTracker) finish() {
+	if t == nil || t.engine == nil {
+		return
+	}
+	t.engine.comparisonProgressMu.Lock()
+	delete(t.engine.comparisonProgress, t.key)
+	t.engine.comparisonProgressMu.Unlock()
+}
+
+func comparisonRawSegmentsLength(genome *comparisonGenome) int {
+	if genome == nil {
+		return 0
+	}
+	total := 0
+	for _, segment := range genome.Segments {
+		total += len(segment.RawSequence)
+	}
+	return total
+}
+
+func (e *Engine) clearComparisonProgress() {
+	if e == nil {
+		return
+	}
+	e.comparisonProgressMu.Lock()
+	e.comparisonProgress = make(map[string]ComparisonProgressInfo)
+	e.comparisonProgressMu.Unlock()
+}
+
+func (e *Engine) GetComparisonProgress(queryGenomeID uint16, targetGenomeID uint16) ComparisonProgressInfo {
+	if e == nil {
+		return ComparisonProgressInfo{}
+	}
+	key := comparisonProgressKey(queryGenomeID, targetGenomeID)
+	e.comparisonProgressMu.RLock()
+	progress := e.comparisonProgress[key]
+	e.comparisonProgressMu.RUnlock()
+	return progress
+}
+
 func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []comparisonCanonicalBlock {
+	return buildCanonicalComparisonBlocksWithProgress(query, target, nil)
+}
+
+func buildCanonicalComparisonBlocksWithProgress(query, target *comparisonGenome, progress *comparisonProgressTracker) []comparisonCanonicalBlock {
 	if query == nil || target == nil {
 		return nil
 	}
@@ -690,14 +831,35 @@ func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []compariso
 	querySketches := buildComparisonSegmentSketches(query, false)
 	targetSketches := buildComparisonSegmentSketches(target, true)
 	for qi := range query.Segments {
-		if qi >= len(querySketches) || querySketches[qi].Genome == nil {
-			continue
-		}
+		querySegment := query.Segments[qi]
+		querySketchMissing := qi >= len(querySketches) || querySketches[qi].Genome == nil
 		for ti := range target.Segments {
-			if ti >= len(targetSketches) || targetSketches[ti].Genome == nil {
+			targetSegment := target.Segments[ti]
+			pairProgressUnits := uint64(len(querySegment.RawSequence)) * uint64(len(targetSegment.RawSequence))
+			message := fmt.Sprintf("Comparing %s vs %s", querySegment.Name, targetSegment.Name)
+			if progress != nil {
+				progress.update(message, 0)
+			}
+			if querySketchMissing || ti >= len(targetSketches) || targetSketches[ti].Genome == nil {
+				if progress != nil {
+					progress.complete(message, pairProgressUnits)
+				}
 				continue
 			}
-			for _, block := range buildComparisonBlocksFromSketchesWithoutExactFastPath(querySketches[qi], targetSketches[ti]) {
+			var pairProgress comparisonProgressReporter
+			if progress != nil {
+				currentMessage := message
+				currentUnits := pairProgressUnits
+				pairProgress = func(phase string, fraction float64) {
+					if phase == "" {
+						phase = currentMessage
+					} else {
+						phase = fmt.Sprintf("%s: %s", phase, currentMessage)
+					}
+					progress.updateCurrent(phase, currentUnits, fraction)
+				}
+			}
+			for _, block := range buildComparisonBlocksFromSketchesWithoutExactFastPathWithProgress(querySketches[qi], targetSketches[ti], pairProgress) {
 				canonicalBlock := comparisonCanonicalBlock{
 					QuerySegment:     qi,
 					QueryStart:       int(block.QueryStart),
@@ -715,6 +877,9 @@ func buildCanonicalComparisonBlocks(query, target *comparisonGenome) []compariso
 					continue
 				}
 				out = append(out, canonicalBlock)
+			}
+			if progress != nil {
+				progress.complete(message, pairProgressUnits)
 			}
 		}
 	}
@@ -1279,13 +1444,27 @@ func buildComparisonBlocksFromSketches(querySketch, targetSketch comparisonSeque
 }
 
 func buildComparisonBlocksFromSketchesWithoutExactFastPath(querySketch, targetSketch comparisonSequenceSketch) []ComparisonBlock {
+	return buildComparisonBlocksFromSketchesWithoutExactFastPathWithProgress(querySketch, targetSketch, nil)
+}
+
+func buildComparisonBlocksFromSketchesWithoutExactFastPathWithProgress(querySketch, targetSketch comparisonSequenceSketch, progress comparisonProgressReporter) []ComparisonBlock {
 	query := querySketch.Genome
 	target := targetSketch.Genome
 	if query == nil || target == nil || len(querySketch.Seeds) == 0 || (len(targetSketch.ForwardIndex) == 0 && len(targetSketch.ReverseIndex) == 0) {
 		return nil
 	}
-	sameAnchors, reverseAnchors := buildComparisonAnchorsFromSketches(querySketch, targetSketch)
-	return buildComparisonBlocksFromAnchors(query, target, sameAnchors, reverseAnchors)
+	if progress != nil {
+		progress("Finding seed matches", 0.02)
+	}
+	sameAnchors, reverseAnchors := buildComparisonAnchorsFromSketchesWithProgress(querySketch, targetSketch, func(fraction float64) {
+		if progress != nil {
+			progress("Finding seed matches", 0.02+0.38*fraction)
+		}
+	})
+	if progress != nil {
+		progress("Building alignments", 0.42)
+	}
+	return buildComparisonBlocksFromAnchorsWithProgress(query, target, sameAnchors, reverseAnchors, progress)
 }
 
 func exactWholeComparisonBlocks(query, target *comparisonGenome) ([]ComparisonBlock, bool) {
@@ -1329,13 +1508,29 @@ func sequencesAreReverseComplements(querySeq, targetSeq string) bool {
 }
 
 func buildComparisonBlocksFromAnchors(query, target *comparisonGenome, sameAnchors, reverseAnchors []comparisonAnchor) []ComparisonBlock {
+	return buildComparisonBlocksFromAnchorsWithProgress(query, target, sameAnchors, reverseAnchors, nil)
+}
+
+func buildComparisonBlocksFromAnchorsWithProgress(query, target *comparisonGenome, sameAnchors, reverseAnchors []comparisonAnchor, progress comparisonProgressReporter) []ComparisonBlock {
 	chains := make([]comparisonRefinedChain, 0, 64)
+	if progress != nil {
+		progress("Chaining forward matches", 0.45)
+	}
 	chains = append(chains, buildRefinedChainsFromSegmentPairs(query, target, sameAnchors, true)...)
+	if progress != nil {
+		progress("Chaining reverse matches", 0.62)
+	}
 	chains = append(chains, buildRefinedChainsFromSegmentPairs(query, target, reverseAnchors, false)...)
+	if progress != nil {
+		progress("Selecting alignments", 0.75)
+	}
 	sort.Slice(chains, func(i, j int) bool { return comparisonChainRankLess(chains[i], chains[j]) })
 	blocks := make([]ComparisonBlock, 0, len(chains))
 	var spentCells int64
-	for _, chain := range chains {
+	for i, chain := range chains {
+		if progress != nil && len(chains) > 0 && (i%16 == 0 || i+1 == len(chains)) {
+			progress("Refining alignments", 0.75+0.23*float64(i)/float64(len(chains)))
+		}
 		if len(blocks) >= comparisonMaxRefinedBlockCount {
 			break
 		}
@@ -1361,6 +1556,9 @@ func buildComparisonBlocksFromAnchors(query, target *comparisonGenome, sameAncho
 			continue
 		}
 		blocks = append(blocks, summary)
+	}
+	if progress != nil {
+		progress("Finalizing alignments", 0.99)
 	}
 	sort.Slice(blocks, func(i, j int) bool { return comparisonBlockLess(blocks[i], blocks[j]) })
 	return blocks
@@ -1823,6 +2021,10 @@ func buildComparisonAnchors(query, target *comparisonGenome) ([]comparisonAnchor
 }
 
 func buildComparisonAnchorsFromSketches(querySketch, targetSketch comparisonSequenceSketch) ([]comparisonAnchor, []comparisonAnchor) {
+	return buildComparisonAnchorsFromSketchesWithProgress(querySketch, targetSketch, nil)
+}
+
+func buildComparisonAnchorsFromSketchesWithProgress(querySketch, targetSketch comparisonSequenceSketch, progress func(fraction float64)) ([]comparisonAnchor, []comparisonAnchor) {
 	query := querySketch.Genome
 	target := targetSketch.Genome
 	if query == nil || target == nil {
@@ -1830,7 +2032,8 @@ func buildComparisonAnchorsFromSketches(querySketch, targetSketch comparisonSequ
 	}
 	sameAnchors := make([]comparisonAnchor, 0, 1024)
 	reverseAnchors := make([]comparisonAnchor, 0, 1024)
-	for _, seed := range querySketch.Seeds {
+	seedCount := len(querySketch.Seeds)
+	for i, seed := range querySketch.Seeds {
 		if positions, ok := targetSketch.ForwardIndex[seed.Hash]; ok {
 			positions.forEach(func(tPos int) {
 				sameAnchors = append(sameAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tPos})
@@ -1844,6 +2047,9 @@ func buildComparisonAnchorsFromSketches(querySketch, targetSketch comparisonSequ
 				}
 				reverseAnchors = append(reverseAnchors, comparisonAnchor{QPos: seed.Pos, TPos: tPos, TTrans: tTrans})
 			})
+		}
+		if progress != nil && (i%4096 == 0 || i+1 == seedCount) {
+			progress(float64(i+1) / float64(seedCount))
 		}
 	}
 	return sameAnchors, reverseAnchors
@@ -3072,6 +3278,24 @@ func encodeComparisonBlocks(blocks []ComparisonBlock) []byte {
 		}
 		off += 19
 	}
+	return buf
+}
+
+func encodeComparisonProgress(progress ComparisonProgressInfo) []byte {
+	message := wireString16(progress.Message)
+	if len(message) > 0xFFFF {
+		message = message[:0xFFFF]
+	}
+	buf := make([]byte, 7+len(message))
+	if progress.Active {
+		buf[0] = 1
+	}
+	if progress.ProgressX100 > 10000 {
+		progress.ProgressX100 = 10000
+	}
+	binary.LittleEndian.PutUint32(buf[1:5], progress.ProgressX100)
+	binary.LittleEndian.PutUint16(buf[5:7], uint16(len(message)))
+	copy(buf[7:], message)
 	return buf
 }
 

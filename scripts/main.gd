@@ -3679,6 +3679,8 @@ func _close_feature_panel() -> void:
 	_feature_panel_controller.close_feature_panel()
 
 func _process(_delta: float) -> void:
+	if _comparison_controller != null and _comparison_controller.has_method("process"):
+		_comparison_controller.process(_delta)
 	_drain_tile_fetch_result()
 	if _pending_pan_active:
 		var show_aa: bool = bool(genome_view.is_track_visible(TRACK_AA))

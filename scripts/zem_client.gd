@@ -48,6 +48,7 @@ const MSG_SET_COMPARISON_SEGMENT_ORIENTATION := 44
 const MSG_SET_COMPARISON_GENOME_ORIENTATION := 45
 const MSG_MOVE_CHROMOSOME := 46
 const MSG_MOVE_COMPARISON_SEGMENT := 47
+const MSG_GET_COMPARISON_PROGRESS := 48
 const NAME_KEYS := ["Name=", "gene=", "locus_tag=", "ID="]
 const DISPLAY_NAME_KEYS := ["Name=", "gene=", "locus_tag="]
 const REQUEST_TIMEOUT_MS := 1800
@@ -502,6 +503,17 @@ func get_comparison_blocks_by_genomes(query_genome_id: int, target_genome_id: in
 	resp["blocks"] = _parse_comparison_blocks(resp.get("payload", PackedByteArray()))
 	return resp
 
+func get_comparison_progress(query_genome_id: int, target_genome_id: int) -> Dictionary:
+	var payload := PackedByteArray()
+	payload.resize(4)
+	payload.encode_u16(0, query_genome_id)
+	payload.encode_u16(2, target_genome_id)
+	var resp := _send_request(MSG_GET_COMPARISON_PROGRESS, payload, REQUEST_TIMEOUT_MS)
+	if not resp.get("ok", false):
+		return resp
+	resp["progress"] = _parse_comparison_progress(resp.get("payload", PackedByteArray()))
+	return resp
+
 func get_comparison_annotations(genome_id: int, start_bp: int, end_bp: int, max_records: int = 2000, min_feature_len_bp: int = 1) -> Dictionary:
 	var payload := PackedByteArray()
 	payload.resize(16)
@@ -909,6 +921,18 @@ func _parse_comparison_blocks(payload: PackedByteArray) -> Array[Dictionary]:
 		})
 		off += 19
 	return out
+
+func _parse_comparison_progress(payload: PackedByteArray) -> Dictionary:
+	if payload.size() < 7:
+		return {}
+	var message_len := int(payload.decode_u16(5))
+	if payload.size() < 7 + message_len:
+		return {}
+	return {
+		"active": payload[0] != 0,
+		"progress": float(payload.decode_u32(1)) / 10000.0,
+		"message": _decode_wire_text(payload.slice(7, 7 + message_len))
+	}
 
 func _parse_comparison_block_detail(payload: PackedByteArray) -> Dictionary:
 	if payload.size() < 25:

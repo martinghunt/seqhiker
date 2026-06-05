@@ -54,6 +54,7 @@ const (
 	MsgSetComparisonGenomeOrientation  uint16 = 45
 	MsgMoveChromosome                  uint16 = 46
 	MsgMoveComparisonSegment           uint16 = 47
+	MsgGetComparisonProgress           uint16 = 48
 )
 
 type FrameHeader struct {

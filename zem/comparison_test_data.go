@@ -44,6 +44,7 @@ func (e *Engine) resetComparisonStateLocked() {
 	e.comparisonPairs = make(map[uint16]*comparisonPair)
 	e.comparisonPairOrder = e.comparisonPairOrder[:0]
 	e.nextComparisonPairID = 1
+	e.clearComparisonProgress()
 }
 
 func (e *Engine) GenerateComparisonTestData(rootDir string) ([]string, error) {
