@@ -8,6 +8,7 @@ const SearchControllerScript = preload("res://scripts/search_controller.gd")
 const GoControllerScript = preload("res://scripts/go_controller.gd")
 const TopBarControllerScript = preload("res://scripts/top_bar_controller.gd")
 const ContextPanelControllerScript = preload("res://scripts/context_panel_controller.gd")
+const TrackSettingsControllerScript = preload("res://scripts/track_settings_controller.gd")
 const SoundControllerScript = preload("res://scripts/sound_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
@@ -193,6 +194,7 @@ var _search_controller: RefCounted
 var _go_controller: RefCounted
 var _top_bar_controller: RefCounted
 var _context_panel_controller: RefCounted
+var _track_settings_controller: RefCounted
 var _annotation_cache_controller: RefCounted
 var _feature_panel_controller: RefCounted
 var _variant_controller: RefCounted
@@ -356,6 +358,8 @@ func _ready() -> void:
 	_top_bar_controller.configure(self)
 	_context_panel_controller = ContextPanelControllerScript.new()
 	_context_panel_controller.configure(self)
+	_track_settings_controller = TrackSettingsControllerScript.new()
+	_track_settings_controller.configure(self)
 	_sound_controller = SoundControllerScript.new()
 	_sound_controller.configure(self)
 	_top_bar_controller.setup()
@@ -1700,45 +1704,8 @@ func _on_annotation_max_on_screen_changed(value: float) -> void:
 		_schedule_fetch()
 
 func _setup_track_settings_panel() -> void:
-	_track_settings_box = VBoxContainer.new()
-	_track_settings_box.visible = false
-	feature_content.add_child(_track_settings_box)
-	_read_track_settings_panel = ReadTrackSettingsPanelScene.instantiate() as VBoxContainer
-	if _read_track_settings_panel != null:
-		_read_track_settings_panel.visible = false
-		_track_settings_box.add_child(_read_track_settings_panel)
-		var read_view_option := _read_track_settings_panel.get_node("ReadViewOption") as OptionButton
-		if read_view_option != null and read_view_option.item_count == 0:
-			read_view_option.add_item("Stack", 0)
-			read_view_option.add_item("Strand Stack", 1)
-			read_view_option.add_item("Paired", 2)
-			read_view_option.add_item("Fragment Size", 3)
-		if read_view_option != null and not read_view_option.item_selected.is_connected(_on_active_read_track_view_selected):
-			read_view_option.item_selected.connect(_on_active_read_track_view_selected)
-		var frag_cb := _read_track_settings_panel.get_node("FragmentLogScale") as CheckButton
-		if frag_cb != null and not frag_cb.toggled.is_connected(_on_active_read_track_fragment_log_toggled):
-			frag_cb.toggled.connect(_on_active_read_track_fragment_log_toggled)
-		var thickness_spin := _read_track_settings_panel.get_node("ReadThicknessSpin") as SpinBox
-		if thickness_spin != null and not thickness_spin.value_changed.is_connected(_on_active_read_track_thickness_changed):
-			thickness_spin.value_changed.connect(_on_active_read_track_thickness_changed)
-		var auto_expand_snp_cb := _read_track_settings_panel.get_node("AutoExpandSNPText") as CheckButton
-		if auto_expand_snp_cb != null and not auto_expand_snp_cb.toggled.is_connected(_on_active_read_track_auto_expand_snp_toggled):
-			auto_expand_snp_cb.toggled.connect(_on_active_read_track_auto_expand_snp_toggled)
-		var show_soft_clips_cb := _read_track_settings_panel.get_node("ShowSoftClips") as CheckButton
-		if show_soft_clips_cb != null and not show_soft_clips_cb.toggled.is_connected(_on_active_read_track_show_soft_clips_toggled):
-			show_soft_clips_cb.toggled.connect(_on_active_read_track_show_soft_clips_toggled)
-		var show_pileup_logo_cb := _read_track_settings_panel.get_node("ShowPileupLogo") as CheckButton
-		if show_pileup_logo_cb != null and not show_pileup_logo_cb.toggled.is_connected(_on_active_read_track_show_pileup_logo_toggled):
-			show_pileup_logo_cb.toggled.connect(_on_active_read_track_show_pileup_logo_toggled)
-		var mate_contig_color_cb := _read_track_settings_panel.get_node("MateContigColor") as CheckButton
-		if mate_contig_color_cb != null and not mate_contig_color_cb.toggled.is_connected(_on_active_read_track_mate_contig_color_toggled):
-			mate_contig_color_cb.toggled.connect(_on_active_read_track_mate_contig_color_toggled)
-		var max_rows_spin := _read_track_settings_panel.get_node("MaxRowsSpin") as SpinBox
-		if max_rows_spin != null and not max_rows_spin.value_changed.is_connected(_on_active_read_track_max_rows_changed):
-			max_rows_spin.value_changed.connect(_on_active_read_track_max_rows_changed)
-		var mapq_spin := _read_track_settings_panel.get_node("MapQSpin") as SpinBox
-		if mapq_spin != null and not mapq_spin.value_changed.is_connected(_on_active_read_track_min_mapq_changed):
-			mapq_spin.value_changed.connect(_on_active_read_track_min_mapq_changed)
+	if _track_settings_controller != null:
+		_track_settings_controller.setup(feature_content, ReadTrackSettingsPanelScene)
 	_search_controller.setup(feature_content, {
 		"get_zem": Callable(self, "_search_get_zem"),
 		"get_app_mode": Callable(self, "_search_get_app_mode"),
@@ -1882,19 +1849,31 @@ func _update_window_min_height() -> void:
 	if w != null:
 		w.min_size.y = maxi(200, ceili(min_h))
 
-func _update_active_bam_track(mutator: Callable) -> void:
+func _mutate_active_bam_track(mutator: Callable) -> bool:
 	if not _active_track_settings_id.begins_with("reads:"):
-		return
+		return false
 	for i in range(_bam_tracks.size()):
 		var t: Dictionary = _bam_tracks[i]
 		if str(t.get("track_id", "")) != _active_track_settings_id:
 			continue
 		mutator.call(t)
 		_bam_tracks[i] = t
-		if _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
-			_annotation_cache_controller.apply_detailed_read_span(_last_start, _last_end, _last_bp_per_px)
-		_schedule_fetch()
+		return true
+	return false
+
+
+func _update_active_bam_track(mutator: Callable) -> void:
+	if not _mutate_active_bam_track(mutator):
 		return
+	if _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
+		_annotation_cache_controller.apply_detailed_read_span(_last_start, _last_end, _last_bp_per_px)
+	_schedule_fetch()
+
+
+func _update_active_bam_filter(mutator: Callable) -> void:
+	if not _mutate_active_bam_track(mutator):
+		return
+	_on_read_track_filter_changed()
 
 func _on_active_read_track_view_selected(index: int) -> void:
 	if _read_track_settings_panel == null:
@@ -1947,7 +1926,7 @@ func _on_active_read_track_max_rows_changed(value: float) -> void:
 	)
 
 func _on_active_read_track_min_mapq_changed(value: float) -> void:
-	_update_active_bam_track(func(t: Dictionary) -> void:
+	_update_active_bam_filter(func(t: Dictionary) -> void:
 		t["min_mapq"] = clampi(int(round(value)), 0, 255)
 	)
 
@@ -2233,294 +2212,8 @@ func _sync_bam_read_tracks() -> void:
 	genome_view.set_track_order(out)
 
 func _on_track_settings_requested(track_id: String) -> void:
-	if _track_settings_box == null:
-		return
-	if _track_settings_open and _active_track_settings_id == track_id and _feature_panel_open:
-		_play_ui_sound(SoundControllerScript.SOUND_BLIP)
-		_close_feature_panel()
-		return
-	if _track_settings_open and _active_track_settings_id == TRACK_GENOME and track_id != TRACK_GENOME:
-		_save_config()
-	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
-	_prepare_context_panel(CONTEXT_PANEL_TRACK_SETTINGS, "%s track settings" % _track_label_for_id(track_id), false)
-	feature_name_label.visible = true
-	feature_name_label.text = ""
-	for child in _track_settings_box.get_children():
-		if child == _read_track_settings_panel:
-			child.visible = false
-			var dynamic_options := _read_track_settings_panel.get_node("DynamicOptions") as VBoxContainer
-			if dynamic_options != null:
-				for dynamic_child in dynamic_options.get_children():
-					dynamic_child.queue_free()
-			continue
-		child.queue_free()
-	_track_settings_box.visible = true
-	_track_settings_open = true
-	_active_track_settings_id = track_id
-	if track_id.begins_with("reads:"):
-		var track_meta := _bam_track_for_id(track_id)
-		var bam_name := str(track_meta.get("label", track_meta.get("path", "BAM")))
-		var bam_label := _read_track_settings_panel.get_node("BAMLabel") as Label
-		var view_option := _read_track_settings_panel.get_node("ReadViewOption") as OptionButton
-		var frag_cb := _read_track_settings_panel.get_node("FragmentLogScale") as CheckButton
-		var thickness_spin := _read_track_settings_panel.get_node("ReadThicknessSpin") as SpinBox
-		var auto_expand_snp_cb := _read_track_settings_panel.get_node("AutoExpandSNPText") as CheckButton
-		var show_soft_clips_cb := _read_track_settings_panel.get_node("ShowSoftClips") as CheckButton
-		var show_pileup_logo_cb := _read_track_settings_panel.get_node("ShowPileupLogo") as CheckButton
-		var mate_contig_color_cb := _read_track_settings_panel.get_node("MateContigColor") as CheckButton
-		var max_rows_spin := _read_track_settings_panel.get_node("MaxRowsSpin") as SpinBox
-		var mapq_spin := _read_track_settings_panel.get_node("MapQSpin") as SpinBox
-		var dynamic_options := _read_track_settings_panel.get_node("DynamicOptions") as VBoxContainer
-		if _read_track_settings_panel != null:
-			_read_track_settings_panel.visible = true
-		if bam_label != null:
-			bam_label.text = "BAM: %s" % bam_name
-		if view_option != null:
-			view_option.select(int(track_meta.get("view_mode", 0)))
-		if frag_cb != null:
-			frag_cb.button_pressed = bool(track_meta.get("fragment_log", true))
-			frag_cb.visible = view_option != null and view_option.selected == 3
-		if thickness_spin != null:
-			thickness_spin.value = float(track_meta.get("thickness", DEFAULT_READ_THICKNESS))
-		if auto_expand_snp_cb != null:
-			auto_expand_snp_cb.button_pressed = bool(track_meta.get("auto_expand_snp_text", true))
-		if show_soft_clips_cb != null:
-			show_soft_clips_cb.button_pressed = bool(track_meta.get("show_soft_clips", false))
-		if show_pileup_logo_cb != null:
-			show_pileup_logo_cb.button_pressed = bool(track_meta.get("show_pileup_logo", false))
-		if mate_contig_color_cb != null:
-			mate_contig_color_cb.button_pressed = bool(track_meta.get("color_by_mate_contig", false))
-		if max_rows_spin != null:
-			max_rows_spin.value = float(int(track_meta.get("max_rows", DEFAULT_READ_MAX_ROWS)))
-		if mapq_spin != null:
-			mapq_spin.value = float(int(track_meta.get("min_mapq", DEFAULT_READ_MIN_MAPQ)))
-		if dynamic_options != null:
-			for child in dynamic_options.get_children():
-				child.queue_free()
-		var hidden_flags := int(track_meta.get("hidden_flags", DEFAULT_READ_HIDDEN_FLAGS))
-		for entry_any in READ_FILTER_FLAG_LABELS:
-			var entry: Dictionary = entry_any
-			var flag_bit := int(entry.get("bit", 0))
-			var flag_cb := CheckBox.new()
-			flag_cb.text = "Hide %s" % str(entry.get("label", ""))
-			flag_cb.button_pressed = (hidden_flags & flag_bit) != 0
-			flag_cb.toggled.connect(func(enabled: bool) -> void:
-				_play_toggle_sound(enabled)
-				for i in range(_bam_tracks.size()):
-					var t: Dictionary = _bam_tracks[i]
-					if str(t.get("track_id", "")) != track_id:
-						continue
-					var next_hidden := int(t.get("hidden_flags", 0))
-					if enabled:
-						next_hidden |= flag_bit
-					else:
-						next_hidden &= ~flag_bit
-					t["hidden_flags"] = next_hidden
-					_bam_tracks[i] = t
-					break
-				_schedule_fetch()
-			)
-			dynamic_options.add_child(flag_cb)
-			if flag_bit == 2:
-				var improper_pair_cb := CheckBox.new()
-				improper_pair_cb.text = "Hide improper pair"
-				improper_pair_cb.button_pressed = bool(track_meta.get("hide_improper_pair", false))
-				improper_pair_cb.toggled.connect(func(enabled: bool) -> void:
-					_play_toggle_sound(enabled)
-					for i in range(_bam_tracks.size()):
-						var t: Dictionary = _bam_tracks[i]
-						if str(t.get("track_id", "")) != track_id:
-							continue
-						t["hide_improper_pair"] = enabled
-						_bam_tracks[i] = t
-						break
-					_schedule_fetch()
-				)
-				dynamic_options.add_child(improper_pair_cb)
-			elif flag_bit == 8:
-				var mate_forward_cb := CheckBox.new()
-				mate_forward_cb.text = "Hide mate forward strand"
-				mate_forward_cb.button_pressed = bool(track_meta.get("hide_mate_forward_strand", false))
-				mate_forward_cb.toggled.connect(func(enabled: bool) -> void:
-					_play_toggle_sound(enabled)
-					for i in range(_bam_tracks.size()):
-						var t: Dictionary = _bam_tracks[i]
-						if str(t.get("track_id", "")) != track_id:
-							continue
-						t["hide_mate_forward_strand"] = enabled
-						_bam_tracks[i] = t
-						break
-					_schedule_fetch()
-				)
-				dynamic_options.add_child(mate_forward_cb)
-			elif flag_bit == 16:
-				var forward_cb := CheckBox.new()
-				forward_cb.text = "Hide forward strand"
-				forward_cb.button_pressed = bool(track_meta.get("hide_forward_strand", false))
-				forward_cb.toggled.connect(func(enabled: bool) -> void:
-					_play_toggle_sound(enabled)
-					for i in range(_bam_tracks.size()):
-						var t: Dictionary = _bam_tracks[i]
-						if str(t.get("track_id", "")) != track_id:
-							continue
-						t["hide_forward_strand"] = enabled
-						_bam_tracks[i] = t
-						break
-					_schedule_fetch()
-				)
-				dynamic_options.add_child(forward_cb)
-	elif track_id == "aa":
-		var region_cb := CheckButton.new()
-		region_cb.text = "Show full-length region annotations"
-		region_cb.button_pressed = _show_full_length_regions
-		region_cb.toggled.connect(_on_show_full_region_toggled)
-		var stop_cb := CheckButton.new()
-		stop_cb.text = "Show stop codons"
-		stop_cb.button_pressed = _show_stop_codons
-		stop_cb.toggled.connect(_on_show_stop_codons_toggled)
-		var max_ann_label := Label.new()
-		max_ann_label.text = "Max annotations on screen"
-		var max_ann_spin := SpinBox.new()
-		max_ann_spin.min_value = ANNOT_MAX_ON_SCREEN_MIN
-		max_ann_spin.max_value = ANNOT_MAX_ON_SCREEN_MAX
-		max_ann_spin.step = 100
-		max_ann_spin.value = _annotation_max_on_screen
-		max_ann_spin.value_changed.connect(_on_annotation_max_on_screen_changed)
-		_track_settings_box.add_child(region_cb)
-		_track_settings_box.add_child(stop_cb)
-		_track_settings_box.add_child(max_ann_label)
-		_track_settings_box.add_child(max_ann_spin)
-	elif track_id == TRACK_VCF:
-		if _variant_controller != null:
-			_variant_controller.populate_track_settings(track_id, _track_settings_box)
-	elif track_id == "genome":
-		var seq_view_label := Label.new()
-		seq_view_label.text = "Sequence View"
-		var seq_view_option := OptionButton.new()
-		seq_view_option.add_item("Concatenate", SEQ_VIEW_CONCAT)
-		seq_view_option.add_item("Single Sequence", SEQ_VIEW_SINGLE)
-		seq_view_option.select(_seq_view_mode)
-		_track_settings_box.add_child(seq_view_label)
-		_track_settings_box.add_child(seq_view_option)
-		var seq_label := Label.new()
-		seq_label.text = "Sequence"
-		var seq_option := OptionButton.new()
-		for i in range(_seq_option.item_count):
-			seq_option.add_item(_seq_option.get_item_text(i), _seq_option.get_item_id(i))
-		if _selected_seq_id >= 0:
-			for i in range(seq_option.item_count):
-				if seq_option.get_item_id(i) == _selected_seq_id:
-					seq_option.select(i)
-					break
-		seq_option.visible = _seq_view_mode == SEQ_VIEW_SINGLE
-		seq_label.visible = seq_option.visible
-		_track_settings_box.add_child(seq_label)
-		_track_settings_box.add_child(seq_option)
-		var gap_label := Label.new()
-		gap_label.text = "Concat Gap (bp)"
-		var gap_spin := SpinBox.new()
-		gap_spin.min_value = 0
-		gap_spin.max_value = 10000
-		gap_spin.step = 10
-		gap_spin.value = _concat_gap_bp
-		_track_settings_box.add_child(gap_label)
-		_track_settings_box.add_child(gap_spin)
-		var coord_commas_cb := CheckButton.new()
-		coord_commas_cb.text = "Use commas in axis coordinates"
-		coord_commas_cb.button_pressed = _axis_coords_with_commas
-		coord_commas_cb.toggled.connect(_on_axis_coords_commas_toggled)
-		_track_settings_box.add_child(coord_commas_cb)
-		seq_view_option.item_selected.connect(func(index: int) -> void:
-			_on_seq_view_selected(index)
-			var single := index == SEQ_VIEW_SINGLE
-			seq_option.visible = single
-			seq_label.visible = single
-		)
-		seq_option.item_selected.connect(func(index: int) -> void:
-			if index < 0 or index >= seq_option.item_count:
-				return
-			var target_id := int(seq_option.get_item_id(index))
-			for j in range(_seq_option.item_count):
-				if _seq_option.get_item_id(j) == target_id:
-					_seq_option.select(j)
-					break
-			_on_seq_selected(_seq_option.selected)
-		)
-		gap_spin.value_changed.connect(_on_concat_gap_changed)
-	elif track_id == "gc_plot":
-		var win_label := Label.new()
-		win_label.text = "GC Window (bp)"
-		var win_spin := SpinBox.new()
-		win_spin.min_value = 1
-		win_spin.max_value = 1000000
-		win_spin.step = 1
-		win_spin.value = _gc_window_bp
-		win_spin.value_changed.connect(func(value: float) -> void:
-			_gc_window_bp = clampi(int(value), 1, 1000000)
-			_invalidate_cache()
-			_schedule_fetch()
-		)
-		var height_label := Label.new()
-		height_label.text = "Track Height (px)"
-		var height_spin := SpinBox.new()
-		height_spin.min_value = MIN_PLOT_HEIGHT
-		height_spin.max_value = MAX_PLOT_HEIGHT
-		height_spin.step = 1
-		height_spin.value = _gc_plot_height
-		height_spin.value_changed.connect(func(value: float) -> void:
-			_gc_plot_height = value
-			_apply_gc_plot_height()
-		)
-		_track_settings_box.add_child(win_label)
-		_track_settings_box.add_child(win_spin)
-		_track_settings_box.add_child(height_label)
-		_track_settings_box.add_child(height_spin)
-	elif track_id == "depth_plot":
-		if not _has_bam_loaded:
-			var no_bam := Label.new()
-			no_bam.text = "Load BAM to enable depth plot."
-			_track_settings_box.add_child(no_bam)
-		var height_label2 := Label.new()
-		height_label2.text = "Track Height (px)"
-		var height_spin2 := SpinBox.new()
-		height_spin2.min_value = MIN_PLOT_HEIGHT
-		height_spin2.max_value = MAX_PLOT_HEIGHT
-		height_spin2.step = 1
-		height_spin2.value = _depth_plot_height
-		height_spin2.value_changed.connect(func(value: float) -> void:
-			_depth_plot_height = value
-			_apply_depth_plot_height()
-		)
-		_track_settings_box.add_child(height_label2)
-		_track_settings_box.add_child(height_spin2)
-		var legend_title := Label.new()
-		legend_title.text = "Depth Lines"
-		_track_settings_box.add_child(legend_title)
-		if _bam_tracks.is_empty():
-			var legend_empty := Label.new()
-			legend_empty.text = "None"
-			_track_settings_box.add_child(legend_empty)
-		else:
-			for i in range(_bam_tracks.size()):
-				var t: Dictionary = _bam_tracks[i]
-				var tid := str(t.get("track_id", ""))
-				var row := HBoxContainer.new()
-				row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-				var swatch := ColorRect.new()
-				swatch.custom_minimum_size = Vector2(14, 14)
-				swatch.color = _depth_plot_color_for_track(tid)
-				var name_label := Label.new()
-				name_label.text = "BAM %d: %s" % [i + 1, str(t.get("label", tid))]
-				name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-				row.add_child(swatch)
-				row.add_child(name_label)
-				_track_settings_box.add_child(row)
-	else:
-		var info := Label.new()
-		info.text = "No track-specific settings yet."
-		_track_settings_box.add_child(info)
-	_feature_panel_open = true
-	_slide_feature_panel(true, true)
+	if _track_settings_controller != null:
+		_track_settings_controller.show_track_settings(track_id)
 
 func _toggle_search_panel() -> void:
 	if _theme_editor_controller != null and _theme_editor_controller.is_open():
@@ -3286,6 +2979,16 @@ func _annotation_min_feature_len_bp() -> int:
 
 func _schedule_fetch() -> void:
 	_annotation_cache_controller.schedule_fetch()
+
+
+func _on_read_track_filter_changed() -> void:
+	_invalidate_viewport_cache()
+	if _annotation_cache_controller != null:
+		_annotation_cache_controller.invalidate_read_strips()
+		if _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
+			_annotation_cache_controller.update_detailed_read_strips(_last_start, _last_end, _last_bp_per_px)
+	_schedule_fetch()
+
 
 func _on_fetch_timer_timeout() -> void:
 	_annotation_cache_controller.on_fetch_timer_timeout()

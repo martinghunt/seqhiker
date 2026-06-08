@@ -229,6 +229,27 @@ func test_missing_read_strip_request_fills_internal_gap() -> void:
 	assert_eq(str(request.get("request_kind", "")), "read_strip")
 
 
+func test_invalidate_read_strips_clears_cached_reads_without_visible_requests() -> void:
+	controller._strip_zoom = 1
+	controller._strip_scope_key = "scope"
+	controller._strip_generation = 0
+	controller._strip_segments = _strip_segments([
+		{"start_bp": 0, "end_bp": 300}
+	])
+	controller._strip_pending_requests[4] = {"side": "right"}
+	controller._strip_right_pending = true
+	controller._visible_pending_requests[2] = {"serial": 2}
+	controller._latest_visible_serial = 2
+
+	controller.invalidate_read_strips()
+
+	assert_false(controller.detailed_read_target_ready(100, 200, 1.0))
+	assert_eq(controller._strip_pending_requests.size(), 0)
+	assert_false(controller._strip_right_pending)
+	assert_true(controller._visible_pending_requests.has(2))
+	assert_eq(controller._latest_visible_serial, 2)
+
+
 func test_stale_visible_error_is_ignored() -> void:
 	controller._visible_pending_requests[2] = {"serial": 2, "query_start": 0, "query_end": 100}
 	controller._latest_visible_serial = 3
