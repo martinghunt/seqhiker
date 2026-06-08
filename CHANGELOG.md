@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Various changes to the whole genome alignment used in comparison mode. Improves speed, lower memory, and better handling of repeats and other edge cases
 
 ### Fixed
+- Old background requests are less likely to show stale errors after moving to a new region.
+- Detailed read view now fills in missing regions more reliably when navigating around.
+- Starting and closing the bundled seqhiker server is more reliable, especially while background work is still running.
+- Project checks and release builds now use the same Godot version as the app.
 - Position of colour nucleotides by base in the settings menu
 - Various fixes to the backend to better handle if seqhiker crashes or is force quit
 - Reordering genomes in comparison mode no longer recomputes unchanged adjacent comparisons, including comparisons with no matches.

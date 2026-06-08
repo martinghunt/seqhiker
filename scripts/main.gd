@@ -586,10 +586,11 @@ func _startup_connect_local_zem() -> void:
 		return
 
 func _startup_prepare_local_zem_worker() -> Dictionary:
-	var ok: bool = _local_zem_manager.ensure_local_zem_installed()
+	var worker_manager := _new_startup_local_zem_manager()
+	var ok: bool = worker_manager.ensure_local_zem_installed()
 	return {
 		"ok": ok,
-		"error": _local_zem_manager.last_error()
+		"error": worker_manager.last_error()
 	}
 
 func _finish_startup_prepare_local_zem(result: Variant) -> void:
@@ -613,15 +614,22 @@ func _finish_startup_prepare_local_zem(result: Variant) -> void:
 		genome_view.set_empty_state_status("Could not start seqhiker server.")
 
 func _startup_connect_local_zem_worker(host: String, port: int) -> Dictionary:
-	var ok: bool = _local_zem_manager.connect_with_local_fallback(host, port, 100, 180, 100)
+	var worker_manager := _new_startup_local_zem_manager()
+	var ok: bool = worker_manager.connect_with_local_fallback(host, port, 100, 180, 100)
+	worker_manager.disconnect_from_server()
 	return {
 		"ok": ok,
-		"error": _local_zem_manager.last_error()
+		"error": worker_manager.last_error(),
+		"local_zem_pid": worker_manager.local_zem_pid(),
+		"local_zem_started_by_seqhiker": worker_manager.local_zem_started_by_seqhiker()
 	}
 
 func _finish_startup_connect_local_zem(result: Variant) -> void:
 	var resp: Dictionary = result if result is Dictionary else {}
+	_adopt_startup_local_zem_result(resp)
 	if not bool(resp.get("ok", false)):
+		if bool(resp.get("local_zem_started_by_seqhiker", false)) and _local_zem_manager != null:
+			_local_zem_manager.shutdown_on_exit()
 		var last_error := str(resp.get("error", "")).strip_edges()
 		if not last_error.is_empty():
 			_set_status(last_error, true)
@@ -640,6 +648,19 @@ func _finish_startup_connect_local_zem(result: Variant) -> void:
 	_set_status("Connected %s:%d" % [_startup_zem_host, _startup_zem_port])
 	genome_view.set_empty_state_status("")
 	_update_debug_stats_label()
+
+func _new_startup_local_zem_manager() -> RefCounted:
+	var worker_zem: RefCounted = ZemClientScript.new()
+	var worker_manager: RefCounted = LocalZemManagerScript.new()
+	worker_manager.configure(worker_zem, ZEM_BIN_SUBDIR)
+	return worker_manager
+
+func _adopt_startup_local_zem_result(resp: Dictionary) -> void:
+	if _local_zem_manager == null:
+		return
+	if not bool(resp.get("local_zem_started_by_seqhiker", false)):
+		return
+	_local_zem_manager.adopt_local_zem_process(int(resp.get("local_zem_pid", -1)), true)
 
 func _setup_fetch_timer() -> void:
 	_fetch_timer = Timer.new()
@@ -2947,6 +2968,8 @@ func _inspect_dropped_files(files: PackedStringArray) -> Dictionary:
 	return _session_loader.inspect_dropped_files(files)
 
 func _exit_tree() -> void:
+	if _local_zem_manager != null:
+		_local_zem_manager.shutdown_on_exit()
 	if _tile_controller != null:
 		_tile_controller.shutdown()
 	if _comparison_controller != null and _comparison_controller.has_method("shutdown"):
@@ -2964,8 +2987,10 @@ func _exit_tree() -> void:
 		_startup_zem_prepare_thread.wait_to_finish()
 		_startup_zem_prepare_thread = null
 	if _startup_zem_connect_thread != null and _startup_zem_connect_thread.is_started():
-		_startup_zem_connect_thread.wait_to_finish()
+		var startup_connect_result: Variant = _startup_zem_connect_thread.wait_to_finish()
 		_startup_zem_connect_thread = null
+		if startup_connect_result is Dictionary:
+			_adopt_startup_local_zem_result(startup_connect_result)
 	if _local_zem_manager != null:
 		_local_zem_manager.shutdown_on_exit()
 
