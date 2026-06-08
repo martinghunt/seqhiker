@@ -9,6 +9,7 @@ const GoControllerScript = preload("res://scripts/go_controller.gd")
 const TopBarControllerScript = preload("res://scripts/top_bar_controller.gd")
 const ContextPanelControllerScript = preload("res://scripts/context_panel_controller.gd")
 const TrackSettingsControllerScript = preload("res://scripts/track_settings_controller.gd")
+const TrackControlsControllerScript = preload("res://scripts/track_controls_controller.gd")
 const SoundControllerScript = preload("res://scripts/sound_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
@@ -258,9 +259,6 @@ var read_mate_jump_ref_id := -1
 var _ui_font_size := DEFAULT_UI_FONT_SIZE
 var _ui_font_name := "Noto Sans"
 var _sequence_letter_font_name := "Anonymous Pro"
-var _track_dragging := false
-var _track_drag_index := -1
-var _track_drop_index := -1
 var _pending_pan_target_start := -1.0
 var _pending_pan_target_end := -1
 var _pending_pan_bp_per_px := -1.0
@@ -333,6 +331,7 @@ var _shared_colorize_nucleotides_cb: CheckButton
 var _sounds_enabled := false
 var _sound_controller: RefCounted
 var _theme_editor_controller: RefCounted
+var _track_controls_controller: RefCounted
 
 func _ready() -> void:
 	_zem = ZemClientScript.new()
@@ -360,6 +359,8 @@ func _ready() -> void:
 	_context_panel_controller.configure(self)
 	_track_settings_controller = TrackSettingsControllerScript.new()
 	_track_settings_controller.configure(self)
+	_track_controls_controller = TrackControlsControllerScript.new()
+	_track_controls_controller.configure(self)
 	_sound_controller = SoundControllerScript.new()
 	_sound_controller.configure(self)
 	_top_bar_controller.setup()
@@ -786,8 +787,6 @@ func _connect_ui() -> void:
 	genome_view.variant_activated.connect(_on_variant_clicked)
 	genome_view.region_selection_changed.connect(_on_region_selection_changed)
 	genome_view.track_settings_requested.connect(_on_track_settings_requested)
-	genome_view.track_order_changed.connect(_on_track_order_changed)
-	genome_view.track_visibility_changed.connect(_on_track_visibility_changed)
 	if genome_view.has_signal("ui_sound_requested"):
 		genome_view.ui_sound_requested.connect(_play_ui_sound)
 	if comparison_view.has_signal("ui_sound_requested"):
@@ -808,8 +807,6 @@ func _connect_ui() -> void:
 	sequence_letter_font_option.item_selected.connect(_on_sequence_letter_font_selected)
 	feature_close_button.pressed.connect(_close_feature_panel)
 	_show_full_region_checkbox.toggled.connect(_on_show_full_region_toggled)
-	if _track_order_list != null:
-		_track_order_list.gui_input.connect(_on_track_order_list_gui_input)
 	_seq_view_option.item_selected.connect(_on_seq_view_selected)
 	_seq_option.item_selected.connect(_on_seq_selected)
 	_concat_gap_spin.value_changed.connect(_on_concat_gap_changed)
@@ -1425,19 +1422,8 @@ func _setup_sequence_controls() -> void:
 	_concat_gap_spin.value = _concat_gap_bp
 
 func _setup_track_visibility_controls() -> void:
-	_track_order_label.text = "Track Visibility"
-	_track_visibility_box.add_theme_constant_override("separation", 4)
-	if _track_visibility_vcf == null:
-		_track_visibility_vcf = CheckButton.new()
-		_track_visibility_vcf.text = "Show VCF Track"
-		_track_visibility_box.add_child(_track_visibility_vcf)
-	_track_visibility_aa.toggled.connect(_on_track_visibility_toggled.bind(TRACK_AA))
-	_track_visibility_genome.toggled.connect(_on_track_visibility_toggled.bind(TRACK_GENOME))
-	_track_visibility_gc_plot.toggled.connect(_on_track_visibility_toggled.bind(TRACK_GC_PLOT))
-	_track_visibility_depth_plot.toggled.connect(_on_track_visibility_toggled.bind(TRACK_DEPTH_PLOT))
-	_track_visibility_vcf.toggled.connect(_on_track_visibility_toggled.bind(TRACK_VCF))
-	_track_visibility_map.toggled.connect(_on_track_visibility_toggled.bind("map"))
-	_refresh_track_visibility_controls(genome_view.get_track_order())
+	if _track_controls_controller != null:
+		_track_controls_controller.setup()
 
 func _setup_debug_controls() -> void:
 	_bam_cov_cutoff_spin.min_value = 0
@@ -2004,132 +1990,13 @@ func _update_loaded_files_debug_label() -> void:
 	_debug_loaded_files_label.text = "\n".join(lines)
 	call_deferred("_update_settings_panel_width")
 
-func _on_track_order_list_gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index != MOUSE_BUTTON_LEFT:
-			return
-		if mb.pressed:
-			var idx := _track_order_list.get_item_at_position(_track_order_list.get_local_mouse_position(), true)
-			if idx >= 0:
-				_track_dragging = true
-				_track_drag_index = idx
-				_track_drop_index = idx
-				_track_order_list.select(idx)
-				_track_order_list.accept_event()
-			return
-		if _track_dragging:
-			_apply_track_drag_drop()
-			_track_order_list.accept_event()
-		_track_dragging = false
-		_track_drag_index = -1
-		_track_drop_index = -1
-	elif event is InputEventMouseMotion and _track_dragging:
-		var idx := _track_order_list.get_item_at_position(_track_order_list.get_local_mouse_position(), true)
-		if idx >= 0:
-			_track_drop_index = idx
-			_track_order_list.select(idx)
-
-func _apply_track_drag_drop() -> void:
-	if _track_drag_index < 0:
-		return
-	var order: PackedStringArray = genome_view.get_track_order()
-	if order.is_empty() or _track_drag_index >= order.size():
-		return
-	var drop_idx := _track_drop_index
-	if drop_idx < 0:
-		var mp := _track_order_list.get_local_mouse_position()
-		drop_idx = 0 if mp.y < 0.0 else _track_order_list.item_count - 1
-	drop_idx = clampi(drop_idx, 0, order.size() - 1)
-	if drop_idx == _track_drag_index:
-		return
-	var moving: String = str(order[_track_drag_index])
-	order.remove_at(_track_drag_index)
-	if drop_idx > _track_drag_index:
-		drop_idx -= 1
-	order.insert(drop_idx, moving)
-	genome_view.set_track_order(order)
-	_refresh_track_order_list(genome_view.get_track_order(), drop_idx)
-
 func _refresh_track_order_list(order: PackedStringArray, select_idx: int = -1) -> void:
-	if _track_order_list == null:
-		return
-	_track_order_list.clear()
-	for id in order:
-		_track_order_list.add_item(_track_label_for_id(str(id)))
-	if _track_order_list.item_count <= 0:
-		return
-	var idx := select_idx
-	if idx < 0 or idx >= _track_order_list.item_count:
-		idx = 0
-	_track_order_list.select(idx)
-	_refresh_track_visibility_controls(order)
+	if _track_controls_controller != null:
+		_track_controls_controller.refresh_track_order_list(order, select_idx)
 
 func _refresh_track_visibility_controls(order: PackedStringArray) -> void:
-	if _track_visibility_box == null:
-		return
-	var visible_ids := {}
-	for id_any in order:
-		var track_id := str(id_any)
-		if track_id == TRACK_READS or track_id.begins_with("reads:"):
-			continue
-		visible_ids[track_id] = true
-	var controls := {
-		TRACK_AA: _track_visibility_aa,
-		TRACK_VCF: _track_visibility_vcf,
-		TRACK_GENOME: _track_visibility_genome,
-		TRACK_GC_PLOT: _track_visibility_gc_plot,
-		TRACK_DEPTH_PLOT: _track_visibility_depth_plot,
-		"map": _track_visibility_map
-	}
-	for track_id_any in controls.keys():
-		var track_id := str(track_id_any)
-		var cb := controls[track_id] as CheckButton
-		if cb == null:
-			continue
-		var available := bool(visible_ids.get(track_id, false))
-		if track_id == TRACK_VCF and _variant_sources.is_empty():
-			available = false
-			genome_view.set_track_visible(track_id, false)
-		cb.visible = available
-		if not cb.visible:
-			continue
-		var is_depth: bool = track_id == TRACK_DEPTH_PLOT
-		if is_depth and not _has_bam_loaded:
-			genome_view.set_track_visible(track_id, false)
-		cb.set_pressed_no_signal(genome_view.is_track_visible(track_id))
-		cb.disabled = is_depth and not _has_bam_loaded
-
-func _on_track_order_changed(order: PackedStringArray) -> void:
-	_refresh_track_order_list(order)
-	_refresh_track_visibility_controls(order)
-	_update_window_min_height()
-
-func _on_track_visibility_changed(_track_id: String, _visible: bool) -> void:
-	if _track_id.begins_with("reads:") and not _visible:
-		for i in range(_bam_tracks.size() - 1, -1, -1):
-			var t: Dictionary = _bam_tracks[i]
-			if str(t.get("track_id", "")) == _track_id:
-				_bam_tracks.remove_at(i)
-				break
-		_sync_bam_read_tracks()
-		_has_bam_loaded = not _bam_tracks.is_empty()
-	_refresh_track_visibility_controls(genome_view.get_track_order())
-	_update_window_min_height()
-	_invalidate_cache()
-	if _current_chr_len > 0:
-		_schedule_fetch()
-
-func _on_track_visibility_toggled(checked: bool, track_id: String) -> void:
-	if track_id == TRACK_DEPTH_PLOT and checked and not _has_bam_loaded:
-		_set_status("Read depth plot requires BAM.", true)
-		_refresh_track_visibility_controls(genome_view.get_track_order())
-		return
-	_play_toggle_sound(checked)
-	genome_view.set_track_visible(track_id, checked)
-	_invalidate_cache()
-	if _current_chr_len > 0:
-		_schedule_fetch()
+	if _track_controls_controller != null:
+		_track_controls_controller.refresh_track_visibility_controls(order)
 
 func _track_label_for_id(track_id: String) -> String:
 	if track_id.begins_with("reads:"):
