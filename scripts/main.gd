@@ -67,6 +67,8 @@ const APP_MODE_BROWSER := 0
 const APP_MODE_COMPARISON := 1
 const VIEW_SLOT_LOAD_ACTION_PREFIX := "seqhiker_view_slot_load_"
 const VIEW_SLOT_SAVE_ACTION_PREFIX := "seqhiker_view_slot_save_"
+const TEST_DATA_GENERATION_BROWSER := "browser"
+const TEST_DATA_GENERATION_COMPARISON := "comparison"
 const SAM_FLAG_LABELS := [
 	{"bit": 1, "label": "paired"},
 	{"bit": 2, "label": "proper pair"},
@@ -299,10 +301,10 @@ var _hidden_settings_holder: Control
 var _debug_enabled := false
 var _bam_cov_precompute_cutoff_bp := BAM_COV_PRECOMPUTE_CUTOFF_DEFAULT
 var _genome_cache_max_mb := GENOME_CACHE_MAX_MB_DEFAULT
-var _generate_test_data_thread: Thread
-var _generate_test_data_in_progress := false
-var _generate_comparison_test_data_thread: Thread
-var _generate_comparison_test_data_in_progress := false
+var _test_data_generation_jobs := {
+	TEST_DATA_GENERATION_BROWSER: {"thread": null, "in_progress": false},
+	TEST_DATA_GENERATION_COMPARISON: {"thread": null, "in_progress": false}
+}
 var _annotation_max_on_screen := ANNOT_MAX_ON_SCREEN_DEFAULT
 var _annotation_counts_by_chr := {}
 var _dbg_ann_tile_requests := 0
@@ -1507,70 +1509,125 @@ func _open_user_data_dir() -> void:
 		_set_status("Could not open user data directory.", true)
 
 func _start_generate_test_data() -> void:
-	if _generate_test_data_in_progress:
-		return
-	if not _session_loader.ensure_server_connected():
-		return
-	var out_dir := _generated_test_data_dir()
-	var mk_err := DirAccess.make_dir_recursive_absolute(out_dir)
-	if mk_err != OK and not DirAccess.dir_exists_absolute(out_dir):
-		_set_status("Could not create generated test data directory.", true)
-		return
-	var conn: Dictionary = _zem.connection_info()
-	_generate_test_data_thread = Thread.new()
-	var err := _generate_test_data_thread.start(
-		Callable(self, "_generate_test_data_thread_main").bind(
-			str(conn.get("host", "127.0.0.1")),
-			int(conn.get("port", ZEM_DEFAULT_PORT)),
-			out_dir
-		)
-	)
-	if err != OK:
-		_generate_test_data_thread = null
-		_set_status("Could not start test-data thread: %s" % error_string(err), true)
-		return
-	_generate_test_data_in_progress = true
-	_set_generate_test_data_controls_enabled(false)
-	_set_status("Generating built-in test data...")
+	_start_test_data_generation(TEST_DATA_GENERATION_BROWSER)
 
 func _start_generate_comparison_test_data() -> void:
-	if _generate_comparison_test_data_in_progress:
+	_start_test_data_generation(TEST_DATA_GENERATION_COMPARISON)
+
+func _start_test_data_generation(mode: String) -> void:
+	if _test_data_generation_in_progress(mode):
 		return
 	if not _session_loader.ensure_server_connected():
 		return
-	var out_dir := _generated_comparison_test_data_dir()
+	var cfg := _test_data_generation_config(mode)
+	var out_dir := str(cfg.get("out_dir", ""))
 	var mk_err := DirAccess.make_dir_recursive_absolute(out_dir)
 	if mk_err != OK and not DirAccess.dir_exists_absolute(out_dir):
-		_set_status("Could not create generated comparison test data directory.", true)
+		_set_status(str(cfg.get("create_dir_error", "Could not create generated test data directory.")), true)
 		return
 	var conn: Dictionary = _zem.connection_info()
-	_generate_comparison_test_data_thread = Thread.new()
-	var err := _generate_comparison_test_data_thread.start(
-		Callable(self, "_generate_comparison_test_data_thread_main").bind(
+	var thread := Thread.new()
+	var err := thread.start(
+		Callable(self, "_test_data_generation_thread_main").bind(
+			mode,
 			str(conn.get("host", "127.0.0.1")),
 			int(conn.get("port", ZEM_DEFAULT_PORT)),
 			out_dir
 		)
 	)
 	if err != OK:
-		_generate_comparison_test_data_thread = null
-		_set_status("Could not start comparison test-data thread: %s" % error_string(err), true)
+		_set_status("%s: %s" % [str(cfg.get("start_thread_error", "Could not start test-data thread")), error_string(err)], true)
 		return
-	_generate_comparison_test_data_in_progress = true
-	_set_generate_comparison_test_data_controls_enabled(false)
-	_set_status("Generating comparison test genomes...")
+	_set_test_data_generation_job(mode, thread, true)
+	_set_test_data_generation_controls_enabled(mode, false)
+	_set_status(str(cfg.get("running_status", "Generating test data...")))
 
-func _generate_test_data_thread_main(host_ip: String, port: int, out_dir: String) -> Dictionary:
+func _test_data_generation_thread_main(mode: String, host_ip: String, port: int, out_dir: String) -> Dictionary:
 	var client = ZemClientScript.new()
 	if not client.connect_to_server(host_ip, port, 2000):
 		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
+	if mode == TEST_DATA_GENERATION_COMPARISON:
+		return client.generate_comparison_test_data(out_dir)
 	return client.generate_test_data(out_dir)
 
-func _generate_comparison_test_data_thread_main(host_ip: String, port: int, out_dir: String) -> Dictionary:
-	var client = ZemClientScript.new()
-	if not client.connect_to_server(host_ip, port, 2000):
-		return {"ok": false, "error": "Unable to connect to %s:%d" % [host_ip, port]}
-	return client.generate_comparison_test_data(out_dir)
+func _test_data_generation_config(mode: String) -> Dictionary:
+	if mode == TEST_DATA_GENERATION_COMPARISON:
+		return {
+			"out_dir": _generated_comparison_test_data_dir(),
+			"create_dir_error": "Could not create generated comparison test data directory.",
+			"start_thread_error": "Could not start comparison test-data thread",
+			"running_status": "Generating comparison test genomes...",
+			"failure_prefix": "Generate comparison test data",
+			"load_failure": "Generate comparison test data load failed.",
+			"success": "Generated and loaded comparison test genomes."
+		}
+	return {
+		"out_dir": _generated_test_data_dir(),
+		"create_dir_error": "Could not create generated test data directory.",
+		"start_thread_error": "Could not start test-data thread",
+		"running_status": "Generating built-in test data...",
+		"failure_prefix": "Generate test data",
+		"load_failure": "Generate test data load failed",
+		"success": "Generated and loaded test data."
+	}
+
+func _test_data_generation_in_progress(mode: String) -> bool:
+	var job: Dictionary = _test_data_generation_jobs.get(mode, {})
+	return bool(job.get("in_progress", false))
+
+func _test_data_generation_thread(mode: String) -> Thread:
+	var job: Dictionary = _test_data_generation_jobs.get(mode, {})
+	return job.get("thread", null) as Thread
+
+func _set_test_data_generation_job(mode: String, thread: Thread, in_progress: bool) -> void:
+	_test_data_generation_jobs[mode] = {"thread": thread, "in_progress": in_progress}
+
+func _set_test_data_generation_controls_enabled(mode: String, enabled: bool) -> void:
+	if mode == TEST_DATA_GENERATION_COMPARISON:
+		_set_generate_comparison_test_data_controls_enabled(enabled)
+		return
+	_set_generate_test_data_controls_enabled(enabled)
+
+func _finish_test_data_generation(mode: String, result_any: Variant) -> void:
+	_set_test_data_generation_job(mode, null, false)
+	_set_test_data_generation_controls_enabled(mode, true)
+	var cfg := _test_data_generation_config(mode)
+	var result: Dictionary = result_any if result_any is Dictionary else {}
+	var failure_prefix := str(cfg.get("failure_prefix", "Generate test data"))
+	if result.is_empty() or not result.get("ok", false):
+		_set_status("%s failed: %s" % [failure_prefix, result.get("error", "error")], true)
+		return
+	var files: PackedStringArray = result.get("files", PackedStringArray())
+	if files.is_empty():
+		_set_status("%s failed: no files returned." % failure_prefix, true)
+		return
+	if mode == TEST_DATA_GENERATION_COMPARISON:
+		_set_app_mode(APP_MODE_COMPARISON)
+		if _comparison_controller == null or not _comparison_controller.load_generated_genomes(files):
+			_set_status(str(cfg.get("load_failure", "Generate comparison test data load failed.")), true)
+			return
+		_refresh_comparison_topbar_state()
+	else:
+		_set_app_mode(APP_MODE_BROWSER)
+		var load_resp: Dictionary = _session_loader.load_server_paths(files)
+		if not load_resp.get("ok", false):
+			_set_status("%s: %s" % [str(cfg.get("load_failure", "Generate test data load failed")), load_resp.get("error", "error")], true)
+			return
+	_set_status(str(cfg.get("success", "Generated and loaded test data.")))
+
+func _poll_test_data_generation_thread(mode: String) -> void:
+	var thread := _test_data_generation_thread(mode)
+	if thread == null or not thread.is_started() or thread.is_alive():
+		return
+	var result: Variant = thread.wait_to_finish()
+	_finish_test_data_generation(mode, result)
+
+func _wait_for_test_data_generation_thread(mode: String) -> void:
+	var thread := _test_data_generation_thread(mode)
+	if thread == null or not thread.is_started():
+		return
+	thread.wait_to_finish()
+	_set_test_data_generation_job(mode, null, false)
 
 func _show_native_info_dialog(title: String, message: String) -> void:
 	if DisplayServer.has_method("dialog_show"):
@@ -1619,42 +1676,6 @@ func _show_vcf_reference_mismatch_dialog(path: String, details: String = "") -> 
 	if not details.is_empty():
 		message += "\n\n" + details
 	_show_native_info_dialog("VCF Mismatch", message)
-
-func _finish_generate_test_data(result_any: Variant) -> void:
-	_generate_test_data_in_progress = false
-	_set_generate_test_data_controls_enabled(true)
-	var result: Dictionary = result_any if result_any is Dictionary else {}
-	if result.is_empty() or not result.get("ok", false):
-		_set_status("Generate test data failed: %s" % result.get("error", "error"), true)
-		return
-	var files: PackedStringArray = result.get("files", PackedStringArray())
-	if files.is_empty():
-		_set_status("Generate test data failed: no files returned.", true)
-		return
-	_set_app_mode(APP_MODE_BROWSER)
-	var load_resp: Dictionary = _session_loader.load_server_paths(files)
-	if not load_resp.get("ok", false):
-		_set_status("Generate test data load failed: %s" % load_resp.get("error", "error"), true)
-		return
-	_set_status("Generated and loaded test data.")
-
-func _finish_generate_comparison_test_data(result_any: Variant) -> void:
-	_generate_comparison_test_data_in_progress = false
-	_set_generate_comparison_test_data_controls_enabled(true)
-	var result: Dictionary = result_any if result_any is Dictionary else {}
-	if result.is_empty() or not result.get("ok", false):
-		_set_status("Generate comparison test data failed: %s" % result.get("error", "error"), true)
-		return
-	var files: PackedStringArray = result.get("files", PackedStringArray())
-	if files.is_empty():
-		_set_status("Generate comparison test data failed: no files returned.", true)
-		return
-	_set_app_mode(APP_MODE_COMPARISON)
-	if _comparison_controller == null or not _comparison_controller.load_generated_genomes(files):
-		_set_status("Generate comparison test data load failed.", true)
-		return
-	_refresh_comparison_topbar_state()
-	_set_status("Generated and loaded comparison test genomes.")
 
 func _delete_dir_contents_absolute(dir_path: String) -> bool:
 	var dir := DirAccess.open(dir_path)
@@ -2537,12 +2558,8 @@ func _exit_tree() -> void:
 	if _download_thread != null and _download_thread.is_started():
 		_download_thread.wait_to_finish()
 		_download_thread = null
-	if _generate_test_data_thread != null and _generate_test_data_thread.is_started():
-		_generate_test_data_thread.wait_to_finish()
-		_generate_test_data_thread = null
-	if _generate_comparison_test_data_thread != null and _generate_comparison_test_data_thread.is_started():
-		_generate_comparison_test_data_thread.wait_to_finish()
-		_generate_comparison_test_data_thread = null
+	_wait_for_test_data_generation_thread(TEST_DATA_GENERATION_BROWSER)
+	_wait_for_test_data_generation_thread(TEST_DATA_GENERATION_COMPARISON)
 	if _startup_zem_prepare_thread != null and _startup_zem_prepare_thread.is_started():
 		_startup_zem_prepare_thread.wait_to_finish()
 		_startup_zem_prepare_thread = null
@@ -3303,14 +3320,8 @@ func _process(_delta: float) -> void:
 		var download_result: Variant = _download_thread.wait_to_finish()
 		_download_thread = null
 		_finish_download_genome(download_result)
-	if _generate_test_data_thread != null and _generate_test_data_thread.is_started() and not _generate_test_data_thread.is_alive():
-		var generate_result: Variant = _generate_test_data_thread.wait_to_finish()
-		_generate_test_data_thread = null
-		_finish_generate_test_data(generate_result)
-	if _generate_comparison_test_data_thread != null and _generate_comparison_test_data_thread.is_started() and not _generate_comparison_test_data_thread.is_alive():
-		var comparison_generate_result: Variant = _generate_comparison_test_data_thread.wait_to_finish()
-		_generate_comparison_test_data_thread = null
-		_finish_generate_comparison_test_data(comparison_generate_result)
+	_poll_test_data_generation_thread(TEST_DATA_GENERATION_BROWSER)
+	_poll_test_data_generation_thread(TEST_DATA_GENERATION_COMPARISON)
 	if _startup_zem_prepare_thread != null and _startup_zem_prepare_thread.is_started() and not _startup_zem_prepare_thread.is_alive():
 		var prepare_result: Variant = _startup_zem_prepare_thread.wait_to_finish()
 		_startup_zem_prepare_thread = null
