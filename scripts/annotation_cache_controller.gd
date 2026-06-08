@@ -168,8 +168,7 @@ func update_detailed_read_strips(start_bp: int, end_bp: int, bp_per_px: float) -
 		_reset_read_strips()
 		return
 	_ensure_read_strip_scope(bp_per_px)
-	var covered := _strip_covered_range()
-	if covered.x <= start_bp and covered.y >= end_bp:
+	if _strip_range_fully_covered(start_bp, end_bp):
 		var skip_apply: bool = bool(host._auto_play_enabled and host.genome_view.is_motion_read_layer_active())
 		if not skip_apply:
 			_apply_read_strip_viewport(start_bp, end_bp)
@@ -298,25 +297,46 @@ func _request_missing_read_strips(start_bp: int, end_bp: int, bp_per_px: float) 
 		want_end = mini(host._current_chr_len, end_bp + span * 2)
 	elif pan_dir < 0:
 		want_start = maxi(0, start_bp - span * 2)
-	var covered := _strip_covered_range()
-	if covered.x < 0 or covered.y <= covered.x:
-		_request_read_strip(want_start, want_end, bp_per_px, "right")
-		return
-	if covered.x > want_start:
-		_request_read_strip(want_start, covered.x, bp_per_px, "left")
-	if covered.y < want_end:
-		_request_read_strip(covered.y, want_end, bp_per_px, "right")
+	var cursor := want_start
+	var requested_left := false
+	var requested_right := false
+	for seg_any in _strip_segments:
+		var seg: Dictionary = seg_any
+		var seg_start := int(seg.get("start_bp", 0))
+		var seg_end := int(seg.get("end_bp", 0))
+		if seg_start >= want_end:
+			break
+		if seg_end <= cursor:
+			continue
+		if seg_start > cursor:
+			var gap_end := mini(seg_start, want_end)
+			var side := "left" if gap_end <= start_bp else "right"
+			if side == "left" and not requested_left:
+				requested_left = _request_read_strip(cursor, gap_end, bp_per_px, side)
+			elif side == "right" and not requested_right:
+				requested_right = _request_read_strip(cursor, gap_end, bp_per_px, side)
+			if requested_left and requested_right:
+				return
+		cursor = maxi(cursor, seg_end)
+		if cursor >= want_end:
+			return
+	if cursor < want_end:
+		var side := "left" if want_end <= start_bp else "right"
+		if side == "left" and not requested_left:
+			_request_read_strip(cursor, want_end, bp_per_px, side)
+		elif side == "right" and not requested_right:
+			_request_read_strip(cursor, want_end, bp_per_px, side)
 
 
-func _request_read_strip(start_bp: int, end_bp: int, bp_per_px: float, side: String) -> void:
+func _request_read_strip(start_bp: int, end_bp: int, bp_per_px: float, side: String) -> bool:
 	start_bp = maxi(0, start_bp)
 	end_bp = mini(host._current_chr_len, end_bp)
 	if end_bp <= start_bp:
-		return
+		return false
 	if side == "left" and _strip_left_pending:
-		return
+		return false
 	if side == "right" and _strip_right_pending:
-		return
+		return false
 	var overlaps: Array[Dictionary] = []
 	if host._seq_view_mode != host.SEQ_VIEW_SINGLE:
 		overlaps = host._segments_overlapping(start_bp, end_bp)
@@ -369,6 +389,7 @@ func _request_read_strip(start_bp: int, end_bp: int, bp_per_px: float, side: Str
 		"annotation_cap_total": 0,
 		"annotation_min_len_bp": 1
 	})
+	return true
 
 
 func _store_read_strip_segment(req: Dictionary, tile_resp: Dictionary) -> void:
@@ -412,17 +433,6 @@ func _prune_read_strips() -> void:
 		kept.append(seg)
 	_strip_segments = kept
 
-
-func _strip_covered_range() -> Vector2i:
-	if _strip_segments.is_empty():
-		return Vector2i(-1, -1)
-	var left := int(_strip_segments[0].get("start_bp", -1))
-	var right := int(_strip_segments[0].get("end_bp", -1))
-	for seg_any in _strip_segments:
-		var seg: Dictionary = seg_any
-		left = mini(left, int(seg.get("start_bp", left)))
-		right = maxi(right, int(seg.get("end_bp", right)))
-	return Vector2i(left, right)
 
 func _strip_range_fully_covered(start_bp: int, end_bp: int) -> bool:
 	if end_bp <= start_bp:
