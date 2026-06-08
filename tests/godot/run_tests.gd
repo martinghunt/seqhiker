@@ -4,7 +4,8 @@ const TEST_SCRIPTS := [
 	"res://tests/godot/test_annotation_cache_controller.gd",
 	"res://tests/godot/test_local_zem_manager.gd",
 	"res://tests/godot/test_track_controls_controller.gd",
-	"res://tests/godot/test_track_settings_controller.gd"
+	"res://tests/godot/test_track_settings_controller.gd",
+	"res://tests/godot/test_zem_client.gd"
 ]
 
 

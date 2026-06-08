@@ -92,13 +92,7 @@ func ensure_connected() -> bool:
 	return connect_to_server(_host, _port)
 
 func load_genome(path: String) -> Dictionary:
-	var path_bytes := path.to_utf8_buffer()
-	var payload := PackedByteArray()
-	payload.resize(2 + path_bytes.size())
-	payload.encode_u16(0, path_bytes.size())
-	for i in range(path_bytes.size()):
-		payload[2 + i] = path_bytes[i]
-	return _send_request(MSG_LOAD_GENOME, payload, LOAD_TIMEOUT_MS)
+	return _send_request(MSG_LOAD_GENOME, _encode_string_payload(path), LOAD_TIMEOUT_MS)
 
 func load_genome_files(paths: PackedStringArray) -> Dictionary:
 	var payload := _encode_string_list(paths)
@@ -126,12 +120,7 @@ func load_bam(path: String, precompute_cutoff_bp: int = 0) -> Dictionary:
 	var resp := _send_request(MSG_LOAD_BAM, payload, LOAD_TIMEOUT_MS)
 	if not resp.get("ok", false):
 		# Backward-compat fallback for older servers expecting the legacy payload.
-		payload = PackedByteArray()
-		payload.resize(2 + path_bytes.size())
-		payload.encode_u16(0, path_bytes.size())
-		for i in range(path_bytes.size()):
-			payload[2 + i] = path_bytes[i]
-		resp = _send_request(MSG_LOAD_BAM, payload, LOAD_TIMEOUT_MS)
+		resp = _send_request(MSG_LOAD_BAM, _encode_string_payload(path), LOAD_TIMEOUT_MS)
 	if not resp.get("ok", false):
 		return resp
 	var p: PackedByteArray = resp.get("payload", PackedByteArray())
@@ -165,13 +154,7 @@ func get_load_state() -> Dictionary:
 	return resp
 
 func inspect_input(path: String) -> Dictionary:
-	var path_bytes := path.to_utf8_buffer()
-	var payload := PackedByteArray()
-	payload.resize(2 + path_bytes.size())
-	payload.encode_u16(0, path_bytes.size())
-	for i in range(path_bytes.size()):
-		payload[2 + i] = path_bytes[i]
-	var resp := _send_request(MSG_INSPECT_INPUT, payload, LOAD_TIMEOUT_MS)
+	var resp := _send_request(MSG_INSPECT_INPUT, _encode_string_payload(path), LOAD_TIMEOUT_MS)
 	if not resp.get("ok", false):
 		return resp
 	var raw: PackedByteArray = resp.get("payload", PackedByteArray())
@@ -182,6 +165,16 @@ func inspect_input(path: String) -> Dictionary:
 	resp["has_embedded_gff3_sequence"] = (flags & 8) != 0
 	resp["has_variants"] = (flags & 16) != 0
 	return resp
+
+func _encode_string_payload(value: String) -> PackedByteArray:
+	var value_bytes := value.to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(2 + value_bytes.size())
+	payload.encode_u16(0, value_bytes.size())
+	for i in range(value_bytes.size()):
+		payload[2 + i] = value_bytes[i]
+	return payload
+
 
 func _encode_string_list(values: PackedStringArray) -> PackedByteArray:
 	var total := 2
@@ -204,57 +197,56 @@ func _encode_string_list(values: PackedStringArray) -> PackedByteArray:
 		off += bytes.size()
 	return payload
 
-func get_tile(chr_id: int, zoom: int, tile_index: int, source_id: int = 0) -> Dictionary:
+func _encode_tile_payload(chr_id: int, zoom: int, tile_index: int) -> PackedByteArray:
+	var payload := PackedByteArray()
+	payload.resize(7)
+	payload.encode_u16(0, chr_id)
+	payload[2] = zoom
+	payload.encode_u32(3, tile_index)
+	return payload
+
+
+func _encode_source_tile_payload(source_id: int, chr_id: int, zoom: int, tile_index: int) -> PackedByteArray:
 	var payload := PackedByteArray()
 	payload.resize(9)
 	payload.encode_u16(0, source_id)
 	payload.encode_u16(2, chr_id)
 	payload[4] = zoom
 	payload.encode_u32(5, tile_index)
+	return payload
+
+
+func _encode_dna_search_payload(target_id: int, pattern: String, include_revcomp: bool, max_hits: int) -> PackedByteArray:
+	var pattern_bytes := pattern.to_upper().to_utf8_buffer()
+	var payload := PackedByteArray()
+	payload.resize(7 + pattern_bytes.size())
+	payload.encode_u16(0, target_id)
+	payload.encode_u16(2, max(1, min(max_hits, 65535)))
+	payload[4] = 1 if include_revcomp else 0
+	payload.encode_u16(5, pattern_bytes.size())
+	for i in range(pattern_bytes.size()):
+		payload[7 + i] = pattern_bytes[i]
+	return payload
+
+
+func get_tile(chr_id: int, zoom: int, tile_index: int, source_id: int = 0) -> Dictionary:
+	var payload := _encode_source_tile_payload(source_id, chr_id, zoom, tile_index)
 	var resp := _send_request(MSG_GET_TILE, payload)
-	if not resp.get("ok", false):
-		# Backward-compat fallback for older zem servers that still expect
-		# the legacy 7-byte tile payload (no source_id prefix).
-		var legacy_payload := PackedByteArray()
-		legacy_payload.resize(7)
-		legacy_payload.encode_u16(0, chr_id)
-		legacy_payload[2] = zoom
-		legacy_payload.encode_u32(3, tile_index)
-		resp = _send_request(MSG_GET_TILE, legacy_payload)
 	if not resp.get("ok", false):
 		return resp
 	resp["reads"] = _parse_tile_reads(resp["payload"])
 	return resp
 
 func get_coverage_tile(chr_id: int, zoom: int, tile_index: int, source_id: int = 0) -> Dictionary:
-	var payload := PackedByteArray()
-	payload.resize(9)
-	payload.encode_u16(0, source_id)
-	payload.encode_u16(2, chr_id)
-	payload[4] = zoom
-	payload.encode_u32(5, tile_index)
+	var payload := _encode_source_tile_payload(source_id, chr_id, zoom, tile_index)
 	var resp := _send_request(MSG_GET_COVERAGE_TILE, payload)
-	if not resp.get("ok", false):
-		# Backward-compat fallback for older zem servers that still expect
-		# the legacy 7-byte coverage payload (no source_id prefix).
-		var legacy_payload := PackedByteArray()
-		legacy_payload.resize(7)
-		legacy_payload.encode_u16(0, chr_id)
-		legacy_payload[2] = zoom
-		legacy_payload.encode_u32(3, tile_index)
-		resp = _send_request(MSG_GET_COVERAGE_TILE, legacy_payload)
 	if not resp.get("ok", false):
 		return resp
 	resp["coverage"] = _parse_coverage_tile(resp["payload"])
 	return resp
 
 func get_strand_coverage_tile(chr_id: int, zoom: int, tile_index: int, source_id: int = 0) -> Dictionary:
-	var payload := PackedByteArray()
-	payload.resize(9)
-	payload.encode_u16(0, source_id)
-	payload.encode_u16(2, chr_id)
-	payload[4] = zoom
-	payload.encode_u32(5, tile_index)
+	var payload := _encode_source_tile_payload(source_id, chr_id, zoom, tile_index)
 	var resp := _send_request(MSG_GET_STRAND_COVERAGE_TILE, payload)
 	if not resp.get("ok", false):
 		return resp
@@ -303,11 +295,7 @@ func get_annotation_tile(chr_id: int, zoom: int, tile_index: int, max_records: i
 	return resp
 
 func get_stop_codon_tile(chr_id: int, zoom: int, tile_index: int) -> Dictionary:
-	var payload := PackedByteArray()
-	payload.resize(7)
-	payload.encode_u16(0, chr_id)
-	payload[2] = zoom
-	payload.encode_u32(3, tile_index)
+	var payload := _encode_tile_payload(chr_id, zoom, tile_index)
 	var resp := _send_request(MSG_GET_STOP_CODON_TILE, payload)
 	if not resp.get("ok", false):
 		return resp
@@ -315,13 +303,7 @@ func get_stop_codon_tile(chr_id: int, zoom: int, tile_index: int) -> Dictionary:
 	return resp
 
 func load_variant_file(path: String) -> Dictionary:
-	var path_bytes := path.to_utf8_buffer()
-	var payload := PackedByteArray()
-	payload.resize(2 + path_bytes.size())
-	payload.encode_u16(0, path_bytes.size())
-	for i in range(path_bytes.size()):
-		payload[2 + i] = path_bytes[i]
-	var resp := _send_request(MSG_LOAD_VARIANT_FILE, payload, LOAD_TIMEOUT_MS)
+	var resp := _send_request(MSG_LOAD_VARIANT_FILE, _encode_string_payload(path), LOAD_TIMEOUT_MS)
 	if not resp.get("ok", false):
 		return resp
 	var payload_bytes: PackedByteArray = resp.get("payload", PackedByteArray())
@@ -337,12 +319,7 @@ func list_variant_sources() -> Dictionary:
 	return resp
 
 func get_variant_tile(source_id: int, chr_id: int, zoom: int, tile_index: int) -> Dictionary:
-	var payload := PackedByteArray()
-	payload.resize(9)
-	payload.encode_u16(0, source_id)
-	payload.encode_u16(2, chr_id)
-	payload[4] = zoom
-	payload.encode_u32(5, tile_index)
+	var payload := _encode_source_tile_payload(source_id, chr_id, zoom, tile_index)
 	var resp := _send_request(MSG_GET_VARIANT_TILE, payload)
 	if not resp.get("ok", false):
 		return resp
@@ -382,15 +359,7 @@ func get_reference_slice(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
 	return resp
 
 func search_dna_exact(chr_id: int, pattern: String, include_revcomp: bool, max_hits: int = 5000) -> Dictionary:
-	var pattern_bytes := pattern.to_upper().to_utf8_buffer()
-	var payload := PackedByteArray()
-	payload.resize(7 + pattern_bytes.size())
-	payload.encode_u16(0, chr_id)
-	payload.encode_u16(2, max(1, min(max_hits, 65535)))
-	payload[4] = 1 if include_revcomp else 0
-	payload.encode_u16(5, pattern_bytes.size())
-	for i in range(pattern_bytes.size()):
-		payload[7 + i] = pattern_bytes[i]
+	var payload := _encode_dna_search_payload(chr_id, pattern, include_revcomp, max_hits)
 	var resp := _send_request(MSG_SEARCH_DNA_EXACT, payload)
 	if not resp.get("ok", false):
 		return resp
@@ -398,15 +367,7 @@ func search_dna_exact(chr_id: int, pattern: String, include_revcomp: bool, max_h
 	return resp
 
 func search_comparison_dna_exact(genome_id: int, pattern: String, include_revcomp: bool, max_hits: int = 5000) -> Dictionary:
-	var pattern_bytes := pattern.to_upper().to_utf8_buffer()
-	var payload := PackedByteArray()
-	payload.resize(7 + pattern_bytes.size())
-	payload.encode_u16(0, genome_id)
-	payload.encode_u16(2, max(1, min(max_hits, 65535)))
-	payload[4] = 1 if include_revcomp else 0
-	payload.encode_u16(5, pattern_bytes.size())
-	for i in range(pattern_bytes.size()):
-		payload[7 + i] = pattern_bytes[i]
+	var payload := _encode_dna_search_payload(genome_id, pattern, include_revcomp, max_hits)
 	var resp := _send_request(MSG_SEARCH_COMPARISON_DNA_EXACT, payload)
 	if not resp.get("ok", false):
 		return resp
@@ -442,26 +403,14 @@ func get_server_version() -> Dictionary:
 	return resp
 
 func generate_test_data(root_dir: String) -> Dictionary:
-	var root_bytes := root_dir.to_utf8_buffer()
-	var payload := PackedByteArray()
-	payload.resize(2 + root_bytes.size())
-	payload.encode_u16(0, root_bytes.size())
-	for i in range(root_bytes.size()):
-		payload[2 + i] = root_bytes[i]
-	var resp := _send_request(MSG_GENERATE_TEST_DATA, payload, LOAD_TIMEOUT_MS)
+	var resp := _send_request(MSG_GENERATE_TEST_DATA, _encode_string_payload(root_dir), LOAD_TIMEOUT_MS)
 	if not resp.get("ok", false):
 		return resp
 	resp["files"] = _parse_string_list(resp.get("payload", PackedByteArray()))
 	return resp
 
 func add_comparison_genome(path: String) -> Dictionary:
-	var path_bytes := path.to_utf8_buffer()
-	var payload := PackedByteArray()
-	payload.resize(2 + path_bytes.size())
-	payload.encode_u16(0, path_bytes.size())
-	for i in range(path_bytes.size()):
-		payload[2 + i] = path_bytes[i]
-	var resp := _send_request(MSG_ADD_COMPARISON_GENOME, payload, LOAD_TIMEOUT_MS)
+	var resp := _send_request(MSG_ADD_COMPARISON_GENOME, _encode_string_payload(path), LOAD_TIMEOUT_MS)
 	if not resp.get("ok", false):
 		return resp
 	var genomes := _parse_comparison_genomes(resp.get("payload", PackedByteArray()))
@@ -557,22 +506,10 @@ func get_comparison_block_detail(query_genome_id: int, target_genome_id: int, bl
 	return resp
 
 func save_comparison_session(path: String) -> Dictionary:
-	var path_bytes := path.to_utf8_buffer()
-	var payload := PackedByteArray()
-	payload.resize(2 + path_bytes.size())
-	payload.encode_u16(0, path_bytes.size())
-	for i in range(path_bytes.size()):
-		payload[2 + i] = path_bytes[i]
-	return _send_request(MSG_SAVE_COMPARISON_SESSION, payload, LOAD_TIMEOUT_MS)
+	return _send_request(MSG_SAVE_COMPARISON_SESSION, _encode_string_payload(path), LOAD_TIMEOUT_MS)
 
 func load_comparison_session(path: String) -> Dictionary:
-	var path_bytes := path.to_utf8_buffer()
-	var payload := PackedByteArray()
-	payload.resize(2 + path_bytes.size())
-	payload.encode_u16(0, path_bytes.size())
-	for i in range(path_bytes.size()):
-		payload[2 + i] = path_bytes[i]
-	return _send_request(MSG_LOAD_COMPARISON_SESSION, payload, LOAD_TIMEOUT_MS)
+	return _send_request(MSG_LOAD_COMPARISON_SESSION, _encode_string_payload(path), LOAD_TIMEOUT_MS)
 
 func reset_comparison_state() -> Dictionary:
 	return _send_request(MSG_RESET_COMPARISON_STATE, PackedByteArray(), LOAD_TIMEOUT_MS)
@@ -648,13 +585,7 @@ func move_comparison_segment(genome_id: int, segment_start_bp: int, move_action:
 	return resp
 
 func generate_comparison_test_data(root_dir: String) -> Dictionary:
-	var root_bytes := root_dir.to_utf8_buffer()
-	var payload := PackedByteArray()
-	payload.resize(2 + root_bytes.size())
-	payload.encode_u16(0, root_bytes.size())
-	for i in range(root_bytes.size()):
-		payload[2 + i] = root_bytes[i]
-	var resp := _send_request(MSG_GENERATE_COMPARISON_TEST_DATA, payload, LOAD_TIMEOUT_MS)
+	var resp := _send_request(MSG_GENERATE_COMPARISON_TEST_DATA, _encode_string_payload(root_dir), LOAD_TIMEOUT_MS)
 	if not resp.get("ok", false):
 		return resp
 	resp["files"] = _parse_string_list(resp.get("payload", PackedByteArray()))
