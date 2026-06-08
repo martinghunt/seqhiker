@@ -75,6 +75,7 @@ class FakeHost:
 	var sound_count := 0
 	var slide_count := 0
 	var fetch_count := 0
+	var filter_change_count := 0
 
 	func _track_label_for_id(track_id: String) -> String:
 		return "Reads" if track_id.begins_with("reads:") else track_id
@@ -105,6 +106,9 @@ class FakeHost:
 
 	func _schedule_fetch() -> void:
 		fetch_count += 1
+
+	func _on_read_track_filter_changed() -> void:
+		filter_change_count += 1
 
 	func _slide_feature_panel(_open: bool, _animated: bool) -> void:
 		slide_count += 1
@@ -216,7 +220,7 @@ func test_read_filter_toggle_updates_track_and_fetches() -> void:
 	paired_cb.button_pressed = true
 
 	assert_true((int(host._bam_tracks[0].get("hidden_flags", 0)) & 1) != 0)
-	assert_eq(host.fetch_count, 1)
+	assert_eq(host.filter_change_count, 1)
 
 
 func test_reopening_same_track_closes_panel() -> void:

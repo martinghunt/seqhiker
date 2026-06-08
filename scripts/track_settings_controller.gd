@@ -161,7 +161,7 @@ func _add_read_filter_options(track_id: String, track_meta: Dictionary, dynamic_
 		flag_cb.toggled.connect(func(enabled: bool) -> void:
 			host._play_toggle_sound(enabled)
 			_set_read_track_hidden_flag(track_id, flag_bit, enabled)
-			host._schedule_fetch()
+			host._on_read_track_filter_changed()
 		)
 		dynamic_options.add_child(flag_cb)
 		if flag_bit == 2:
@@ -179,7 +179,7 @@ func _add_read_filter_bool_option(dynamic_options: VBoxContainer, track_id: Stri
 	cb.toggled.connect(func(enabled: bool) -> void:
 		host._play_toggle_sound(enabled)
 		_set_read_track_value(track_id, key, enabled)
-		host._schedule_fetch()
+		host._on_read_track_filter_changed()
 	)
 	dynamic_options.add_child(cb)
 

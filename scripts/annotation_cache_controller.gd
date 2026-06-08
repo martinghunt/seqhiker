@@ -165,7 +165,7 @@ func prefetch_visible_target(start_bp: int, end_bp: int, bp_per_px: float) -> vo
 
 func update_detailed_read_strips(start_bp: int, end_bp: int, bp_per_px: float) -> void:
 	if not detailed_read_strips_enabled(bp_per_px):
-		_reset_read_strips()
+		invalidate_read_strips()
 		return
 	_ensure_read_strip_scope(bp_per_px)
 	if _strip_range_fully_covered(start_bp, end_bp):
@@ -185,6 +185,16 @@ func prefetch_detailed_read_target(start_bp: int, end_bp: int, bp_per_px: float)
 func cancel_visible_requests() -> void:
 	_visible_pending_requests.clear()
 	_latest_visible_serial = -1
+
+
+func invalidate_read_strips() -> void:
+	_strip_segments.clear()
+	_strip_zoom = -1
+	_strip_scope_key = ""
+	_strip_generation = -1
+	_strip_left_pending = false
+	_strip_right_pending = false
+	_strip_pending_requests.clear()
 
 
 func cancel_all_requests() -> void:
@@ -220,7 +230,7 @@ func _ensure_read_strip_scope(bp_per_px: float) -> void:
 	var zoom: int = int(host._compute_tile_zoom(bp_per_px))
 	var scope_key: String = str(host._scope_cache_key())
 	if zoom != _strip_zoom or scope_key != _strip_scope_key or host._tile_cache_generation != _strip_generation:
-		_reset_read_strips()
+		invalidate_read_strips()
 		_strip_zoom = zoom
 		_strip_scope_key = scope_key
 		_strip_generation = host._tile_cache_generation

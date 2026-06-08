@@ -1849,19 +1849,31 @@ func _update_window_min_height() -> void:
 	if w != null:
 		w.min_size.y = maxi(200, ceili(min_h))
 
-func _update_active_bam_track(mutator: Callable) -> void:
+func _mutate_active_bam_track(mutator: Callable) -> bool:
 	if not _active_track_settings_id.begins_with("reads:"):
-		return
+		return false
 	for i in range(_bam_tracks.size()):
 		var t: Dictionary = _bam_tracks[i]
 		if str(t.get("track_id", "")) != _active_track_settings_id:
 			continue
 		mutator.call(t)
 		_bam_tracks[i] = t
-		if _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
-			_annotation_cache_controller.apply_detailed_read_span(_last_start, _last_end, _last_bp_per_px)
-		_schedule_fetch()
+		return true
+	return false
+
+
+func _update_active_bam_track(mutator: Callable) -> void:
+	if not _mutate_active_bam_track(mutator):
 		return
+	if _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
+		_annotation_cache_controller.apply_detailed_read_span(_last_start, _last_end, _last_bp_per_px)
+	_schedule_fetch()
+
+
+func _update_active_bam_filter(mutator: Callable) -> void:
+	if not _mutate_active_bam_track(mutator):
+		return
+	_on_read_track_filter_changed()
 
 func _on_active_read_track_view_selected(index: int) -> void:
 	if _read_track_settings_panel == null:
@@ -1914,7 +1926,7 @@ func _on_active_read_track_max_rows_changed(value: float) -> void:
 	)
 
 func _on_active_read_track_min_mapq_changed(value: float) -> void:
-	_update_active_bam_track(func(t: Dictionary) -> void:
+	_update_active_bam_filter(func(t: Dictionary) -> void:
 		t["min_mapq"] = clampi(int(round(value)), 0, 255)
 	)
 
@@ -2967,6 +2979,16 @@ func _annotation_min_feature_len_bp() -> int:
 
 func _schedule_fetch() -> void:
 	_annotation_cache_controller.schedule_fetch()
+
+
+func _on_read_track_filter_changed() -> void:
+	_invalidate_viewport_cache()
+	if _annotation_cache_controller != null:
+		_annotation_cache_controller.invalidate_read_strips()
+		if _annotation_cache_controller.detailed_read_strips_enabled(_last_bp_per_px):
+			_annotation_cache_controller.update_detailed_read_strips(_last_start, _last_end, _last_bp_per_px)
+	_schedule_fetch()
+
 
 func _on_fetch_timer_timeout() -> void:
 	_annotation_cache_controller.on_fetch_timer_timeout()
