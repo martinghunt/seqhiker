@@ -384,7 +384,7 @@ func _sync_track_rows() -> void:
 		close_button.focus_mode = Control.FOCUS_NONE
 		grab_button.focus_mode = Control.FOCUS_NONE
 		settings_button.focus_mode = Control.FOCUS_NONE
-		grab_button.mouse_default_cursor_shape = Control.CURSOR_MOVE
+		grab_button.mouse_default_cursor_shape = Control.CURSOR_VSIZE
 		close_button.pressed.connect(_on_track_close_pressed.bind(track_id))
 		grab_button.button_down.connect(_on_track_grab_button_down.bind(track_id))
 		settings_button.pressed.connect(_on_track_settings_pressed.bind(track_id))

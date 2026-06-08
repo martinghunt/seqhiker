@@ -67,7 +67,7 @@ func _ready() -> void:
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	axis_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bottom_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	drag_button.mouse_default_cursor_shape = Control.CURSOR_MOVE
+	drag_button.mouse_default_cursor_shape = Control.CURSOR_VSIZE
 	drag_button.button_down.connect(func() -> void:
 		emit_signal("drag_started", _genome_id)
 	)

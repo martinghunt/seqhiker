@@ -43,7 +43,6 @@ custom_minimum_size = Vector2(30, 30)
 layout_mode = 2
 size_flags_vertical = 4
 focus_mode = 0
-mouse_default_cursor_shape = 7
 theme_override_fonts/font = ExtResource("1_font")
 text = "S"
 

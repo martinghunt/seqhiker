@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Various changes to the whole genome alignment used in comparison mode. Improves speed, lower memory, and better handling of repeats and other edge cases
 
 ### Fixed
+- Track and comparison reorder buttons now show an up/down mouse cursor instead of a four-way move cursor.
 - Changing read filters now updates detailed reads immediately, without needing to pan or zoom first.
 - Old background requests are less likely to show stale errors after moving to a new region.
 - Detailed read view now fills in missing regions more reliably when navigating around.
