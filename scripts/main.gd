@@ -2968,6 +2968,8 @@ func _inspect_dropped_files(files: PackedStringArray) -> Dictionary:
 	return _session_loader.inspect_dropped_files(files)
 
 func _exit_tree() -> void:
+	if _local_zem_manager != null:
+		_local_zem_manager.shutdown_on_exit()
 	if _tile_controller != null:
 		_tile_controller.shutdown()
 	if _comparison_controller != null and _comparison_controller.has_method("shutdown"):
@@ -2985,8 +2987,10 @@ func _exit_tree() -> void:
 		_startup_zem_prepare_thread.wait_to_finish()
 		_startup_zem_prepare_thread = null
 	if _startup_zem_connect_thread != null and _startup_zem_connect_thread.is_started():
-		_startup_zem_connect_thread.wait_to_finish()
+		var startup_connect_result: Variant = _startup_zem_connect_thread.wait_to_finish()
 		_startup_zem_connect_thread = null
+		if startup_connect_result is Dictionary:
+			_adopt_startup_local_zem_result(startup_connect_result)
 	if _local_zem_manager != null:
 		_local_zem_manager.shutdown_on_exit()
 
