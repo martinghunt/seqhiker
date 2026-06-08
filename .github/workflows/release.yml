@@ -56,7 +56,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Verify release tag matches project version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -77,7 +77,7 @@ jobs:
           fi
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: zem/go.mod
 
@@ -125,7 +125,7 @@ jobs:
             --godot-bin /tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.preset }}-${{ env.EXPORT_MODE }}
           path: ${{ matrix.output }}
@@ -149,7 +149,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Verify release tag matches project version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -170,7 +170,7 @@ jobs:
           fi
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: zem/go.mod
 
@@ -200,7 +200,7 @@ jobs:
             --godot-bin /tmp/godot/Godot.app/Contents/MacOS/Godot
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.preset }}-${{ env.EXPORT_MODE }}
           path: ${{ matrix.output }}
@@ -215,13 +215,13 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
 
       - name: Download built artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
 
@@ -257,7 +257,7 @@ jobs:
           find release-assets -type f -exec sha256sum {} \; | sed 's#  release-assets/##' > release-assets/SHA256SUMS.txt
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: ${{ steps.release_title.outputs.title }}
           body: ""

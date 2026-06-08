@@ -21,10 +21,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: zem/go.mod
 
@@ -41,6 +41,9 @@ jobs:
 
       - name: Headless Godot editor load check
         run: /tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 --headless --path . --editor --quit
+
+      - name: Headless Godot unit tests
+        run: GODOT_BIN=/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 bash tests/godot/run_tests.sh
 
       - name: Headless Godot startup smoke test
         run: /tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 --headless --path . --quit-after 1
