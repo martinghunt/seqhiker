@@ -43,16 +43,7 @@ func _draw_set_transform_on(target, offset: Vector2, rotation: float, scale: Vec
 
 
 func _display_start_bp_at(render_start_bp: float, render_bp_per_px: float, render_width_px: float = -1.0) -> float:
-	if render_bp_per_px <= 0.0:
-		return view._current_display_start_bp()
-	var width_px := render_width_px
-	if width_px <= 0.0:
-		width_px = maxf(1.0, view.size.x - view.TRACK_LEFT_PAD - view.TRACK_RIGHT_PAD)
-	var raw := view._display_bp_for_genome_bp(render_start_bp)
-	if render_start_bp <= 0.0001:
-		raw -= view._display_leading_pad_bp
-	var max_display_start := maxf(0.0, view._display_total_length_bp() - width_px * render_bp_per_px)
-	return clampf(raw, 0.0, max_display_start)
+	return view._display_start_bp_at(render_start_bp, render_bp_per_px, render_width_px)
 
 
 func _viewport_start_bp_at(render_start_bp: float, render_bp_per_px: float) -> float:
