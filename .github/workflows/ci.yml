@@ -42,5 +42,8 @@ jobs:
       - name: Headless Godot editor load check
         run: /tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 --headless --path . --editor --quit
 
+      - name: Headless Godot unit tests
+        run: GODOT_BIN=/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 bash tests/godot/run_tests.sh
+
       - name: Headless Godot startup smoke test
         run: /tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 --headless --path . --quit-after 1
