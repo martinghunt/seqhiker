@@ -241,12 +241,6 @@ func drain_tile_fetch_result() -> void:
 	if kind == "read_strip":
 		_handle_read_strip_result(serial, tile_resp)
 		return
-	if not tile_resp.get("ok", false):
-		host._set_status(str(tile_resp.get("error", "Tile fetch failed")), true)
-		host._fetch_in_progress = false
-		if host._fetch_pending:
-			host._fetch_timer.start()
-		return
 	var visible_req: Dictionary = _visible_pending_requests.get(serial, {})
 	if visible_req.is_empty():
 		host._fetch_in_progress = false
@@ -255,6 +249,12 @@ func drain_tile_fetch_result() -> void:
 		return
 	_visible_pending_requests.erase(serial)
 	if serial != _latest_visible_serial:
+		host._fetch_in_progress = false
+		if host._fetch_pending:
+			host._fetch_timer.start()
+		return
+	if not tile_resp.get("ok", false):
+		host._set_status(str(tile_resp.get("error", "Tile fetch failed")), true)
 		host._fetch_in_progress = false
 		if host._fetch_pending:
 			host._fetch_timer.start()
