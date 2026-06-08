@@ -16,6 +16,22 @@ func configure(zem_client: RefCounted, bin_subdir: String) -> void:
 func last_error() -> String:
 	return _last_connect_error
 
+func local_zem_pid() -> int:
+	return _local_zem_pid
+
+func local_zem_started_by_seqhiker() -> bool:
+	return _local_zem_started_by_seqhiker
+
+func adopt_local_zem_process(pid: int, started_by_seqhiker: bool) -> void:
+	if not started_by_seqhiker or pid <= 0:
+		return
+	_local_zem_pid = pid
+	_local_zem_started_by_seqhiker = true
+
+func disconnect_from_server() -> void:
+	if _zem != null:
+		_zem.disconnect_from_server()
+
 func should_try_local(host: String) -> bool:
 	var h := host.to_lower()
 	return h == "127.0.0.1" or h == "localhost" or h == "::1"
@@ -117,11 +133,14 @@ func ensure_local_zem_installed() -> bool:
 func shutdown_on_exit() -> void:
 	if not _local_zem_started_by_seqhiker:
 		return
+	var pid := _local_zem_pid
+	_local_zem_started_by_seqhiker = false
+	_local_zem_pid = -1
 	var shutdown_ok := false
 	var resp: Dictionary = _zem.shutdown_server(400)
 	shutdown_ok = bool(resp.get("ok", false))
-	if not shutdown_ok and _local_zem_pid > 0:
-		OS.kill(_local_zem_pid)
+	if not shutdown_ok and pid > 0:
+		OS.kill(pid)
 	_zem.disconnect_from_server()
 
 func _probe_zem_ready() -> Dictionary:
