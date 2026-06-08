@@ -14,6 +14,7 @@ const AnnotationRendererScript = preload("res://scripts/annotation_renderer.gd")
 const FeatureAnnotationUtilsScript = preload("res://scripts/feature_annotation_utils.gd")
 const SVGCanvasScript = preload("res://scripts/svg_canvas.gd")
 const MotionReadLayerScript = preload("res://scripts/motion_read_layer.gd")
+const GenomeDisplayMapperScript = preload("res://scripts/genome_display_mapper.gd")
 const DETAILED_READ_MAX_BP_PER_PX := 48.0
 
 signal viewport_changed(start_bp: int, end_bp: int, bp_per_px: float)
@@ -242,10 +243,7 @@ var _read_loading_message := ""
 var _empty_state_status := ""
 var _map_drag_active := false
 var _map_drag_bp_offset := 0.0
-var _display_leading_pad_bp := 0.0
-var _display_trailing_pad_bp := 0.0
-var _display_gap_overrides: Array[Dictionary] = []
-var _display_total_bp := 50000.0
+var _display_mapper: RefCounted = GenomeDisplayMapperScript.new()
 
 func _ready() -> void:
 	clip_contents = true
@@ -1148,9 +1146,7 @@ func _clamp_start(next_start: float) -> float:
 	var plot_w := _plot_width()
 	if plot_w <= 0:
 		return maxf(0.0, next_start)
-	var max_display_start := maxf(0.0, _display_total_length_bp() - plot_w * bp_per_px)
-	var next_display := _display_bp_for_genome_bp(clampf(next_start, 0.0, float(chromosome_length)))
-	return _display_bp_to_genome_bp(clampf(next_display, 0.0, max_display_start))
+	return _display_mapper.clamp_view_start(next_start, bp_per_px, plot_w)
 
 func _emit_viewport_changed() -> void:
 	var end_bp := int(minf(float(chromosome_length), _viewport_end_bp()))
@@ -2667,42 +2663,28 @@ func _x_to_bp_edge(x: float) -> int:
 
 
 func _current_display_start_bp() -> float:
-	var plot_w := _plot_width()
-	var raw := _display_bp_for_genome_bp(view_start_bp)
-	if view_start_bp <= 0.0001:
-		raw -= _display_leading_pad_bp
-	var max_display_start := maxf(0.0, _display_total_length_bp() - plot_w * bp_per_px)
-	return clampf(raw, 0.0, max_display_start)
+	return _display_mapper.display_start_bp_for_view(view_start_bp, bp_per_px, _plot_width())
+
+
+func _display_start_bp_at(render_start_bp: float, render_bp_per_px: float, render_width_px: float = -1.0) -> float:
+	if render_bp_per_px <= 0.0:
+		return _current_display_start_bp()
+	var width_px := render_width_px
+	if width_px <= 0.0:
+		width_px = _plot_width()
+	return _display_mapper.display_start_bp_for_view(render_start_bp, render_bp_per_px, width_px)
 
 
 func _display_total_length_bp() -> float:
-	return maxf(_display_total_bp, float(chromosome_length))
+	return _display_mapper.display_total_length_bp()
 
 
 func _display_bp_for_genome_bp(bp: float) -> float:
-	var out := clampf(bp, 0.0, float(chromosome_length)) + _display_leading_pad_bp
-	for gap_any in _display_gap_overrides:
-		var gap: Dictionary = gap_any
-		var next_start := float(gap.get("next_start", 0.0))
-		if bp >= next_start:
-			out += float(gap.get("extra_bp", 0.0))
-	return out
+	return _display_mapper.display_bp_for_genome_bp(bp)
 
 
 func _display_bp_to_genome_bp(display_bp: float) -> float:
-	var remaining := clampf(display_bp, 0.0, _display_total_length_bp()) - _display_leading_pad_bp
-	if remaining <= 0.0:
-		return 0.0
-	for gap_any in _display_gap_overrides:
-		var gap: Dictionary = gap_any
-		var next_start := float(gap.get("next_start", 0.0))
-		var extra_bp := float(gap.get("extra_bp", 0.0))
-		if remaining < next_start:
-			return clampf(remaining, 0.0, float(chromosome_length))
-		remaining -= extra_bp
-		if remaining < next_start:
-			return clampf(next_start, 0.0, float(chromosome_length))
-	return clampf(remaining, 0.0, float(chromosome_length))
+	return _display_mapper.genome_bp_for_display_bp(display_bp)
 
 
 func _visible_soft_clip_tracks() -> Array[Dictionary]:
@@ -2728,70 +2710,7 @@ func _visible_soft_clip_tracks() -> Array[Dictionary]:
 
 
 func _recompute_display_padding() -> void:
-	_display_leading_pad_bp = 0.0
-	_display_trailing_pad_bp = 0.0
-	_display_gap_overrides.clear()
-	_display_total_bp = float(max(chromosome_length, 1))
-	var soft_clip_tracks := _visible_soft_clip_tracks()
-	if soft_clip_tracks.is_empty():
-		return
-	if concat_segments.is_empty():
-		for entry_any in soft_clip_tracks:
-			var entry: Dictionary = entry_any
-			for read_any in entry.get("reads", []):
-				var read: Dictionary = read_any
-				var read_start := int(read.get("start", 0))
-				var read_end := int(read.get("end", read_start))
-				if read_start <= 0:
-					_display_leading_pad_bp = maxf(_display_leading_pad_bp, float(str(read.get("soft_clip_left", "")).length()))
-				if read_end >= chromosome_length:
-					_display_trailing_pad_bp = maxf(_display_trailing_pad_bp, float(str(read.get("soft_clip_right", "")).length()))
-		_display_total_bp = float(chromosome_length) + _display_leading_pad_bp + _display_trailing_pad_bp
-		return
-	var left_overhangs: Dictionary = {}
-	var right_overhangs: Dictionary = {}
-	for seg_any in concat_segments:
-		var seg: Dictionary = seg_any
-		var seg_id := int(seg.get("id", -1))
-		left_overhangs[seg_id] = 0.0
-		right_overhangs[seg_id] = 0.0
-	for entry_any in soft_clip_tracks:
-		var entry: Dictionary = entry_any
-		for read_any in entry.get("reads", []):
-			var read: Dictionary = read_any
-			var read_start := int(read.get("start", 0))
-			var read_end := int(read.get("end", read_start))
-			var left_clip := float(str(read.get("soft_clip_left", "")).length())
-			var right_clip := float(str(read.get("soft_clip_right", "")).length())
-			for seg_any in concat_segments:
-				var seg: Dictionary = seg_any
-				var seg_id := int(seg.get("id", -1))
-				var seg_start := int(seg.get("start", 0))
-				var seg_end := int(seg.get("end", seg_start))
-				if left_clip > 0.0 and read_start <= seg_start:
-					left_overhangs[seg_id] = maxf(float(left_overhangs.get(seg_id, 0.0)), left_clip)
-				if right_clip > 0.0 and read_end >= seg_end:
-					right_overhangs[seg_id] = maxf(float(right_overhangs.get(seg_id, 0.0)), right_clip)
-	for i in range(concat_segments.size()):
-		var seg: Dictionary = concat_segments[i]
-		var seg_id := int(seg.get("id", -1))
-		if i == 0:
-			_display_leading_pad_bp = float(left_overhangs.get(seg_id, 0.0))
-		if i == concat_segments.size() - 1:
-			_display_trailing_pad_bp = float(right_overhangs.get(seg_id, 0.0))
-			continue
-		var next_seg: Dictionary = concat_segments[i + 1]
-		var next_id := int(next_seg.get("id", -1))
-		var seg_end := float(seg.get("end", 0))
-		var next_start := float(next_seg.get("start", seg_end))
-		var genome_gap := maxf(0.0, next_start - seg_end)
-		var needed_gap := float(right_overhangs.get(seg_id, 0.0)) + float(left_overhangs.get(next_id, 0.0))
-		var extra_gap := maxf(0.0, needed_gap - genome_gap)
-		if extra_gap > 0.0:
-			_display_gap_overrides.append({"next_start": next_start, "extra_bp": extra_gap})
-	_display_total_bp = float(chromosome_length) + _display_leading_pad_bp + _display_trailing_pad_bp
-	for gap_any in _display_gap_overrides:
-		_display_total_bp += float((gap_any as Dictionary).get("extra_bp", 0.0))
+	_display_mapper.recompute(chromosome_length, _visible_soft_clip_tracks(), concat_segments)
 
 func _nice_tick(raw: float) -> float:
 	if raw <= 0.0:
