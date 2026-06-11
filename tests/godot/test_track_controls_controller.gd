@@ -140,6 +140,8 @@ func test_setup_adds_vcf_control_and_populates_order_list() -> void:
 
 	assert_ne(host._track_visibility_vcf, null)
 	assert_eq(host._track_order_label.text, "Track Visibility")
+	assert_eq(host._track_visibility_vcf.text, " VCF")
+	assert_eq(host._track_visibility_vcf.get_parent(), host._track_visibility_box)
 	assert_eq(host._track_order_list.item_count, host.genome_view.order.size())
 	assert_true(host._track_visibility_vcf.visible)
 
@@ -151,6 +153,8 @@ func test_unavailable_vcf_and_depth_controls_are_disabled_or_hidden() -> void:
 	controller.refresh_track_visibility_controls(host.genome_view.get_track_order())
 
 	assert_false(host._track_visibility_vcf.visible)
+	assert_eq(host._track_visibility_vcf.text, " VCF")
+	assert_eq(host._track_visibility_vcf.get_parent(), host._track_visibility_box)
 	assert_false(host.genome_view.is_track_visible(host.TRACK_VCF))
 	assert_true(host._track_visibility_depth_plot.disabled)
 	assert_false(host.genome_view.is_track_visible(host.TRACK_DEPTH_PLOT))

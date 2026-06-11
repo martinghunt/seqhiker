@@ -18,7 +18,10 @@ func setup() -> void:
 	host._track_visibility_box.add_theme_constant_override("separation", 4)
 	if host._track_visibility_vcf == null:
 		host._track_visibility_vcf = CheckButton.new()
-		host._track_visibility_vcf.text = "Show VCF Track"
+	host._track_visibility_vcf.text = " VCF"
+	if host._track_visibility_vcf.get_parent() != host._track_visibility_box:
+		if host._track_visibility_vcf.get_parent() != null:
+			host._track_visibility_vcf.get_parent().remove_child(host._track_visibility_vcf)
 		host._track_visibility_box.add_child(host._track_visibility_vcf)
 	_connect_track_visibility_toggle(host._track_visibility_aa, host.TRACK_AA)
 	_connect_track_visibility_toggle(host._track_visibility_genome, host.TRACK_GENOME)

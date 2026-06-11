@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Position of colour nucleotides by base in the settings menu
 - Various fixes to the backend to better handle if seqhiker crashes or is force quit
 - Reordering genomes in comparison mode no longer recomputes unchanged adjacent comparisons, including comparisons with no matches.
+- Position/text of VCF track toggle in settings panel
 
 ## [1.1.0] - "Hooloovoo Blue" - 2026-04-18
 
