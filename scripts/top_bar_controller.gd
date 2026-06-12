@@ -305,6 +305,7 @@ func apply_topbar_button_font_size() -> void:
 	var topbar_button_size := Vector2(topbar_font_size + 14, topbar_font_size + 14)
 	var topbar_buttons := [
 		host.settings_toggle_button,
+		host.open_file_button,
 		host.comparison_button,
 		host.comparison_save_button,
 		host.comparison_clear_button,

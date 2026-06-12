@@ -105,6 +105,7 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var _settings_header: HBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsHeader
 @onready var top_bar: HBoxContainer = $Root/TopBar
 @onready var settings_toggle_button: Button = $Root/TopBar/SettingsToggleButton
+@onready var open_file_button: Button = $Root/TopBar/ActionClipper/ActionStrip/OpenFileButton
 @onready var screenshot_button: Button = $Root/TopBar/ActionClipper/ActionStrip/ScreenshotButton
 @onready var search_button: Button = $Root/TopBar/ActionClipper/ActionStrip/SearchButton
 @onready var go_button: Button = $Root/TopBar/ActionClipper/ActionStrip/GoButton
@@ -218,6 +219,8 @@ var _download_action_button: Button
 var _download_status_label: RichTextLabel
 var _download_thread: Thread
 var _download_in_progress := false
+var _open_file_dialog: FileDialog
+var _open_file_last_dir := ""
 var _screenshot_dialog: FileDialog
 var _comparison_save_dialog: FileDialog
 var _startup_zem_prepare_thread: Thread
@@ -423,12 +426,39 @@ func _ready() -> void:
 	call_deferred("_startup_connect_local_zem")
 	if get_window().has_signal("files_dropped"):
 		get_window().files_dropped.connect(_on_files_dropped)
+	_setup_open_file_dialog()
 	if screenshot_button != null:
 		screenshot_button.pressed.connect(_on_screenshot_pressed)
 	_setup_screenshot_dialog()
 	_setup_comparison_save_dialog()
 	_comparison_controller.configure(self, _zem, _themes_lib, comparison_view)
 	_comparison_controller.setup()
+
+func _setup_open_file_dialog() -> void:
+	_open_file_dialog = FileDialog.new()
+	_open_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILES
+	_open_file_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_open_file_dialog.use_native_dialog = true
+	_open_file_dialog.title = "Open Genome Files"
+	_open_file_last_dir = _user_home_dir()
+	_open_file_dialog.current_dir = _open_file_last_dir
+	_open_file_dialog.files_selected.connect(_on_open_files_selected)
+	if _open_file_dialog.has_signal("canceled"):
+		_open_file_dialog.connect("canceled", Callable(self, "_remember_open_file_dialog_dir"))
+	add_child(_open_file_dialog)
+
+func _user_home_dir() -> String:
+	var home := OS.get_environment("HOME")
+	if home.is_empty():
+		home = OS.get_environment("USERPROFILE")
+	if home.is_empty():
+		var home_drive := OS.get_environment("HOMEDRIVE")
+		var home_path := OS.get_environment("HOMEPATH")
+		if not home_drive.is_empty() and not home_path.is_empty():
+			home = home_drive + home_path
+	if home.is_empty():
+		home = OS.get_system_dir(OS.SYSTEM_DIR_DESKTOP).get_base_dir()
+	return home
 
 func _setup_screenshot_dialog() -> void:
 	_screenshot_dialog = FileDialog.new()
@@ -582,6 +612,29 @@ func _on_comparison_save_file_selected(path: String) -> void:
 	if _top_bar_controller != null:
 		_top_bar_controller.on_comparison_save_file_selected(path)
 
+func _on_open_file_pressed() -> void:
+	if _open_file_dialog == null:
+		return
+	if open_file_button != null:
+		open_file_button.set_pressed_no_signal(false)
+		open_file_button.release_focus()
+	_open_file_dialog.current_dir = _open_file_last_dir if not _open_file_last_dir.is_empty() else _user_home_dir()
+	_open_file_dialog.popup_centered_ratio(0.7)
+
+func _on_open_files_selected(paths: PackedStringArray) -> void:
+	if paths.is_empty():
+		return
+	var first_path := str(paths[0])
+	if not first_path.is_empty():
+		_open_file_last_dir = first_path.get_base_dir()
+	_on_files_dropped(paths)
+
+func _remember_open_file_dialog_dir() -> void:
+	if _open_file_dialog == null:
+		return
+	if not _open_file_dialog.current_dir.is_empty():
+		_open_file_last_dir = _open_file_dialog.current_dir
+
 func _initialize_settings_panel() -> void:
 	_set_status("Disconnected")
 	genome_view.set_empty_state_status("")
@@ -730,6 +783,7 @@ func _setup_font_size_control() -> void:
 func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
 	close_settings_button.pressed.connect(_close_settings)
+	open_file_button.pressed.connect(_on_open_file_pressed)
 	pan_left_button.pressed.connect(func() -> void:
 		_play_ui_sound(SoundControllerScript.SOUND_PAN_LEFT)
 		if _app_mode == APP_MODE_COMPARISON:
@@ -873,6 +927,7 @@ func _pan_view_by_fraction(fraction: float, duration: float = 0.35, linear: bool
 func _disable_button_focus() -> void:
 	var controls := [
 		settings_toggle_button,
+		open_file_button,
 		comparison_button,
 		comparison_save_button,
 		comparison_clear_button,
