@@ -745,6 +745,65 @@ func TestComparisonDetailTrimsTerminalGapOverhangs(t *testing.T) {
 	}
 }
 
+func TestComparisonRefinedChainTrimsAnchorOverhangs(t *testing.T) {
+	core := uniqueishDNA(360)
+	tests := []struct {
+		name         string
+		queryPrefix  string
+		targetPrefix string
+		queryTail    string
+		targetTail   string
+	}{
+		{name: "query leading tail", queryPrefix: "A"},
+		{name: "target leading tail", targetPrefix: "T"},
+		{name: "query trailing tail", queryTail: "A"},
+		{name: "target trailing tail", targetTail: "T"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			querySeq := tt.queryPrefix + core + tt.queryTail
+			targetSeq := tt.targetPrefix + core + tt.targetTail
+			query := &comparisonGenome{ID: 1, Name: "q", Length: len(querySeq), Sequence: querySeq}
+			target := &comparisonGenome{ID: 2, Name: "t", Length: len(targetSeq), Sequence: targetSeq}
+			lastAnchor := len(core) - comparisonMinimizerK
+			queryAnchorOffset := len(tt.queryPrefix)
+			targetAnchorOffset := len(tt.targetPrefix)
+			chain := comparisonRefinedChain{
+				Summary: ComparisonBlock{
+					QueryStart:  0,
+					QueryEnd:    uint32(len(querySeq)),
+					TargetStart: 0,
+					TargetEnd:   uint32(len(targetSeq)),
+					SameStrand:  true,
+				},
+				OrientedStart: 0,
+				OrientedEnd:   len(targetSeq),
+				Anchors: []comparisonAnchor{
+					{QPos: queryAnchorOffset, TPos: targetAnchorOffset, TTrans: targetAnchorOffset},
+					{QPos: queryAnchorOffset + 80, TPos: targetAnchorOffset + 80, TTrans: targetAnchorOffset + 80},
+					{QPos: queryAnchorOffset + 160, TPos: targetAnchorOffset + 160, TTrans: targetAnchorOffset + 160},
+					{QPos: queryAnchorOffset + 240, TPos: targetAnchorOffset + 240, TTrans: targetAnchorOffset + 240},
+					{QPos: queryAnchorOffset + lastAnchor, TPos: targetAnchorOffset + lastAnchor, TTrans: targetAnchorOffset + lastAnchor},
+				},
+			}
+			if _, ok := comparisonRefinedChainAlignmentCells(chain, false); !ok {
+				t.Fatal("expected anchor overhang to be refinement-feasible")
+			}
+			summary, ok := buildComparisonSummaryFromRefinedChain(query, target, chain)
+			if !ok {
+				t.Fatal("expected anchor overhang to be trimmed from refined summary")
+			}
+			if summary.QueryStart != uint32(queryAnchorOffset) || summary.QueryEnd != uint32(queryAnchorOffset+len(core)) ||
+				summary.TargetStart != uint32(targetAnchorOffset) || summary.TargetEnd != uint32(targetAnchorOffset+len(core)) {
+				t.Fatalf("unexpected trimmed summary: got %+v", summary)
+			}
+			if summary.PercentIdentX100 != 10000 {
+				t.Fatalf("expected exact identity after trimming anchor overhang, got %+v", summary)
+			}
+		})
+	}
+}
+
 func TestComparisonDetailTrimsReverseTerminalGapOverhangs(t *testing.T) {
 	core := uniqueishDNA(1200)
 	extra := "AACCGGTTAACCGGTTAACCGGTT"

@@ -2501,8 +2501,8 @@ func buildComparisonAlignmentStatsFromRefinedChain(query, target *comparisonGeno
 	// allowLargeGaps=true is the on-demand detail path, which is allowed to do
 	// more work to recover dense per-base ops for an inspected block.
 	stats := comparisonAlignmentStats{collectOps: collectOps}
-	coveredQ := chain.Anchors[0].QPos
-	coveredT := chain.Anchors[0].TTrans
+	coveredQ := int(chain.Summary.QueryStart)
+	coveredT := chain.OrientedStart
 	for _, anchor := range chain.Anchors {
 		if anchor.QPos > coveredQ || anchor.TTrans > coveredT {
 			qGapStart := coveredQ
@@ -2513,26 +2513,8 @@ func buildComparisonAlignmentStatsFromRefinedChain(query, target *comparisonGeno
 				return comparisonAlignmentStats{}, false
 			}
 			if qGapEnd > qGapStart || tGapEnd > tGapStart {
-				queryGap := query.Sequence[qGapStart:qGapEnd]
-				targetGap, ok := orientedTargetSlice(target, chain.Summary.SameStrand, tGapStart, tGapEnd)
-				if !ok {
+				if !addComparisonChainGapStats(query, target, chain, qGapStart, qGapEnd, tGapStart, tGapEnd, allowLargeGaps, &stats) {
 					return comparisonAlignmentStats{}, false
-				}
-				if allowLargeGaps {
-					gapOps, ok := alignComparisonGap(queryGap, targetGap)
-					if !ok {
-						return comparisonAlignmentStats{}, false
-					}
-					stats.addOps(gapOps)
-				} else {
-					if max(qGapEnd-qGapStart, tGapEnd-tGapStart) > comparisonRefineGapMaxSpan {
-						return comparisonAlignmentStats{}, false
-					}
-					aln, ok := bandedAffineAlign(queryGap, targetGap, absInt((qGapEnd-qGapStart)-(tGapEnd-tGapStart))+comparisonRefineBandPad)
-					if !ok {
-						return comparisonAlignmentStats{}, false
-					}
-					stats.addOps(aln.Ops)
 				}
 			}
 		}
@@ -2545,10 +2527,50 @@ func buildComparisonAlignmentStatsFromRefinedChain(query, target *comparisonGeno
 			coveredT = matchStartT + matchLen
 		}
 	}
-	if coveredQ != int(chain.Summary.QueryEnd) || coveredT != chain.OrientedEnd {
+	qTailStart := coveredQ
+	qTailEnd := int(chain.Summary.QueryEnd)
+	tTailStart := coveredT
+	tTailEnd := chain.OrientedEnd
+	if qTailEnd < qTailStart || tTailEnd < tTailStart {
 		return comparisonAlignmentStats{}, false
 	}
+	if qTailEnd > qTailStart || tTailEnd > tTailStart {
+		if !addComparisonChainGapStats(query, target, chain, qTailStart, qTailEnd, tTailStart, tTailEnd, allowLargeGaps, &stats) {
+			return comparisonAlignmentStats{}, false
+		}
+	}
 	return stats, true
+}
+
+func addComparisonChainGapStats(query, target *comparisonGenome, chain comparisonRefinedChain, qGapStart, qGapEnd, tGapStart, tGapEnd int, allowLargeGaps bool, stats *comparisonAlignmentStats) bool {
+	if stats == nil || query == nil || target == nil {
+		return false
+	}
+	if qGapStart < 0 || qGapEnd < qGapStart || qGapEnd > len(query.Sequence) {
+		return false
+	}
+	queryGap := query.Sequence[qGapStart:qGapEnd]
+	targetGap, ok := orientedTargetSlice(target, chain.Summary.SameStrand, tGapStart, tGapEnd)
+	if !ok {
+		return false
+	}
+	if allowLargeGaps {
+		gapOps, ok := alignComparisonGap(queryGap, targetGap)
+		if !ok {
+			return false
+		}
+		stats.addOps(gapOps)
+		return true
+	}
+	if max(qGapEnd-qGapStart, tGapEnd-tGapStart) > comparisonRefineGapMaxSpan {
+		return false
+	}
+	aln, ok := bandedAffineAlign(queryGap, targetGap, absInt((qGapEnd-qGapStart)-(tGapEnd-tGapStart))+comparisonRefineBandPad)
+	if !ok {
+		return false
+	}
+	stats.addOps(aln.Ops)
+	return true
 }
 
 func comparisonRefinedChainAlignmentCells(chain comparisonRefinedChain, allowLargeGaps bool) (int64, bool) {
@@ -2556,8 +2578,8 @@ func comparisonRefinedChainAlignmentCells(chain comparisonRefinedChain, allowLar
 		return 0, false
 	}
 	var cells int64
-	coveredQ := chain.Anchors[0].QPos
-	coveredT := chain.Anchors[0].TTrans
+	coveredQ := int(chain.Summary.QueryStart)
+	coveredT := chain.OrientedStart
 	for _, anchor := range chain.Anchors {
 		if anchor.QPos > coveredQ || anchor.TTrans > coveredT {
 			qGapLen := max(anchor.QPos, coveredQ) - coveredQ
@@ -2566,11 +2588,11 @@ func comparisonRefinedChainAlignmentCells(chain comparisonRefinedChain, allowLar
 				return 0, false
 			}
 			if qGapLen > 0 || tGapLen > 0 {
-				if !allowLargeGaps && max(qGapLen, tGapLen) > comparisonRefineGapMaxSpan {
+				gapCells, ok := comparisonChainGapAlignmentCells(qGapLen, tGapLen, allowLargeGaps)
+				if !ok {
 					return 0, false
 				}
-				band := absInt(qGapLen-tGapLen) + comparisonRefineBandPad
-				cells += estimatedBandedAffineCells(qGapLen, tGapLen, band)
+				cells += gapCells
 			}
 		}
 		matchStartQ := max(anchor.QPos, coveredQ)
@@ -2581,10 +2603,30 @@ func comparisonRefinedChainAlignmentCells(chain comparisonRefinedChain, allowLar
 			coveredT = matchStartT + matchLen
 		}
 	}
-	if coveredQ != int(chain.Summary.QueryEnd) || coveredT != chain.OrientedEnd {
+	qTailLen := int(chain.Summary.QueryEnd) - coveredQ
+	tTailLen := chain.OrientedEnd - coveredT
+	if qTailLen < 0 || tTailLen < 0 {
 		return 0, false
 	}
+	if qTailLen > 0 || tTailLen > 0 {
+		tailCells, ok := comparisonChainGapAlignmentCells(qTailLen, tTailLen, allowLargeGaps)
+		if !ok {
+			return 0, false
+		}
+		cells += tailCells
+	}
 	return cells, true
+}
+
+func comparisonChainGapAlignmentCells(queryLen, targetLen int, allowLargeGaps bool) (int64, bool) {
+	if queryLen < 0 || targetLen < 0 {
+		return 0, false
+	}
+	if !allowLargeGaps && max(queryLen, targetLen) > comparisonRefineGapMaxSpan {
+		return 0, false
+	}
+	band := absInt(queryLen-targetLen) + comparisonRefineBandPad
+	return estimatedBandedAffineCells(queryLen, targetLen, band), true
 }
 
 func estimatedBandedAffineCells(queryLen, targetLen, band int) int64 {
