@@ -787,21 +787,23 @@ func _setup_font_size_control() -> void:
 	if not _font_size_slider.drag_ended.is_connected(_on_font_size_drag_ended):
 		_font_size_slider.drag_ended.connect(_on_font_size_drag_ended)
 
-func _scroll_left_by_step() -> void:
+func _scroll_left_by_step(count: int = 1) -> void:
 	_play_ui_sound(SoundControllerScript.SOUND_PAN_LEFT)
+	var steps := maxi(1, count)
 	if _app_mode == APP_MODE_COMPARISON:
 		if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
-			comparison_view.pan_all_by_fraction(-_pan_step_percent / 100.0)
+			comparison_view.pan_all_by_fraction(-_pan_step_percent * float(steps) / 100.0)
 		return
-	_pan_view_by_fraction(-_pan_step_percent / 100.0)
+	_pan_view_by_fraction(-_pan_step_percent * float(steps) / 100.0)
 
-func _scroll_right_by_step() -> void:
+func _scroll_right_by_step(count: int = 1) -> void:
 	_play_ui_sound(SoundControllerScript.SOUND_PAN_RIGHT)
+	var steps := maxi(1, count)
 	if _app_mode == APP_MODE_COMPARISON:
 		if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
-			comparison_view.pan_all_by_fraction(_pan_step_percent / 100.0)
+			comparison_view.pan_all_by_fraction(_pan_step_percent * float(steps) / 100.0)
 		return
-	_pan_view_by_fraction(_pan_step_percent / 100.0)
+	_pan_view_by_fraction(_pan_step_percent * float(steps) / 100.0)
 
 func _zoom_in_by_step() -> void:
 	_play_ui_sound(SoundControllerScript.SOUND_ZOOM_IN)
@@ -3511,6 +3513,13 @@ func _handle_vim_input(event: InputEvent) -> bool:
 
 func _handle_vim_command_escape(event: InputEvent) -> bool:
 	return _vim_controller != null and _vim_controller.handle_escape(event)
+
+func _input(event: InputEvent) -> void:
+	if _handle_vim_command_escape(event):
+		get_viewport().set_input_as_handled()
+		return
+	if _handle_vim_input(event):
+		get_viewport().set_input_as_handled()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _handle_vim_command_escape(event):

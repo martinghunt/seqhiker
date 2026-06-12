@@ -22,6 +22,11 @@ var _command_active := false
 var _command_prefix_text := VIM_COMMAND_PREFIX_COMMAND
 var _pending_mark_action := ""
 var _pending_go_start := false
+var _pending_bracket_contig_delta := 0
+var _count_prefix := ""
+var _contig_navigation_anchor_chr_id := -1
+var _contig_navigation_anchor_view_start := -1
+var _contig_navigation_anchor_view_end := -1
 var _completion_matches := PackedStringArray()
 var _completion_index := -1
 
@@ -64,6 +69,8 @@ func set_enabled(enabled: bool) -> void:
 		_command_prefix_text = VIM_COMMAND_PREFIX_COMMAND
 		_pending_mark_action = ""
 		_pending_go_start = false
+		_pending_bracket_contig_delta = 0
+		_count_prefix = ""
 		if command_edit != null:
 			command_edit.text = ""
 			if command_edit.has_focus():
@@ -95,6 +102,95 @@ func show_message(message: String) -> void:
 		command_prefix.text = ""
 	if command_edit != null:
 		command_edit.text = message
+
+
+func _show_pending_count() -> void:
+	if _count_prefix.is_empty() or command_edit == null:
+		return
+	if command_prefix != null:
+		command_prefix.text = ""
+	command_edit.text = _count_prefix
+
+
+func _clear_pending_state(clear_count: bool = true) -> void:
+	_pending_mark_action = ""
+	_pending_go_start = false
+	_pending_bracket_contig_delta = 0
+	if clear_count:
+		_clear_count_prefix()
+
+
+func _clear_count_prefix() -> void:
+	var old_prefix := _count_prefix
+	_count_prefix = ""
+	if command_edit != null and not old_prefix.is_empty() and command_edit.text == old_prefix:
+		command_edit.text = ""
+
+
+func _has_pending_state() -> bool:
+	return _pending_go_start or _pending_bracket_contig_delta != 0 or not _pending_mark_action.is_empty() or not _count_prefix.is_empty()
+
+
+static func _is_shift_modifier_event(key_event: InputEventKey) -> bool:
+	return key_event.keycode == KEY_SHIFT or key_event.physical_keycode == KEY_SHIFT or key_event.key_label == KEY_SHIFT
+
+
+func _command_count(default_value: int = 1) -> int:
+	if _count_prefix.is_empty():
+		return default_value
+	return maxi(1, int(_count_prefix))
+
+
+func _consume_count(default_value: int = 1) -> int:
+	var count := _command_count(default_value)
+	_clear_count_prefix()
+	return count
+
+
+func _handle_count_prefix(key_event: InputEventKey) -> bool:
+	if _pending_go_start or _pending_bracket_contig_delta != 0 or not _pending_mark_action.is_empty():
+		return false
+	if key_event.shift_pressed:
+		return false
+	var digit := _digit_from_event(key_event)
+	if digit < 0:
+		return false
+	if digit == 0 and _count_prefix.is_empty():
+		return false
+	if _count_prefix.length() >= 9:
+		return true
+	_count_prefix += str(digit)
+	_show_pending_count()
+	return true
+
+
+func _digit_from_event(key_event: InputEventKey) -> int:
+	var typed_code := key_event.unicode
+	if typed_code >= 48 and typed_code <= 57:
+		return typed_code - 48
+	if key_event.keycode >= KEY_0 and key_event.keycode <= KEY_9:
+		return key_event.keycode - KEY_0
+	return -1
+
+
+static func _matches_key(key_event: InputEventKey, keycode: Key, shift_pressed: bool = false) -> bool:
+	if key_event.alt_pressed or key_event.ctrl_pressed or key_event.meta_pressed:
+		return false
+	var expected_unicode := _unicode_for_key(keycode, shift_pressed)
+	if expected_unicode > 0 and _is_ascii_letter_unicode(key_event.unicode):
+		return key_event.unicode == expected_unicode
+	var key_matches := key_event.keycode == keycode or key_event.physical_keycode == keycode or key_event.key_label == keycode
+	return key_matches and key_event.shift_pressed == shift_pressed
+
+
+static func _is_ascii_letter_unicode(unicode_value: int) -> bool:
+	return (unicode_value >= 65 and unicode_value <= 90) or (unicode_value >= 97 and unicode_value <= 122)
+
+
+static func _unicode_for_key(keycode: Key, shift_pressed: bool) -> int:
+	if keycode < KEY_A or keycode > KEY_Z:
+		return 0
+	return (65 if shift_pressed else 97) + int(keycode - KEY_A)
 
 
 func show_search_hit_position(index: int, count: int) -> void:
@@ -134,18 +230,21 @@ func handle_input(event: InputEvent) -> bool:
 	var key_event := event as InputEventKey
 	if not key_event.pressed:
 		return false
+	if _is_shift_modifier_event(key_event):
+		return _has_pending_state()
 	if key_event.alt_pressed or key_event.ctrl_pressed or key_event.meta_pressed:
-		_pending_mark_action = ""
-		_pending_go_start = false
+		_clear_pending_state()
 		return false
 	if _command_active or _is_text_entry_focused():
-		_pending_mark_action = ""
-		_pending_go_start = false
+		_clear_pending_state()
 		return false
 	if _handle_mark_target(key_event):
-		_pending_go_start = false
 		return true
 	if _handle_pending_go_start(key_event):
+		return true
+	if _handle_pending_bracket_contig(key_event):
+		return true
+	if _handle_count_prefix(key_event):
 		return true
 	if event.is_action_pressed("seqhiker_vim_command"):
 		_begin_command(VIM_COMMAND_PREFIX_COMMAND)
@@ -153,45 +252,59 @@ func handle_input(event: InputEvent) -> bool:
 	if event.is_action_pressed("seqhiker_vim_search"):
 		_begin_command(VIM_COMMAND_PREFIX_SEARCH)
 		return true
-	if event.is_action_pressed("seqhiker_vim_mark_save"):
+	if _matches_key(key_event, KEY_M):
 		_begin_mark_action(VIM_MARK_ACTION_SAVE)
 		return true
 	if event.is_action_pressed("seqhiker_vim_mark_load"):
 		_begin_mark_action(VIM_MARK_ACTION_LOAD)
 		return true
-	if event.is_action_pressed("seqhiker_vim_search_previous"):
-		_step_search_result(-1)
+	if _matches_key(key_event, KEY_N, true):
+		_clear_contig_navigation_anchor()
+		_step_search_result(-_consume_count())
 		return true
-	if event.is_action_pressed("seqhiker_vim_search_next"):
-		_step_search_result(1)
+	if _matches_key(key_event, KEY_N):
+		_clear_contig_navigation_anchor()
+		_step_search_result(_consume_count())
 		return true
-	if event.is_action_pressed("seqhiker_vim_go_end"):
+	if _matches_key(key_event, KEY_G, true):
 		_jump_current_sequence_boundary(true)
 		return true
-	if event.is_action_pressed("seqhiker_vim_go_prefix"):
+	if _matches_key(key_event, KEY_G):
 		_begin_go_start_action()
 		return true
+	if event.is_action_pressed("seqhiker_vim_contig_next_prefix"):
+		_begin_bracket_contig_action(1)
+		return true
+	if event.is_action_pressed("seqhiker_vim_contig_previous_prefix"):
+		_begin_bracket_contig_action(-1)
+		return true
 	if key_event.shift_pressed:
+		_clear_pending_state()
 		return false
-	if event.is_action_pressed("seqhiker_vim_scroll_left"):
-		host._scroll_left_by_step()
+	if _matches_key(key_event, KEY_H):
+		_clear_contig_navigation_anchor()
+		host._scroll_left_by_step(_consume_count())
 		return true
-	if event.is_action_pressed("seqhiker_vim_scroll_right"):
-		host._scroll_right_by_step()
+	if _matches_key(key_event, KEY_L):
+		_clear_contig_navigation_anchor()
+		host._scroll_right_by_step(_consume_count())
 		return true
-	if event.is_action_pressed("seqhiker_vim_zoom_out"):
+	if _matches_key(key_event, KEY_J):
+		_clear_pending_state()
 		host._zoom_out_by_step()
 		return true
-	if event.is_action_pressed("seqhiker_vim_zoom_in"):
+	if _matches_key(key_event, KEY_K):
+		_clear_pending_state()
 		host._zoom_in_by_step()
 		return true
+	_clear_pending_state()
 	return false
 
 
 func _begin_command(prefix_text: String = VIM_COMMAND_PREFIX_COMMAND) -> void:
 	if not _enabled or command_edit == null:
 		return
-	_pending_mark_action = ""
+	_clear_pending_state()
 	_reset_completion()
 	_command_prefix_text = prefix_text
 	_command_active = true
@@ -254,7 +367,7 @@ func _step_search_result(delta: int) -> void:
 	show_search_hit_position(int(result.get("index", -1)), int(result.get("count", 0)))
 
 
-func _jump_current_sequence_boundary(at_end: bool) -> void:
+func _jump_current_sequence_boundary(at_end: bool, position_override: int = -1) -> void:
 	if host._app_mode != host.APP_MODE_BROWSER:
 		_show_go_error("jump is only available in browser view")
 		return
@@ -274,14 +387,146 @@ func _jump_current_sequence_boundary(at_end: bool) -> void:
 		_show_go_error("sequence length unavailable")
 		return
 	var display_pos := chr_len if at_end else 1
+	if position_override > 0:
+		display_pos = mini(position_override, chr_len)
 	host._go_on_browser_request(chr_id, display_pos, -1)
+	_set_contig_navigation_anchor(chr_id)
 	var chr_name := str(chromosome.get("name", "chr"))
 	var message := "%s:%d" % [chr_name, display_pos]
+	_clear_pending_state()
 	host._set_status(message)
 	show_message("jumped to %s" % message)
 
 
+func _jump_relative_contig(delta: int, count: int = 1) -> void:
+	if host._app_mode != host.APP_MODE_BROWSER:
+		_show_go_error("contig navigation is only available in browser view")
+		return
+	var contigs := _navigation_contigs()
+	if contigs.is_empty():
+		_show_go_error("no sequences loaded")
+		return
+	var current_index := _current_navigation_contig_index(contigs)
+	if current_index < 0:
+		_show_go_error("sequence unavailable")
+		return
+	var effective_delta := delta * maxi(1, count)
+	var requested_index := current_index + effective_delta
+	var target_index := clampi(requested_index, 0, contigs.size() - 1)
+	var hit_boundary := target_index != requested_index
+	var target: Dictionary = (contigs[target_index] as Dictionary).duplicate(true)
+	var chr_id := int(target.get("id", -1))
+	if chr_id < 0:
+		_show_go_error("sequence unavailable")
+		return
+	host._go_on_browser_request(chr_id, 1, -1)
+	_set_contig_navigation_anchor(chr_id)
+	var chr_name := str(target.get("name", "chr"))
+	var message := "%s:1" % chr_name
+	_clear_pending_state()
+	if hit_boundary:
+		show_message("last contig" if effective_delta > 0 else "first contig")
+		host._set_status("Last contig." if effective_delta > 0 else "First contig.")
+	else:
+		host._set_status(message)
+		show_message("jumped to %s" % message)
+
+
+func _navigation_contigs() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if host._seq_view_mode == host.SEQ_VIEW_CONCAT and not host._concat_segments.is_empty():
+		for seg_any in host._concat_segments:
+			var seg: Dictionary = seg_any
+			out.append({
+				"id": int(seg.get("id", -1)),
+				"name": str(seg.get("name", "chr")),
+				"start": int(seg.get("start", 0)),
+				"end": int(seg.get("end", 0))
+			})
+		return out
+	for chr_any in host._chromosomes:
+		var chromosome: Dictionary = chr_any
+		out.append({
+			"id": int(chromosome.get("id", -1)),
+			"name": str(chromosome.get("name", "chr")),
+			"start": 0,
+			"end": int(chromosome.get("length", 0))
+		})
+	return out
+
+
+func _current_navigation_contig_index(contigs: Array[Dictionary]) -> int:
+	var anchor_index := _anchored_navigation_contig_index(contigs)
+	if anchor_index >= 0:
+		return anchor_index
+	if host._seq_view_mode == host.SEQ_VIEW_CONCAT and not host._concat_segments.is_empty():
+		var center_bp := int(floor(0.5 * float(host._last_start + host._last_end)))
+		return _contig_index_for_display_position(contigs, center_bp)
+	return _contig_index_for_chr_id(contigs, int(host._go_get_browser_target_chr_id()))
+
+
+func _set_contig_navigation_anchor(chr_id: int) -> void:
+	_contig_navigation_anchor_chr_id = chr_id
+	_contig_navigation_anchor_view_start = int(host._last_start)
+	_contig_navigation_anchor_view_end = int(host._last_end)
+
+
+func _clear_contig_navigation_anchor() -> void:
+	_contig_navigation_anchor_chr_id = -1
+	_contig_navigation_anchor_view_start = -1
+	_contig_navigation_anchor_view_end = -1
+
+
+func _anchored_navigation_contig_index(contigs: Array[Dictionary]) -> int:
+	if _contig_navigation_anchor_chr_id < 0:
+		return -1
+	var anchor_index := _contig_index_for_chr_id(contigs, _contig_navigation_anchor_chr_id)
+	if anchor_index < 0:
+		_clear_contig_navigation_anchor()
+		return -1
+	if int(host._last_start) == _contig_navigation_anchor_view_start and int(host._last_end) == _contig_navigation_anchor_view_end:
+		return anchor_index
+	if host._seq_view_mode == host.SEQ_VIEW_CONCAT and not host._concat_segments.is_empty():
+		var center_bp := int(floor(0.5 * float(host._last_start + host._last_end)))
+		var center_index := _contig_index_for_display_position(contigs, center_bp)
+		if center_index == anchor_index:
+			return anchor_index
+		_clear_contig_navigation_anchor()
+		return center_index
+	return anchor_index
+
+
+static func _contig_at_relative_index(contigs: Array[Dictionary], current_index: int, delta: int) -> Dictionary:
+	var target_index := current_index + delta
+	if target_index < 0 or target_index >= contigs.size():
+		return {}
+	return (contigs[target_index] as Dictionary).duplicate(true)
+
+
+static func _contig_index_for_chr_id(contigs: Array[Dictionary], chr_id: int) -> int:
+	for i in range(contigs.size()):
+		var contig: Dictionary = contigs[i]
+		if int(contig.get("id", -1)) == chr_id:
+			return i
+	return -1
+
+
+static func _contig_index_for_display_position(contigs: Array[Dictionary], display_bp: int) -> int:
+	if contigs.is_empty():
+		return -1
+	for i in range(contigs.size()):
+		var contig: Dictionary = contigs[i]
+		var start_bp := int(contig.get("start", 0))
+		var end_bp := int(contig.get("end", start_bp))
+		if display_bp >= start_bp and display_bp < end_bp:
+			return i
+		if display_bp < start_bp:
+			return maxi(0, i - 1)
+	return contigs.size() - 1
+
+
 func _show_bar_error(message: String) -> void:
+	_clear_pending_state()
 	host._set_status(message, true)
 	show_message(message)
 
@@ -349,6 +594,7 @@ func _execute_search(command: String) -> void:
 
 
 func _show_search_error(message: String) -> void:
+	_clear_pending_state()
 	host._set_status(message, true)
 	show_message(message)
 
@@ -431,18 +677,34 @@ func _execute_go_command(command: String) -> void:
 
 
 func _show_go_error(message: String) -> void:
+	_clear_pending_state()
 	host._set_status(message, true)
 	show_message(message)
 
 
 func _current_go_chromosome() -> Dictionary:
+	if host._seq_view_mode == host.SEQ_VIEW_CONCAT and not host._concat_segments.is_empty():
+		var contigs := _navigation_contigs()
+		var current_index := _current_navigation_contig_index(contigs)
+		if current_index >= 0 and current_index < contigs.size():
+			var contig: Dictionary = contigs[current_index]
+			var anchored_chromosome := _chromosome_for_id(int(contig.get("id", -1)))
+			if not anchored_chromosome.is_empty():
+				return anchored_chromosome
 	var target_id: int = int(host._go_get_browser_target_chr_id())
-	for chr_any in host._chromosomes:
-		var chromosome: Dictionary = chr_any
-		if int(chromosome.get("id", -1)) == target_id:
-			return chromosome
+	var target_chromosome := _chromosome_for_id(target_id)
+	if not target_chromosome.is_empty():
+		return target_chromosome
 	if not host._chromosomes.is_empty():
 		return host._chromosomes[0]
+	return {}
+
+
+func _chromosome_for_id(chr_id: int) -> Dictionary:
+	for chr_any in host._chromosomes:
+		var chromosome: Dictionary = chr_any
+		if int(chromosome.get("id", -1)) == chr_id:
+			return chromosome
 	return {}
 
 
@@ -681,10 +943,20 @@ func _is_escape_key_event(event: InputEvent) -> bool:
 
 func _begin_mark_action(action: String) -> void:
 	_pending_mark_action = action
+	_pending_go_start = false
+	_pending_bracket_contig_delta = 0
+	_count_prefix = ""
 
 
 func _begin_go_start_action() -> void:
 	_pending_go_start = true
+	_pending_mark_action = ""
+	_pending_bracket_contig_delta = 0
+
+
+func _begin_bracket_contig_action(delta: int) -> void:
+	_pending_bracket_contig_delta = delta
+	_pending_go_start = false
 	_pending_mark_action = ""
 
 
@@ -692,9 +964,30 @@ func _handle_pending_go_start(key_event: InputEventKey) -> bool:
 	if not _pending_go_start:
 		return false
 	_pending_go_start = false
-	if key_event.keycode != KEY_G or key_event.shift_pressed:
+	if _matches_key(key_event, KEY_G):
+		var has_count := not _count_prefix.is_empty()
+		var count := _consume_count()
+		_jump_current_sequence_boundary(false, count if has_count else -1)
+		return true
+	if key_event.is_action_pressed("seqhiker_vim_contig_previous") or _matches_key(key_event, KEY_C, true):
+		_jump_relative_contig(-1, _consume_count())
+		return true
+	if key_event.is_action_pressed("seqhiker_vim_contig_next") or _matches_key(key_event, KEY_C):
+		_jump_relative_contig(1, _consume_count())
+		return true
+	_clear_count_prefix()
+	return false
+
+
+func _handle_pending_bracket_contig(key_event: InputEventKey) -> bool:
+	if _pending_bracket_contig_delta == 0:
 		return false
-	_jump_current_sequence_boundary(false)
+	var delta := _pending_bracket_contig_delta
+	_pending_bracket_contig_delta = 0
+	if not _matches_key(key_event, KEY_C):
+		_clear_count_prefix()
+		return false
+	_jump_relative_contig(delta, _consume_count())
 	return true
 
 
@@ -728,5 +1021,8 @@ func _mark_letter_from_event(key_event: InputEventKey) -> String:
 func _is_text_entry_focused() -> bool:
 	if host == null:
 		return false
-	var focus_owner := host.get_viewport().gui_get_focus_owner()
+	var viewport := host.get_viewport()
+	if viewport == null:
+		return false
+	var focus_owner := viewport.gui_get_focus_owner()
 	return (focus_owner is LineEdit) or (focus_owner is TextEdit)
