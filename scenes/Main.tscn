@@ -134,7 +134,7 @@ theme_override_constants/separation = 8
 layout_mode = 2
 tooltip_text = "Open genome files"
 theme_override_fonts/font = ExtResource("2_0bbpv")
-text = "A"
+text = "a"
 
 [node name="ComparisonButton" type="Button" parent="Root/TopBar/ActionClipper/ActionStrip"]
 layout_mode = 2
