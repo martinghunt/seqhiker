@@ -284,6 +284,14 @@ func handle_input(event: InputEvent) -> bool:
 		_clear_contig_navigation_anchor()
 		_step_search_result(_consume_count())
 		return true
+	if event.is_action_pressed("seqhiker_vim_feature_previous") or _matches_key(key_event, KEY_B):
+		_clear_contig_navigation_anchor()
+		_step_annotation_feature(-_consume_count())
+		return true
+	if event.is_action_pressed("seqhiker_vim_feature_next") or _matches_key(key_event, KEY_W):
+		_clear_contig_navigation_anchor()
+		_step_annotation_feature(_consume_count())
+		return true
 	if _matches_key(key_event, KEY_G, true):
 		_jump_current_sequence_boundary(true)
 		return true
@@ -426,6 +434,29 @@ func _step_search_result(delta: int) -> void:
 		_show_search_error(str(result.get("error", "no search results")))
 		return
 	show_search_hit_position(int(result.get("index", -1)), int(result.get("count", 0)))
+
+
+func _step_annotation_feature(delta: int) -> void:
+	if host == null or not host.has_method("_step_annotation_feature"):
+		_show_bar_error("feature navigation unavailable")
+		return
+	var result: Dictionary = host._step_annotation_feature(delta)
+	if not bool(result.get("ok", false)):
+		_show_bar_error(str(result.get("error", "no annotation feature selected")))
+		return
+	var index := int(result.get("index", -1))
+	var count := int(result.get("count", 0))
+	var label := str(result.get("label", "")).strip_edges()
+	var boundary := str(result.get("boundary", "")).strip_edges()
+	var message := ""
+	if not boundary.is_empty():
+		message = "%s feature" % boundary
+	elif count > 0 and index >= 0:
+		message = "%s %d/%d" % [label if not label.is_empty() else "feature", index + 1, count]
+	else:
+		message = label if not label.is_empty() else "feature"
+	host._set_status(message)
+	show_message(message)
 
 
 func _jump_current_sequence_boundary(at_end: bool, position_override: int = -1) -> void:

@@ -1923,6 +1923,9 @@ func set_selected_feature_key(key: String) -> void:
 	_selected_feature_key = key
 	queue_redraw()
 
+func get_selected_feature_key() -> String:
+	return _selected_feature_key
+
 func clear_selected_feature() -> void:
 	if _selected_feature_key.is_empty():
 		return

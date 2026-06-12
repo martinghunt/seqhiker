@@ -14,6 +14,7 @@ const TrackControlsControllerScript = preload("res://scripts/track_controls_cont
 const SoundControllerScript = preload("res://scripts/sound_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
+const AnnotationFeatureNavigationControllerScript = preload("res://scripts/annotation_feature_navigation_controller.gd")
 const VariantControllerScript = preload("res://scripts/variant_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
 const ComparisonControllerScript = preload("res://scripts/comparison_controller.gd")
@@ -214,6 +215,7 @@ var _top_bar_controller: RefCounted
 var _context_panel_controller: RefCounted
 var _track_settings_controller: RefCounted
 var _annotation_cache_controller: RefCounted
+var _annotation_feature_navigation_controller: RefCounted
 var _feature_panel_controller: RefCounted
 var _variant_controller: RefCounted
 var _session_loader: RefCounted
@@ -363,6 +365,8 @@ func _ready() -> void:
 	_search_controller = SearchControllerScript.new()
 	_annotation_cache_controller = AnnotationCacheControllerScript.new()
 	_annotation_cache_controller.configure(self)
+	_annotation_feature_navigation_controller = AnnotationFeatureNavigationControllerScript.new()
+	_annotation_feature_navigation_controller.configure(self)
 	_feature_panel_controller = FeaturePanelControllerScript.new()
 	_feature_panel_controller.configure(self)
 	_variant_controller = VariantControllerScript.new()
@@ -2278,6 +2282,7 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	_navigate_to_centered_range(display_start_bp, display_end_bp, current_bp_per_px)
 	if hit_kind == "dna":
 		_pending_annotation_highlight = {}
+		_clear_selected_annotation_feature()
 		genome_view.clear_selected_feature()
 		genome_view.set_region_selection(display_start_bp, maxi(display_start_bp, display_end_bp - 1))
 	else:
@@ -2286,6 +2291,38 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 		display_hit["end"] = display_end_bp
 		_pending_annotation_highlight = display_hit
 		genome_view.clear_region_selection()
+
+
+func _set_selected_annotation_feature(feature: Dictionary) -> void:
+	if _annotation_feature_navigation_controller != null:
+		_annotation_feature_navigation_controller.set_selected_feature(feature)
+
+
+func _clear_selected_annotation_feature() -> void:
+	if _annotation_feature_navigation_controller != null:
+		_annotation_feature_navigation_controller.clear_selected_feature()
+
+
+func _step_annotation_feature(delta: int) -> Dictionary:
+	if _annotation_feature_navigation_controller == null:
+		return {"ok": false, "error": "feature navigation unavailable"}
+	return _annotation_feature_navigation_controller.step_feature(delta)
+
+
+func _jump_to_annotation_feature(feature: Dictionary) -> void:
+	var start_bp := int(feature.get("start", 0))
+	var end_bp := maxi(start_bp + 1, int(feature.get("end", start_bp + 1)))
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
+	_navigate_to_centered_range(start_bp, end_bp, current_bp_per_px)
+	_pending_annotation_highlight = {}
+	genome_view.clear_region_selection()
+	genome_view.clear_selected_read()
+	genome_view.clear_selected_variant()
+	genome_view.set_selected_feature(feature, false)
+	_set_selected_annotation_feature(feature)
+	if _feature_panel_controller != null:
+		_feature_panel_controller.on_feature_selected(feature)
 
 
 func _search_hit_display_range(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
@@ -2741,6 +2778,9 @@ func _refresh_sequence_options() -> void:
 	_session_loader.refresh_sequence_options()
 
 func _apply_sequence_view(reset_viewport: bool) -> void:
+	_clear_selected_annotation_feature()
+	if genome_view != null:
+		genome_view.clear_selected_feature()
 	_session_loader.apply_sequence_view(reset_viewport)
 
 func _ensure_browser_contig_context_menu() -> void:
@@ -2828,6 +2868,7 @@ func _refresh_browser_after_contig_layout_change() -> void:
 	if _annotation_cache_controller != null:
 		_annotation_cache_controller.cancel_all_requests()
 	genome_view.clear_selected_variant()
+	_clear_selected_annotation_feature()
 	genome_view.clear_selected_feature()
 	genome_view.set_reference_slice(_last_start, "")
 	genome_view.set_features(empty_dicts)
@@ -2881,6 +2922,7 @@ func _apply_pending_annotation_highlight(features: Array[Dictionary]) -> void:
 			if hit_label != fname and hit_label != ftype:
 				continue
 		genome_view.set_selected_feature(f, false)
+		_set_selected_annotation_feature(f)
 		return
 
 func _collapse_gene_cds_features(features_in: Array[Dictionary]) -> Array[Dictionary]:
@@ -3086,6 +3128,7 @@ func _reset_loaded_state() -> void:
 	_auto_play_enabled = false
 	_feature_panel_open = false
 	_slide_feature_panel(false, false)
+	_clear_selected_annotation_feature()
 	genome_view.clear_all_data()
 	_sync_bam_read_tracks()
 	_sync_variant_track()
@@ -3394,24 +3437,30 @@ func _save_config() -> void:
 	cfg.save(CONFIG_PATH)
 
 func _on_feature_clicked(feature: Dictionary) -> void:
+	_set_selected_annotation_feature(feature)
 	_feature_panel_controller.on_feature_clicked(feature)
 
 func _on_feature_selected(feature: Dictionary) -> void:
+	_set_selected_annotation_feature(feature)
 	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_feature_panel_controller.on_feature_selected(feature)
 
 func _on_read_clicked(read: Dictionary) -> void:
+	_clear_selected_annotation_feature()
 	_feature_panel_controller.on_read_clicked(read)
 
 func _on_read_selected(read: Dictionary) -> void:
+	_clear_selected_annotation_feature()
 	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_feature_panel_controller.on_read_selected(read)
 
 func _on_variant_clicked(variant: Dictionary) -> void:
+	_clear_selected_annotation_feature()
 	if _variant_controller != null:
 		_variant_controller.on_variant_clicked(variant)
 
 func _on_variant_selected(variant: Dictionary) -> void:
+	_clear_selected_annotation_feature()
 	if _variant_controller != null:
 		_variant_controller.on_variant_selected(variant)
 

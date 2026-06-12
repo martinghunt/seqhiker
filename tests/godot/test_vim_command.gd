@@ -31,6 +31,8 @@ class FakeVimHost:
 	]
 	var go_requests: Array[Dictionary] = []
 	var status_messages: Array[Dictionary] = []
+	var feature_steps: Array[int] = []
+	var feature_step_results: Array[Dictionary] = []
 	var quit_requests := 0
 
 	func _go_get_browser_target_chr_id() -> int:
@@ -55,6 +57,13 @@ class FakeVimHost:
 			return false
 		_app_mode = next_mode
 		return true
+
+	func _step_annotation_feature(delta: int) -> Dictionary:
+		feature_steps.append(delta)
+		if feature_step_results.is_empty():
+			return {"ok": false, "error": "no annotation feature selected"}
+		var result: Dictionary = feature_step_results.pop_front()
+		return result
 
 	func _quit_app() -> void:
 		quit_requests += 1
@@ -272,6 +281,34 @@ func test_vim_key_matching_distinguishes_c_and_shift_c() -> void:
 	keycode_upper_event.unicode = 67
 	assert_false(VimModeControllerScript._matches_key(keycode_upper_event, KEY_C))
 	assert_true(VimModeControllerScript._matches_key(keycode_upper_event, KEY_C, true))
+
+
+func test_vim_w_b_step_annotation_features_with_counts() -> void:
+	var host := FakeVimHost.new()
+	var edit := LineEdit.new()
+	var controller := VimModeControllerScript.new()
+	controller.host = host
+	controller.command_edit = edit
+	controller._enabled = true
+
+	host.feature_step_results.append({"ok": true, "index": 1, "count": 3, "label": "geneB"})
+	assert_true(controller.handle_input(_vim_key(KEY_W, false, 119)))
+	assert_eq(host.feature_steps[-1], 1)
+	assert_eq(edit.text, "geneB 2/3")
+	assert_eq(host.status_messages[-1], {"message": "geneB 2/3", "is_error": false})
+
+	host.feature_step_results.append({"ok": true, "index": 0, "count": 3, "label": "geneA", "boundary": "first"})
+	assert_true(controller.handle_input(_vim_key(KEY_5, false, 53)))
+	assert_true(controller.handle_input(_vim_key(KEY_B, false, 98)))
+	assert_eq(host.feature_steps[-1], -5)
+	assert_eq(edit.text, "first feature")
+	assert_eq(host.status_messages[-1], {"message": "first feature", "is_error": false})
+
+	assert_true(controller.handle_input(_vim_key(KEY_B, false, 98)))
+	assert_eq(edit.text, "no annotation feature selected")
+	assert_eq(host.status_messages[-1], {"message": "no annotation feature selected", "is_error": true})
+	edit.free()
+	host.free()
 
 
 func test_vim_counted_gg_jumps_to_counted_position() -> void:
