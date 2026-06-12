@@ -590,6 +590,11 @@ max_value = 3.0
 step = 0.05
 value = 1.5
 
+[node name="VimModeToggle" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+text = "Vim Mode"
+
 [node name="SoundsToggle" type="CheckButton" parent="Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent"]
 layout_mode = 2
 tooltip_text = "Do your genoming like in the movies!
@@ -668,3 +673,31 @@ autowrap_mode = 3
 
 [node name="FeaturePanel" parent="Root/ContentMargin/ViewportLayer" instance=ExtResource("3_30wbj")]
 layout_mode = 1
+
+[node name="VimCommandBar" type="PanelContainer" parent="Root"]
+visible = false
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="VimCommandMargin" type="MarginContainer" parent="Root/VimCommandBar"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 4
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 4
+
+[node name="VimCommandRow" type="HBoxContainer" parent="Root/VimCommandBar/VimCommandMargin"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="VimCommandPrefix" type="Label" parent="Root/VimCommandBar/VimCommandMargin/VimCommandRow"]
+custom_minimum_size = Vector2(12, 0)
+layout_mode = 2
+text = ""
+
+[node name="VimCommandEdit" type="LineEdit" parent="Root/VimCommandBar/VimCommandMargin/VimCommandRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+editable = false
+virtual_keyboard_enabled = false
