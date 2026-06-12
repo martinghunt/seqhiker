@@ -1001,6 +1001,53 @@ func TestComparisonGapAboveRefineLimitSplitsBlocks(t *testing.T) {
 	}
 }
 
+func TestComparisonRefinesLargeNarrowBandedAnchorGap(t *testing.T) {
+	prefix := uniqueishDNA(95)
+	suffix := uniqueishDNA(95)
+	queryGap := strings.Repeat("A", comparisonRefineGapMaxSpan+808)
+	targetGap := strings.Repeat("A", comparisonRefineGapMaxSpan+658)
+	querySeq := prefix + queryGap + suffix
+	targetSeq := prefix + targetGap + suffix
+	query := &comparisonGenome{Length: len(querySeq), Sequence: querySeq}
+	target := &comparisonGenome{Length: len(targetSeq), Sequence: targetSeq}
+	rightQuery := len(prefix) + len(queryGap)
+	rightTarget := len(prefix) + len(targetGap)
+	chain := comparisonRefinedChain{
+		Summary: ComparisonBlock{
+			QueryStart:  0,
+			QueryEnd:    uint32(len(querySeq)),
+			TargetStart: 0,
+			TargetEnd:   uint32(len(targetSeq)),
+			SameStrand:  true,
+		},
+		OrientedStart: 0,
+		OrientedEnd:   len(targetSeq),
+		Anchors: []comparisonAnchor{
+			{QPos: 0, TPos: 0, TTrans: 0},
+			{QPos: 80, TPos: 80, TTrans: 80},
+			{QPos: rightQuery, TPos: rightTarget, TTrans: rightTarget},
+			{QPos: rightQuery + 80, TPos: rightTarget + 80, TTrans: rightTarget + 80},
+		},
+	}
+
+	if max(len(queryGap), len(targetGap)) <= comparisonRefineGapMaxSpan {
+		t.Fatal("test gap must exceed the span-only refinement limit")
+	}
+	if cells, ok := comparisonRefinedChainAlignmentCells(chain, false); !ok || cells > comparisonRefineGapCellBudget {
+		t.Fatalf("expected narrow large gap to be within the cell budget, ok=%v cells=%d", ok, cells)
+	}
+	summary, ok := buildComparisonSummaryFromRefinedChain(query, target, chain)
+	if !ok {
+		t.Fatal("expected large narrow-banded gap to refine")
+	}
+	if summary.QueryStart != 0 || int(summary.QueryEnd) != len(querySeq) || summary.TargetStart != 0 || int(summary.TargetEnd) != len(targetSeq) {
+		t.Fatalf("unexpected refined summary: %+v", summary)
+	}
+	if summary.PercentIdentX100 < 9800 {
+		t.Fatalf("expected high identity across narrow large gap, got %.2f", float64(summary.PercentIdentX100)/100)
+	}
+}
+
 func TestComparisonLargeGapImbalanceSplitsBlocks(t *testing.T) {
 	anchors := []comparisonAnchor{
 		{QPos: 0, TPos: 0, TTrans: 0},

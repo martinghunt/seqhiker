@@ -29,6 +29,7 @@ const (
 	comparisonChainMergeIndelMaxSpan         = 64
 	comparisonChainSplitGapMaxSpan           = 12000
 	comparisonRefineGapMaxSpan               = 8192
+	comparisonRefineGapCellBudget      int64 = 12000000
 	comparisonRefineBandPad                  = 96
 	comparisonMaxRefinedBlockCount           = 1024
 	comparisonRefinementCellBudget     int64 = 80000000
@@ -2562,7 +2563,7 @@ func addComparisonChainGapStats(query, target *comparisonGenome, chain compariso
 		stats.addOps(gapOps)
 		return true
 	}
-	if max(qGapEnd-qGapStart, tGapEnd-tGapStart) > comparisonRefineGapMaxSpan {
+	if _, ok := comparisonChainGapAlignmentCells(qGapEnd-qGapStart, tGapEnd-tGapStart, allowLargeGaps); !ok {
 		return false
 	}
 	aln, ok := bandedAffineAlign(queryGap, targetGap, absInt((qGapEnd-qGapStart)-(tGapEnd-tGapStart))+comparisonRefineBandPad)
@@ -2622,11 +2623,12 @@ func comparisonChainGapAlignmentCells(queryLen, targetLen int, allowLargeGaps bo
 	if queryLen < 0 || targetLen < 0 {
 		return 0, false
 	}
-	if !allowLargeGaps && max(queryLen, targetLen) > comparisonRefineGapMaxSpan {
+	band := absInt(queryLen-targetLen) + comparisonRefineBandPad
+	cells := estimatedBandedAffineCells(queryLen, targetLen, band)
+	if !allowLargeGaps && max(queryLen, targetLen) > comparisonRefineGapMaxSpan && cells > comparisonRefineGapCellBudget {
 		return 0, false
 	}
-	band := absInt(queryLen-targetLen) + comparisonRefineBandPad
-	return estimatedBandedAffineCells(queryLen, targetLen, band), true
+	return cells, true
 }
 
 func estimatedBandedAffineCells(queryLen, targetLen, band int) int64 {
