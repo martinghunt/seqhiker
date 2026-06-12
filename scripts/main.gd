@@ -1816,7 +1816,8 @@ func _setup_track_settings_panel() -> void:
 		"get_chromosomes": Callable(self, "_search_get_chromosomes"),
 		"get_comparison_genomes": Callable(self, "_search_get_comparison_genomes"),
 		"get_selected_seq_id": Callable(self, "_search_get_selected_seq_id"),
-		"on_hit_selected": Callable(self, "_jump_to_search_hit")
+		"on_hit_selected": Callable(self, "_jump_to_search_hit"),
+		"on_hit_position_changed": Callable(self, "_on_search_hit_position_changed")
 	})
 	_go_controller = GoControllerScript.new()
 	_go_controller.setup(feature_content, {
@@ -2244,24 +2245,54 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	var chr_id := int(hit.get("chr_id", -1))
 	var start_bp := int(hit.get("start", 0))
 	var end_bp := int(hit.get("end", start_bp + 1))
-	if _seq_view_mode != SEQ_VIEW_SINGLE:
-		_seq_view_option.select(SEQ_VIEW_SINGLE)
-		_on_seq_view_selected(SEQ_VIEW_SINGLE)
+	var display_range := _search_hit_display_range(chr_id, start_bp, end_bp)
+	if display_range.is_empty():
+		_set_status("Search hit sequence unavailable.", true)
+		return
+	var display_start_bp := int(display_range.get("start", start_bp))
+	var display_end_bp := int(display_range.get("end", end_bp))
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
+	_navigate_to_centered_range(display_start_bp, display_end_bp, current_bp_per_px)
+	if hit_kind == "dna":
+		_pending_annotation_highlight = {}
+		genome_view.clear_selected_feature()
+		genome_view.set_region_selection(display_start_bp, maxi(display_start_bp, display_end_bp - 1))
+	else:
+		var display_hit := hit.duplicate(true)
+		display_hit["start"] = display_start_bp
+		display_hit["end"] = display_end_bp
+		_pending_annotation_highlight = display_hit
+		genome_view.clear_region_selection()
+
+
+func _search_hit_display_range(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
+	if chr_id < 0:
+		return {}
+	if _seq_view_mode == SEQ_VIEW_CONCAT:
+		for seg in _concat_segments:
+			if int(seg.get("id", -1)) != chr_id:
+				continue
+			var offset := int(seg.get("start", 0))
+			return {
+				"start": offset + start_bp,
+				"end": offset + end_bp
+			}
+		return {}
 	for i in range(_seq_option.item_count):
 		if int(_seq_option.get_item_id(i)) == chr_id:
 			_seq_option.select(i)
 			_on_seq_selected(i)
-			break
-	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
-	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
-	_navigate_to_centered_range(start_bp, end_bp, current_bp_per_px)
-	if hit_kind == "dna":
-		_pending_annotation_highlight = {}
-		genome_view.clear_selected_feature()
-		genome_view.set_region_selection(start_bp, maxi(start_bp, end_bp - 1))
-	else:
-		_pending_annotation_highlight = hit.duplicate(true)
-		genome_view.clear_region_selection()
+			return {
+				"start": start_bp,
+				"end": end_bp
+			}
+	return {}
+
+
+func _on_search_hit_position_changed(index: int, count: int) -> void:
+	if _vim_controller != null:
+		_vim_controller.show_search_hit_position(index, count)
 
 
 func _on_map_jump_requested(bp_center: float) -> void:

@@ -113,6 +113,28 @@ func run_browser_search(mode: int, query: String, chr_filter: PackedInt32Array, 
 	_select_browser_chr_filter(chr_filter, scope_label)
 	_run_search(false)
 
+func step_result(delta: int) -> Dictionary:
+	if _search_running:
+		return {"ok": false, "error": "search still running"}
+	if _search_hits.is_empty() or _search_results_list == null:
+		return {"ok": false, "error": "no search results"}
+	var selected := _search_results_list.get_selected_items()
+	var current := -1
+	if not selected.is_empty():
+		current = int(selected[0])
+	var next_idx := current + delta
+	if current < 0:
+		next_idx = 0 if delta >= 0 else _search_hits.size() - 1
+	next_idx = posmod(next_idx, _search_hits.size())
+	_search_results_list.select(next_idx)
+	_search_results_list.ensure_current_is_visible()
+	_on_search_result_selected(next_idx)
+	return {
+		"ok": true,
+		"index": next_idx,
+		"count": _search_hits.size()
+	}
+
 func refresh_context() -> void:
 	_refresh_scope_options()
 
@@ -562,6 +584,9 @@ func _on_search_result_selected(index: int) -> void:
 	var callback: Callable = _callbacks.get("on_hit_selected", Callable())
 	if callback.is_valid():
 		callback.call(_search_hits[index])
+	var position_callback: Callable = _callbacks.get("on_hit_position_changed", Callable())
+	if position_callback.is_valid():
+		position_callback.call(index, _search_hits.size())
 
 func _call0(name: String):
 	var callback: Callable = _callbacks.get(name, Callable())

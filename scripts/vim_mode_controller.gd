@@ -21,6 +21,7 @@ var _enabled := false
 var _command_active := false
 var _command_prefix_text := VIM_COMMAND_PREFIX_COMMAND
 var _pending_mark_action := ""
+var _pending_go_start := false
 var _completion_matches := PackedStringArray()
 var _completion_index := -1
 
@@ -62,6 +63,7 @@ func set_enabled(enabled: bool) -> void:
 		_command_active = false
 		_command_prefix_text = VIM_COMMAND_PREFIX_COMMAND
 		_pending_mark_action = ""
+		_pending_go_start = false
 		if command_edit != null:
 			command_edit.text = ""
 			if command_edit.has_focus():
@@ -95,6 +97,14 @@ func show_message(message: String) -> void:
 		command_edit.text = message
 
 
+func show_search_hit_position(index: int, count: int) -> void:
+	if count <= 0 or index < 0:
+		return
+	var message := "search hit %d/%d" % [index + 1, count]
+	host._set_status(message)
+	show_message(message)
+
+
 func apply_theme(palette: Dictionary) -> void:
 	if command_prefix != null:
 		command_prefix.add_theme_color_override("font_color", palette["text"])
@@ -126,11 +136,16 @@ func handle_input(event: InputEvent) -> bool:
 		return false
 	if key_event.alt_pressed or key_event.ctrl_pressed or key_event.meta_pressed:
 		_pending_mark_action = ""
+		_pending_go_start = false
 		return false
 	if _command_active or _is_text_entry_focused():
 		_pending_mark_action = ""
+		_pending_go_start = false
 		return false
 	if _handle_mark_target(key_event):
+		_pending_go_start = false
+		return true
+	if _handle_pending_go_start(key_event):
 		return true
 	if event.is_action_pressed("seqhiker_vim_command"):
 		_begin_command(VIM_COMMAND_PREFIX_COMMAND)
@@ -143,6 +158,18 @@ func handle_input(event: InputEvent) -> bool:
 		return true
 	if event.is_action_pressed("seqhiker_vim_mark_load"):
 		_begin_mark_action(VIM_MARK_ACTION_LOAD)
+		return true
+	if event.is_action_pressed("seqhiker_vim_search_previous"):
+		_step_search_result(-1)
+		return true
+	if event.is_action_pressed("seqhiker_vim_search_next"):
+		_step_search_result(1)
+		return true
+	if event.is_action_pressed("seqhiker_vim_go_end"):
+		_jump_current_sequence_boundary(true)
+		return true
+	if event.is_action_pressed("seqhiker_vim_go_prefix"):
+		_begin_go_start_action()
 		return true
 	if key_event.shift_pressed:
 		return false
@@ -214,6 +241,44 @@ func _execute_quit_command() -> void:
 	if host == null or host.get_tree() == null:
 		return
 	host.get_tree().quit()
+
+
+func _step_search_result(delta: int) -> void:
+	if host._search_controller == null or not host._search_controller.has_method("step_result"):
+		_show_search_error("no search results")
+		return
+	var result: Dictionary = host._search_controller.step_result(delta)
+	if not bool(result.get("ok", false)):
+		_show_search_error(str(result.get("error", "no search results")))
+		return
+	show_search_hit_position(int(result.get("index", -1)), int(result.get("count", 0)))
+
+
+func _jump_current_sequence_boundary(at_end: bool) -> void:
+	if host._app_mode != host.APP_MODE_BROWSER:
+		_show_go_error("jump is only available in browser view")
+		return
+	if host._chromosomes.is_empty():
+		_show_go_error("no sequences loaded")
+		return
+	var chromosome := _current_go_chromosome()
+	if chromosome.is_empty():
+		_show_go_error("sequence unavailable")
+		return
+	var chr_id := int(chromosome.get("id", -1))
+	var chr_len := int(chromosome.get("length", 0))
+	if chr_id < 0:
+		_show_go_error("sequence unavailable")
+		return
+	if chr_len <= 0:
+		_show_go_error("sequence length unavailable")
+		return
+	var display_pos := chr_len if at_end else 1
+	host._go_on_browser_request(chr_id, display_pos, -1)
+	var chr_name := str(chromosome.get("name", "chr"))
+	var message := "%s:%d" % [chr_name, display_pos]
+	host._set_status(message)
+	show_message("jumped to %s" % message)
 
 
 func _show_bar_error(message: String) -> void:
@@ -616,6 +681,21 @@ func _is_escape_key_event(event: InputEvent) -> bool:
 
 func _begin_mark_action(action: String) -> void:
 	_pending_mark_action = action
+
+
+func _begin_go_start_action() -> void:
+	_pending_go_start = true
+	_pending_mark_action = ""
+
+
+func _handle_pending_go_start(key_event: InputEventKey) -> bool:
+	if not _pending_go_start:
+		return false
+	_pending_go_start = false
+	if key_event.keycode != KEY_G or key_event.shift_pressed:
+		return false
+	_jump_current_sequence_boundary(false)
+	return true
 
 
 func _handle_mark_target(key_event: InputEventKey) -> bool:
