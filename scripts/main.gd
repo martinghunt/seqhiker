@@ -158,13 +158,22 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var sequence_letter_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/SequenceLetterFontOption
 @onready var settings_scroll: ScrollContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll
 @onready var settings_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent
+# Owned here, used by TrackControlsController through its host reference.
+@warning_ignore("unused_private_class_variable")
 @onready var _track_order_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityLabel
+@warning_ignore("unused_private_class_variable")
 @onready var _track_visibility_box: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox
+@warning_ignore("unused_private_class_variable")
 @onready var _track_visibility_aa: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowAATrack
+@warning_ignore("unused_private_class_variable")
 @onready var _track_visibility_genome: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowGenomeTrack
+@warning_ignore("unused_private_class_variable")
 @onready var _track_visibility_gc_plot: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowGCPlotTrack
+@warning_ignore("unused_private_class_variable")
 @onready var _track_visibility_depth_plot: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowDepthPlotTrack
+@warning_ignore("unused_private_class_variable")
 @onready var _track_visibility_map: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityBox/ShowMapTrack
+@warning_ignore("unused_private_class_variable")
 var _track_visibility_vcf: CheckButton = null
 @onready var _bam_cov_cutoff_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffLabel
 @onready var _bam_cov_cutoff_spin: SpinBox = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/BAMCoverageCutoffSpin
@@ -253,6 +262,7 @@ var _fragment_log_checkbox: CheckBox
 var _read_thickness_label: Label
 var _read_thickness_spin: SpinBox
 var _show_full_region_checkbox: CheckBox
+@warning_ignore("unused_private_class_variable")
 var _track_order_list: ItemList
 var read_mate_jump_button: Button
 var read_mate_jump_start := -1
@@ -293,6 +303,7 @@ var _gc_plot_height := DEFAULT_PLOT_HEIGHT
 var _depth_plot_height := DEFAULT_PLOT_HEIGHT
 var _chromosomes: Array[Dictionary] = []
 var _concat_segments: Array[Dictionary] = []
+@warning_ignore("unused_private_class_variable")
 var _track_settings_box: VBoxContainer
 var _read_track_settings_panel: VBoxContainer
 var _track_settings_open := false
