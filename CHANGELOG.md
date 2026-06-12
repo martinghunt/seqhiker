@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Comparison mode no longer drops large high-identity matches when the anchored chain has a small leading or trailing overhang.
+- Zooming to base-level comparison detail no longer blocks the UI while match detail is being generated.
 
 ## [1.2.0] - 2026-06-11
 

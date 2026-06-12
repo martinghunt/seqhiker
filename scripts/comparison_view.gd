@@ -30,6 +30,7 @@ const DEFAULT_VIEW_SPAN_BP := 10000.0
 const MAX_VIEW_SPAN_OVERSCAN_FRAC := 0.15
 const DETAIL_MAX_BLOCKS_PER_PAIR := 96
 const DETAIL_MAX_OPS_BP := 200000
+const DETAIL_DRAW_MAX_CONNECTORS := 3000
 const REGION_SELECT_DRAG_THRESHOLD_PX := 6.0
 
 var _genomes_by_id := {}
@@ -502,6 +503,10 @@ func set_block_detail(query_genome_id: int, target_genome_id: int, block: Dictio
 	queue_redraw()
 
 
+func request_detail_refresh() -> void:
+	_schedule_detail_request()
+
+
 func pair_cached(query_genome_id: int, target_genome_id: int) -> bool:
 	var key := _pair_key(query_genome_id, target_genome_id)
 	if not _pair_blocks.has(key):
@@ -860,27 +865,29 @@ func _draw_to(target) -> void:
 
 
 func _draw_pair_block(target, block: Dictionary, top_id: int, bottom_id: int, top_row, bottom_row, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float, detail_top_y: float, detail_bottom_y: float, x_min: float, x_max: float) -> void:
-	if _detail_mode_active() and _has_block_detail(top_id, bottom_id, block):
-		var detail: Dictionary = _detail_blocks.get(_detail_block_key(top_id, bottom_id, block), {})
-		var display_block := _aligned_block_from_detail(block, detail)
-		var detail_fill := _block_color(display_block, top_id, bottom_id)
-		if bool(display_block.get("same_strand", true)):
-			var detail_poly := _project_block_polygon_for_rows(display_block, top_row, bottom_row, top_y, bottom_y, 0.5)
-			if not detail_poly.is_empty():
-				detail_poly = _clip_polygon_x(detail_poly, x_min, x_max)
-				if detail_poly.size() >= 3 and _polygon_area_abs(detail_poly) > 0.25:
-					_draw_colored_polygon_on(target, detail_poly, detail_fill)
-					var detail_closed := detail_poly.duplicate()
-					detail_closed.append(detail_closed[0])
-					_draw_polyline_on(target, detail_closed, detail_fill.darkened(0.18), 1.0)
-					if target == self:
-						_register_match_hitbox(display_block, top_id, bottom_id, detail_poly)
-					if _match_is_emphasized(_match_key_for_display_block(display_block, top_id, bottom_id)):
-						_draw_polyline_on(target, detail_closed, _theme_colors["selection_outline"], 2.0)
-		else:
-			_draw_reverse_block(target, display_block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, detail_fill, 0.5)
-		_draw_detail_block(target, block, top_id, bottom_id, top_axis, bottom_axis, detail_top_y, detail_bottom_y)
-		return
+	if _detail_mode_active():
+		var detail_block := _detail_request_block_for_visible_window(block, top_id, bottom_id)
+		if not detail_block.is_empty() and _has_block_detail(top_id, bottom_id, detail_block):
+			var detail: Dictionary = _detail_blocks.get(_detail_block_key(top_id, bottom_id, detail_block), {})
+			var display_block := _aligned_block_from_detail(detail_block, detail)
+			var detail_fill := _block_color(block, top_id, bottom_id)
+			if bool(display_block.get("same_strand", true)):
+				var detail_poly := _project_block_polygon_for_rows(display_block, top_row, bottom_row, top_y, bottom_y, 0.5)
+				if not detail_poly.is_empty():
+					detail_poly = _clip_polygon_x(detail_poly, x_min, x_max)
+					if detail_poly.size() >= 3 and _polygon_area_abs(detail_poly) > 0.25:
+						_draw_colored_polygon_on(target, detail_poly, detail_fill)
+						var detail_closed := detail_poly.duplicate()
+						detail_closed.append(detail_closed[0])
+						_draw_polyline_on(target, detail_closed, detail_fill.darkened(0.18), 1.0)
+						if target == self:
+							_register_match_hitbox(block, top_id, bottom_id, detail_poly)
+						if _match_is_emphasized(_match_key_for_display_block(block, top_id, bottom_id)):
+							_draw_polyline_on(target, detail_closed, _theme_colors["selection_outline"], 2.0)
+			else:
+				_draw_reverse_block(target, display_block, top_id, bottom_id, float(_offsets.get(top_id, 0.0)), float(_offsets.get(bottom_id, 0.0)), top_axis, bottom_axis, top_y, bottom_y, x_min, x_max, detail_fill, 0.5)
+			_draw_detail_block(target, detail_block, top_id, bottom_id, top_axis, bottom_axis, detail_top_y, detail_bottom_y)
+			return
 	var fill := _block_color(block, top_id, bottom_id)
 	if bool(block.get("same_strand", true)):
 		var poly := _project_block_polygon_for_rows(block, top_row, bottom_row, top_y, bottom_y)
@@ -1187,7 +1194,7 @@ func _emit_detail_request_if_needed() -> void:
 		var top_id := int(_order[idx])
 		var bottom_id := int(_order[idx + 1])
 		var visible_blocks: Array = _display_blocks_for_pair(top_id, bottom_id)
-		var detail_candidates: Array = _detail_request_blocks_for_pair(visible_blocks)
+		var detail_candidates: Array = _detail_request_blocks_for_pair(visible_blocks, top_id, bottom_id)
 		for i in range(mini(DETAIL_MAX_BLOCKS_PER_PAIR, detail_candidates.size())):
 			blocks.append({
 				"query_genome_id": top_id,
@@ -1197,14 +1204,22 @@ func _emit_detail_request_if_needed() -> void:
 	emit_signal("detail_requested", {"genomes": genomes, "blocks": blocks})
 
 
-func _detail_request_blocks_for_pair(visible_blocks: Array) -> Array:
+func _detail_request_blocks_for_pair(visible_blocks: Array, top_genome_id: int, bottom_genome_id: int) -> Array:
 	var candidates: Array = []
+	var seen := {}
 	for block_any in visible_blocks:
 		var block: Dictionary = block_any
-		var span := _block_span_bp(block)
+		var detail_block := _detail_request_block_for_visible_window(block, top_genome_id, bottom_genome_id)
+		if detail_block.is_empty():
+			continue
+		var key := _detail_block_key(top_genome_id, bottom_genome_id, detail_block)
+		if seen.has(key):
+			continue
+		seen[key] = true
+		var span := _block_span_bp(detail_block)
 		if span <= 0 or span > DETAIL_MAX_OPS_BP:
 			continue
-		candidates.append(block)
+		candidates.append(detail_block)
 	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var a_span := _block_span_bp(a)
 		var b_span := _block_span_bp(b)
@@ -1213,6 +1228,35 @@ func _detail_request_blocks_for_pair(visible_blocks: Array) -> Array:
 		return a_span < b_span
 	)
 	return candidates
+
+
+func _detail_request_block_for_visible_window(block: Dictionary, top_genome_id: int, bottom_genome_id: int) -> Dictionary:
+	var q0 := int(block.get("query_start", 0))
+	var q1 := int(block.get("query_end", 0))
+	var t0 := int(block.get("target_start", 0))
+	var t1 := int(block.get("target_end", 0))
+	if q1 <= q0 or t1 <= t0:
+		return {}
+	var pad_bp := clampi(int(ceil(_view_span_bp * 0.5)), 25, 1000)
+	var top_start := int(floor(float(_offsets.get(top_genome_id, 0.0)))) - pad_bp
+	var top_end := int(ceil(float(_offsets.get(top_genome_id, 0.0)) + _view_span_bp)) + pad_bp
+	var bottom_start := int(floor(float(_offsets.get(bottom_genome_id, 0.0)))) - pad_bp
+	var bottom_end := int(ceil(float(_offsets.get(bottom_genome_id, 0.0)) + _view_span_bp)) + pad_bp
+	var query_start := clampi(maxi(q0, top_start), q0, q1)
+	var query_end := clampi(mini(q1, top_end), q0, q1)
+	var target_start := clampi(maxi(t0, bottom_start), t0, t1)
+	var target_end := clampi(mini(t1, bottom_end), t0, t1)
+	if query_end <= query_start or target_end <= target_start:
+		return {}
+	return {
+		"query_start": query_start,
+		"query_end": query_end,
+		"target_start": target_start,
+		"target_end": target_end,
+		"percent_identity_x100": int(block.get("percent_identity_x100", 0)),
+		"percent_identity": float(block.get("percent_identity", 0.0)),
+		"same_strand": bool(block.get("same_strand", true))
+	}
 
 
 func _block_span_bp(block: Dictionary) -> int:
@@ -1260,34 +1304,14 @@ func _has_block_detail(query_genome_id: int, target_genome_id: int, block: Dicti
 func _aligned_block_from_detail(block: Dictionary, detail: Dictionary) -> Dictionary:
 	if detail.is_empty():
 		return block
-	var ops := str(detail.get("ops", ""))
-	if ops.is_empty():
-		return block
-	var same := bool(detail.get("same_strand", true))
-	var query_start := int(detail.get("query_start", block.get("query_start", 0)))
-	var target_start := int(detail.get("target_start", block.get("target_start", 0)))
-	var target_end := int(detail.get("target_end", block.get("target_end", 0)))
-	var q_pos := query_start
-	var t_pos := target_start if same else target_end - 1
-	for i in range(ops.length()):
-		var op := ops.substr(i, 1)
-		match op:
-			"M", "X":
-				q_pos += 1
-				t_pos += 1 if same else -1
-			"I":
-				q_pos += 1
-			"D":
-				t_pos += 1 if same else -1
 	var out := block.duplicate(true)
-	out["query_start"] = query_start
-	out["query_end"] = q_pos
-	if same:
-		out["target_start"] = target_start
-		out["target_end"] = t_pos
-	else:
-		out["target_start"] = t_pos + 1
-		out["target_end"] = target_end
+	out["query_start"] = int(detail.get("query_start", block.get("query_start", 0)))
+	out["query_end"] = int(detail.get("query_end", block.get("query_end", 0)))
+	out["target_start"] = int(detail.get("target_start", block.get("target_start", 0)))
+	out["target_end"] = int(detail.get("target_end", block.get("target_end", 0)))
+	out["percent_identity_x100"] = int(detail.get("percent_identity_x100", block.get("percent_identity_x100", 0)))
+	out["percent_identity"] = float(detail.get("percent_identity", block.get("percent_identity", 0.0)))
+	out["same_strand"] = bool(detail.get("same_strand", block.get("same_strand", true)))
 	return out
 
 
@@ -1313,25 +1337,37 @@ func _draw_detail_block(target, block: Dictionary, top_genome_id: int, bottom_ge
 	var line_width := 1.0
 	var x_tolerance := 8.0
 	var bp_px := minf(_pixels_per_bp(top_axis), _pixels_per_bp(bottom_axis))
+	var top_pad_bp := int(ceil(x_tolerance / maxf(bp_px, 0.000001))) + 2
+	var bottom_pad_bp := top_pad_bp
+	var q_visible_start := int(floor(float(_offsets.get(top_genome_id, 0.0)))) - top_pad_bp
+	var q_visible_end := int(ceil(float(_offsets.get(top_genome_id, 0.0)) + _view_span_bp)) + top_pad_bp
+	var t_visible_start := int(floor(float(_offsets.get(bottom_genome_id, 0.0)))) - bottom_pad_bp
+	var t_visible_end := int(ceil(float(_offsets.get(bottom_genome_id, 0.0)) + _view_span_bp)) + bottom_pad_bp
+	var drawn_connectors := 0
 	for i in range(ops.length()):
 		var op := ops.substr(i, 1)
 		match op:
 			"M", "X":
-				var qx := float(top_row.get_bp_center_x_in_parent(float(q_pos)))
-				var tx := float(bottom_row.get_bp_center_x_in_parent(float(t_pos)))
-				if _x_within_axis(qx, top_axis, x_tolerance) and _x_within_axis(tx, bottom_axis, x_tolerance):
+				if q_pos >= q_visible_start and q_pos <= q_visible_end and t_pos >= t_visible_start and t_pos <= t_visible_end:
+					var qx := float(top_row.get_bp_center_x_in_parent(float(q_pos)))
+					var tx := float(bottom_row.get_bp_center_x_in_parent(float(t_pos)))
 					var start_pt := Vector2(qx, top_y)
 					var end_pt := Vector2(tx, bottom_y)
 					if op == "X":
 						_draw_snp_connector(target, start_pt, end_pt, snp_color, bp_px)
 					else:
 						_draw_line_on(target, start_pt, end_pt, match_color, line_width)
+					drawn_connectors += 1
+					if drawn_connectors >= DETAIL_DRAW_MAX_CONNECTORS:
+						return
 				q_pos += 1
 				t_pos += 1 if same else -1
 			"I":
 				q_pos += 1
 			"D":
 				t_pos += 1 if same else -1
+		if q_pos > q_visible_end and ((same and t_pos > t_visible_end) or (not same and t_pos < t_visible_start)):
+			break
 
 
 func _draw_fallback_detail_guides(target, block: Dictionary, top_row, bottom_row, top_axis: Rect2, bottom_axis: Rect2, top_y: float, bottom_y: float) -> void:

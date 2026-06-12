@@ -3,6 +3,7 @@ class_name ComparisonController
 
 const ContigContextMenuScript = preload("res://scripts/contig_context_menu.gd")
 const COMPARISON_PROGRESS_POLL_MS := 350
+const COMPARISON_DETAIL_BATCH_LIMIT := 8
 
 var host: Node = null
 var zem: RefCounted = null
@@ -13,6 +14,8 @@ var _comparison_genomes: Array[Dictionary] = []
 var _comparison_pair_cache := {}
 var _comparison_pair_jobs := {}
 var _comparison_detail_cache := {}
+var _comparison_detail_jobs := {}
+var _comparison_detail_pending_keys := {}
 var _comparison_reference_cache := {}
 var _comparison_block_cap_label: Label
 var _comparison_block_cap_spin: SpinBox
@@ -29,6 +32,8 @@ var _generate_test_genomes_button: Button
 var _contig_context_menu: PopupMenu = null
 var _contig_context_genome_id := -1
 var _next_comparison_pair_job_id := 1
+var _next_comparison_detail_job_id := 1
+var _comparison_detail_generation := 1
 var _next_comparison_progress_poll_ms := 0
 
 
@@ -285,6 +290,31 @@ func shutdown() -> void:
 		if thread != null and thread.is_started():
 			thread.wait_to_finish()
 	_comparison_pair_jobs.clear()
+	for key_any in _comparison_detail_jobs.keys():
+		var job: Dictionary = _comparison_detail_jobs[key_any]
+		var thread: Thread = job.get("thread", null)
+		if thread != null and thread.is_started():
+			thread.wait_to_finish()
+	_comparison_detail_jobs.clear()
+	_comparison_detail_pending_keys.clear()
+
+
+func _clear_comparison_detail_state() -> void:
+	_comparison_detail_cache.clear()
+	_comparison_detail_pending_keys.clear()
+	_comparison_detail_generation += 1
+
+
+func _comparison_detail_cache_key(query_genome_id: int, target_genome_id: int, block: Dictionary) -> String:
+	return "%d:%d:%d:%d:%d:%d:%d" % [
+		query_genome_id,
+		target_genome_id,
+		int(block.get("query_start", 0)),
+		int(block.get("query_end", 0)),
+		int(block.get("target_start", 0)),
+		int(block.get("target_end", 0)),
+		1 if bool(block.get("same_strand", true)) else 0
+	]
 
 
 func _on_comparison_contig_context_requested(genome_id: int, segment: Dictionary) -> void:
@@ -358,7 +388,7 @@ func _apply_orientation_response(genomes: Array, refetch_ids: Array, view_state:
 	for genome_id_any in refetch_ids:
 		refetch_lookup[int(genome_id_any)] = true
 	_comparison_pair_cache.clear()
-	_comparison_detail_cache.clear()
+	_clear_comparison_detail_state()
 	_comparison_reference_cache.clear()
 	_comparison_genomes.clear()
 	for genome_any in genomes:
@@ -395,7 +425,7 @@ func _ensure_empty_state_ready() -> bool:
 		host._set_status("Comparison reset failed: %s" % str(resp.get("error", "error")), true)
 		return false
 	_comparison_pair_cache.clear()
-	_comparison_detail_cache.clear()
+	_clear_comparison_detail_state()
 	_comparison_reference_cache.clear()
 	if comparison_view != null and comparison_view.has_method("clear_view"):
 		comparison_view.clear_view()
@@ -466,7 +496,7 @@ func load_session(path: String) -> bool:
 		host._set_status("Comparison load failed: %s" % str(resp.get("error", "error")), true)
 		return false
 	_comparison_pair_cache.clear()
-	_comparison_detail_cache.clear()
+	_clear_comparison_detail_state()
 	_comparison_reference_cache.clear()
 	_comparison_genomes.clear()
 	if comparison_view != null and comparison_view.has_method("clear_view"):
@@ -495,7 +525,7 @@ func clear_state() -> bool:
 		host._set_status("Comparison reset failed: %s" % str(resp.get("error", "error")), true)
 		return false
 	_comparison_pair_cache.clear()
-	_comparison_detail_cache.clear()
+	_clear_comparison_detail_state()
 	_comparison_reference_cache.clear()
 	_comparison_genomes.clear()
 	if comparison_view != null and comparison_view.has_method("clear_view"):
@@ -821,6 +851,7 @@ func _on_detail_requested(request: Dictionary) -> void:
 		if slice_data.is_empty():
 			continue
 		comparison_view.set_reference_slice(genome_id, slice_data)
+	var missing_blocks: Array[Dictionary] = []
 	for block_any in request.get("blocks", []):
 		var block_req: Dictionary = block_any
 		var query_genome_id := int(block_req.get("query_genome_id", -1))
@@ -828,23 +859,134 @@ func _on_detail_requested(request: Dictionary) -> void:
 		var block: Dictionary = block_req.get("block", {})
 		if query_genome_id < 0 or target_genome_id < 0 or block.is_empty():
 			continue
-		var cache_key := "%d:%d:%d:%d:%d:%d:%d" % [
-			query_genome_id,
-			target_genome_id,
-			int(block.get("query_start", 0)),
-			int(block.get("query_end", 0)),
-			int(block.get("target_start", 0)),
-			int(block.get("target_end", 0)),
-			1 if bool(block.get("same_strand", true)) else 0
-		]
+		var cache_key := _comparison_detail_cache_key(query_genome_id, target_genome_id, block)
 		var detail: Dictionary = _comparison_detail_cache.get(cache_key, {})
-		if detail.is_empty():
-			var detail_resp: Dictionary = zem.get_comparison_block_detail(query_genome_id, target_genome_id, block)
-			if not bool(detail_resp.get("ok", false)):
+		if not detail.is_empty():
+			comparison_view.set_block_detail(query_genome_id, target_genome_id, block, detail)
+			continue
+		if int(_comparison_detail_pending_keys.get(cache_key, -1)) == _comparison_detail_generation:
+			continue
+		if missing_blocks.size() >= COMPARISON_DETAIL_BATCH_LIMIT:
+			continue
+		missing_blocks.append({
+			"key": cache_key,
+			"query_genome_id": query_genome_id,
+			"target_genome_id": target_genome_id,
+			"block": block.duplicate(true)
+		})
+	if not missing_blocks.is_empty():
+		_start_detail_fetch_job(missing_blocks)
+
+
+func _start_detail_fetch_job(block_requests: Array) -> void:
+	if block_requests.is_empty():
+		return
+	var conn_info: Dictionary = zem.connection_info() if zem != null and zem.has_method("connection_info") else {"host": "127.0.0.1", "port": 9000}
+	var job_id := _next_comparison_detail_job_id
+	_next_comparison_detail_job_id += 1
+	var generation := _comparison_detail_generation
+	var keys: Array[String] = []
+	for request_any in block_requests:
+		var request: Dictionary = request_any
+		var key := str(request.get("key", ""))
+		if key.is_empty():
+			continue
+		keys.append(key)
+		_comparison_detail_pending_keys[key] = generation
+	var thread := Thread.new()
+	_comparison_detail_jobs[job_id] = {
+		"id": job_id,
+		"thread": thread,
+		"generation": generation,
+		"keys": keys
+	}
+	var err := thread.start(Callable(self, "_detail_fetch_thread_main").bind(
+		job_id,
+		generation,
+		block_requests.duplicate(true),
+		str(conn_info.get("host", "127.0.0.1")),
+		int(conn_info.get("port", 9000))
+	))
+	if err != OK:
+		_comparison_detail_jobs.erase(job_id)
+		for key in keys:
+			if int(_comparison_detail_pending_keys.get(key, -1)) == generation:
+				_comparison_detail_pending_keys.erase(key)
+		if host != null and host.has_method("_set_status"):
+			host._set_status("Comparison detail query failed: could not start worker thread", true)
+
+
+func _detail_fetch_thread_main(job_id: int, generation: int, block_requests: Array, server_host: String, server_port: int) -> Dictionary:
+	var worker_zem := ZemClient.new()
+	var out := {
+		"ok": true,
+		"generation": generation,
+		"results": []
+	}
+	if not worker_zem.connect_to_server(server_host, server_port, 2000):
+		out["ok"] = false
+		out["error"] = "Unable to connect to %s:%d" % [server_host, server_port]
+	else:
+		var results: Array[Dictionary] = []
+		for request_any in block_requests:
+			var request: Dictionary = request_any
+			var query_genome_id := int(request.get("query_genome_id", -1))
+			var target_genome_id := int(request.get("target_genome_id", -1))
+			var block: Dictionary = request.get("block", {})
+			if query_genome_id < 0 or target_genome_id < 0 or block.is_empty():
 				continue
-			detail = detail_resp.get("detail", {})
-			_comparison_detail_cache[cache_key] = detail
-		comparison_view.set_block_detail(query_genome_id, target_genome_id, block, detail)
+			var resp: Dictionary = worker_zem.get_comparison_block_detail(query_genome_id, target_genome_id, block)
+			if not bool(resp.get("ok", false)):
+				continue
+			results.append({
+				"key": str(request.get("key", "")),
+				"query_genome_id": query_genome_id,
+				"target_genome_id": target_genome_id,
+				"block": block,
+				"detail": resp.get("detail", {})
+			})
+		worker_zem.disconnect_from_server()
+		out["results"] = results
+	call_deferred("_on_detail_fetch_thread_completed", job_id)
+	return out
+
+
+func _on_detail_fetch_thread_completed(job_id: int) -> void:
+	if not _comparison_detail_jobs.has(job_id):
+		return
+	var job: Dictionary = _comparison_detail_jobs[job_id]
+	var thread: Thread = job.get("thread", null)
+	var resp: Dictionary = thread.wait_to_finish() if thread != null else {"ok": false, "error": "Comparison detail worker missing"}
+	_comparison_detail_jobs.erase(job_id)
+	var generation := int(job.get("generation", -1))
+	for key_any in job.get("keys", []):
+		var key := str(key_any)
+		if int(_comparison_detail_pending_keys.get(key, -1)) == generation:
+			_comparison_detail_pending_keys.erase(key)
+	if generation != _comparison_detail_generation:
+		return
+	if not bool(resp.get("ok", false)):
+		return
+	var applied_count := 0
+	for result_any in resp.get("results", []):
+		var result: Dictionary = result_any
+		var key := str(result.get("key", ""))
+		var detail: Dictionary = result.get("detail", {})
+		if key.is_empty() or detail.is_empty():
+			continue
+		var query_genome_id := int(result.get("query_genome_id", -1))
+		var target_genome_id := int(result.get("target_genome_id", -1))
+		if _genome_by_id(query_genome_id).is_empty() or _genome_by_id(target_genome_id).is_empty():
+			continue
+		var block: Dictionary = result.get("block", {})
+		if block.is_empty():
+			continue
+		_comparison_detail_cache[key] = detail
+		if comparison_view != null:
+			comparison_view.set_block_detail(query_genome_id, target_genome_id, block, detail)
+		applied_count += 1
+	if applied_count > 0 and comparison_view != null and comparison_view.has_method("request_detail_refresh"):
+		comparison_view.request_detail_refresh()
 
 
 func _reference_slice_for_window(genome_id: int, start_bp: int, end_bp: int) -> Dictionary:
