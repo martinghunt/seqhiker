@@ -10,6 +10,7 @@ const VIM_MARK_ACTION_LOAD := "load"
 const VIM_COMMAND_PREFIX_COMMAND := ":"
 const VIM_COMMAND_PREFIX_SEARCH := "/"
 const VIM_COLON_COMMANDS := ["go", "colorscheme", "q", "quit"]
+const VIM_COMMAND_HISTORY_LIMIT := 100
 
 var host: Node = null
 var mode_cb: CheckButton = null
@@ -29,6 +30,11 @@ var _contig_navigation_anchor_view_start := -1
 var _contig_navigation_anchor_view_end := -1
 var _completion_matches := PackedStringArray()
 var _completion_index := -1
+var _colon_history: Array[String] = []
+var _search_history: Array[String] = []
+var _history_index := -1
+var _history_draft := ""
+var _applying_history := false
 
 
 func setup(next_host: Node, next_mode_cb: CheckButton, next_command_bar: PanelContainer, next_command_prefix: Label, next_command_edit: LineEdit) -> void:
@@ -51,6 +57,8 @@ func setup(next_host: Node, next_mode_cb: CheckButton, next_command_bar: PanelCo
 			command_edit.focus_exited.connect(_on_command_focus_exited)
 		if not command_edit.gui_input.is_connected(_on_command_edit_gui_input):
 			command_edit.gui_input.connect(_on_command_edit_gui_input)
+		if not command_edit.text_changed.is_connected(_on_command_text_changed):
+			command_edit.text_changed.connect(_on_command_text_changed)
 	if mode_cb != null and not mode_cb.toggled.is_connected(_on_mode_toggled):
 		mode_cb.toggled.connect(_on_mode_toggled)
 	sync_command_bar()
@@ -306,6 +314,7 @@ func _begin_command(prefix_text: String = VIM_COMMAND_PREFIX_COMMAND) -> void:
 		return
 	_clear_pending_state()
 	_reset_completion()
+	_reset_history_navigation()
 	_command_prefix_text = prefix_text
 	_command_active = true
 	command_edit.text = ""
@@ -315,6 +324,7 @@ func _begin_command(prefix_text: String = VIM_COMMAND_PREFIX_COMMAND) -> void:
 func _finish_command() -> void:
 	_command_active = false
 	_reset_completion()
+	_reset_history_navigation()
 	if command_edit != null:
 		command_edit.text = ""
 	sync_command_bar()
@@ -724,6 +734,86 @@ func _reset_completion() -> void:
 	_completion_index = -1
 
 
+func _reset_history_navigation() -> void:
+	_history_index = -1
+	_history_draft = ""
+
+
+func _record_command_history(prefix_text: String, command: String) -> void:
+	var clean := command.strip_edges()
+	if clean.is_empty():
+		return
+	var history := _history_for_prefix(prefix_text)
+	if not history.is_empty() and history[-1] == clean:
+		_store_history_for_prefix(prefix_text, history)
+		return
+	history.append(clean)
+	while history.size() > VIM_COMMAND_HISTORY_LIMIT:
+		history.remove_at(0)
+	_store_history_for_prefix(prefix_text, history)
+
+
+func _history_for_prefix(prefix_text: String) -> Array[String]:
+	if prefix_text == VIM_COMMAND_PREFIX_SEARCH:
+		return _search_history.duplicate()
+	return _colon_history.duplicate()
+
+
+func _store_history_for_prefix(prefix_text: String, history: Array[String]) -> void:
+	if prefix_text == VIM_COMMAND_PREFIX_SEARCH:
+		_search_history = history
+	else:
+		_colon_history = history
+
+
+func _handle_command_history(event: InputEvent) -> bool:
+	if not _command_active or command_edit == null:
+		return false
+	if not (event is InputEventKey):
+		return false
+	var key_event := event as InputEventKey
+	if not key_event.pressed:
+		return false
+	if key_event.alt_pressed or key_event.ctrl_pressed or key_event.meta_pressed:
+		return false
+	if key_event.keycode == KEY_UP or key_event.physical_keycode == KEY_UP or key_event.key_label == KEY_UP:
+		_step_command_history(-1)
+		return true
+	if key_event.keycode == KEY_DOWN or key_event.physical_keycode == KEY_DOWN or key_event.key_label == KEY_DOWN:
+		_step_command_history(1)
+		return true
+	return false
+
+
+func _step_command_history(direction: int) -> void:
+	var history := _history_for_prefix(_command_prefix_text)
+	if history.is_empty():
+		return
+	if direction < 0:
+		if _history_index < 0:
+			_history_draft = command_edit.text
+			_history_index = history.size() - 1
+		else:
+			_history_index = maxi(0, _history_index - 1)
+	else:
+		if _history_index < 0:
+			return
+		if _history_index >= history.size() - 1:
+			_history_index = -1
+			_apply_history_text(_history_draft)
+			return
+		_history_index += 1
+	_apply_history_text(history[_history_index])
+
+
+func _apply_history_text(text: String) -> void:
+	_applying_history = true
+	command_edit.text = text
+	command_edit.caret_column = text.length()
+	_applying_history = false
+	_reset_completion()
+
+
 func _handle_command_completion(event: InputEvent) -> bool:
 	if not _command_active or command_edit == null:
 		return false
@@ -909,6 +999,7 @@ func _theme_completion_matches(prefix: String) -> PackedStringArray:
 
 func _on_command_submitted(command: String) -> void:
 	var prefix_text := _command_prefix_text
+	_record_command_history(prefix_text, command)
 	_finish_command()
 	if prefix_text == VIM_COMMAND_PREFIX_SEARCH:
 		_execute_search(command)
@@ -920,8 +1011,18 @@ func _on_command_edit_gui_input(event: InputEvent) -> void:
 	if handle_escape(event):
 		command_edit.accept_event()
 		return
+	if _handle_command_history(event):
+		command_edit.accept_event()
+		return
 	if _handle_command_completion(event):
 		command_edit.accept_event()
+
+
+func _on_command_text_changed(_new_text: String) -> void:
+	if _applying_history:
+		return
+	_reset_history_navigation()
+	_reset_completion()
 
 
 func _on_command_focus_exited() -> void:

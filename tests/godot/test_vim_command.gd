@@ -101,6 +101,50 @@ func test_vim_count_helpers_consume_and_clear_feedback() -> void:
 	edit.free()
 
 
+func test_vim_command_history_cycles_per_prompt_prefix() -> void:
+	var edit := LineEdit.new()
+	var controller := VimModeControllerScript.new()
+	controller.command_edit = edit
+	controller._record_command_history(":", "go ctg1:100")
+	controller._record_command_history(":", "colorscheme Classic")
+	controller._record_command_history("/", "dna ACGT")
+
+	controller._command_active = true
+	controller._command_prefix_text = ":"
+	edit.text = "draft"
+	assert_true(controller._handle_command_history(_vim_key(KEY_UP)))
+	assert_eq(edit.text, "colorscheme Classic")
+	assert_true(controller._handle_command_history(_vim_key(KEY_UP)))
+	assert_eq(edit.text, "go ctg1:100")
+	assert_true(controller._handle_command_history(_vim_key(KEY_UP)))
+	assert_eq(edit.text, "go ctg1:100")
+	assert_true(controller._handle_command_history(_vim_key(KEY_DOWN)))
+	assert_eq(edit.text, "colorscheme Classic")
+	assert_true(controller._handle_command_history(_vim_key(KEY_DOWN)))
+	assert_eq(edit.text, "draft")
+
+	controller._command_prefix_text = "/"
+	edit.text = ""
+	assert_true(controller._handle_command_history(_vim_key(KEY_UP)))
+	assert_eq(edit.text, "dna ACGT")
+	edit.free()
+
+
+func test_vim_command_history_ignores_empty_dedupes_and_caps() -> void:
+	var controller := VimModeControllerScript.new()
+	controller._record_command_history(":", "")
+	assert_eq(controller._colon_history.size(), 0)
+	controller._record_command_history(":", "go 1")
+	controller._record_command_history(":", "go 1")
+	assert_eq(controller._colon_history, ["go 1"])
+
+	for i in range(105):
+		controller._record_command_history(":", "go %d" % i)
+	assert_eq(controller._colon_history.size(), 100)
+	assert_eq(controller._colon_history[0], "go 5")
+	assert_eq(controller._colon_history[-1], "go 104")
+
+
 func test_vim_key_matching_distinguishes_c_and_shift_c() -> void:
 	var key_event := InputEventKey.new()
 	key_event.pressed = true
