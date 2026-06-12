@@ -31,6 +31,7 @@ class FakeVimHost:
 	]
 	var go_requests: Array[Dictionary] = []
 	var status_messages: Array[Dictionary] = []
+	var quit_requests := 0
 
 	func _go_get_browser_target_chr_id() -> int:
 		return 1
@@ -54,6 +55,9 @@ class FakeVimHost:
 			return false
 		_app_mode = next_mode
 		return true
+
+	func _quit_app() -> void:
+		quit_requests += 1
 
 
 func test_vim_go_range_parser_accepts_points_and_ranges() -> void:
@@ -150,6 +154,35 @@ func test_vim_gv_toggles_view_mode() -> void:
 	assert_eq(host._app_mode, host.APP_MODE_BROWSER)
 	assert_eq(edit.text, "single genome view")
 	edit.free()
+	host.free()
+
+
+func test_vim_zz_quits() -> void:
+	var host := FakeVimHost.new()
+	var controller := VimModeControllerScript.new()
+	controller.host = host
+	controller._enabled = true
+
+	assert_true(controller.handle_input(_vim_key(KEY_Z, true, 90)))
+	assert_true(controller.handle_input(_vim_key(KEY_SHIFT, true, 0)))
+	assert_true(controller.handle_input(_vim_key(KEY_Z, true, 90)))
+	assert_eq(host.quit_requests, 1)
+	host.free()
+
+
+func test_vim_zz_requires_uppercase_sequence() -> void:
+	var host := FakeVimHost.new()
+	var controller := VimModeControllerScript.new()
+	controller.host = host
+	controller._enabled = true
+
+	assert_false(controller.handle_input(_vim_key(KEY_Z, false, 122)))
+	assert_false(controller.handle_input(_vim_key(KEY_Z, false, 122)))
+	assert_eq(host.quit_requests, 0)
+
+	assert_true(controller.handle_input(_vim_key(KEY_Z, true, 90)))
+	assert_false(controller.handle_input(_vim_key(KEY_Z, false, 122)))
+	assert_eq(host.quit_requests, 0)
 	host.free()
 
 

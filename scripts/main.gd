@@ -598,6 +598,9 @@ func _set_view_mode(next_mode: int) -> bool:
 	_refresh_comparison_topbar_state()
 	return true
 
+func _quit_app() -> void:
+	get_tree().quit()
+
 func _set_app_mode(next_mode: int) -> void:
 	if _top_bar_controller != null:
 		_top_bar_controller.set_app_mode(next_mode)

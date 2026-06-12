@@ -25,6 +25,7 @@ var _command_prefix_text := VIM_COMMAND_PREFIX_COMMAND
 var _pending_mark_action := ""
 var _pending_go_start := false
 var _pending_bracket_contig_delta := 0
+var _pending_quit := false
 var _count_prefix := ""
 var _contig_navigation_anchor_chr_id := -1
 var _contig_navigation_anchor_view_start := -1
@@ -83,6 +84,7 @@ func set_enabled(enabled: bool) -> void:
 		_pending_mark_action = ""
 		_pending_go_start = false
 		_pending_bracket_contig_delta = 0
+		_pending_quit = false
 		_count_prefix = ""
 		if command_edit != null:
 			command_edit.text = ""
@@ -129,6 +131,7 @@ func _clear_pending_state(clear_count: bool = true) -> void:
 	_pending_mark_action = ""
 	_pending_go_start = false
 	_pending_bracket_contig_delta = 0
+	_pending_quit = false
 	if clear_count:
 		_clear_count_prefix()
 
@@ -141,7 +144,7 @@ func _clear_count_prefix() -> void:
 
 
 func _has_pending_state() -> bool:
-	return _pending_go_start or _pending_bracket_contig_delta != 0 or not _pending_mark_action.is_empty() or not _count_prefix.is_empty()
+	return _pending_go_start or _pending_bracket_contig_delta != 0 or _pending_quit or not _pending_mark_action.is_empty() or not _count_prefix.is_empty()
 
 
 static func _is_shift_modifier_event(key_event: InputEventKey) -> bool:
@@ -161,7 +164,7 @@ func _consume_count(default_value: int = 1) -> int:
 
 
 func _handle_count_prefix(key_event: InputEventKey) -> bool:
-	if _pending_go_start or _pending_bracket_contig_delta != 0 or not _pending_mark_action.is_empty():
+	if _pending_go_start or _pending_bracket_contig_delta != 0 or _pending_quit or not _pending_mark_action.is_empty():
 		return false
 	if key_event.shift_pressed:
 		return false
@@ -257,6 +260,8 @@ func handle_input(event: InputEvent) -> bool:
 		return true
 	if _handle_pending_bracket_contig(key_event):
 		return true
+	if _handle_pending_quit(key_event):
+		return true
 	if _handle_count_prefix(key_event):
 		return true
 	if event.is_action_pressed("seqhiker_vim_command"):
@@ -284,6 +289,9 @@ func handle_input(event: InputEvent) -> bool:
 		return true
 	if _matches_key(key_event, KEY_G):
 		_begin_go_start_action()
+		return true
+	if _matches_key(key_event, KEY_Z, true):
+		_begin_quit_action()
 		return true
 	if event.is_action_pressed("seqhiker_vim_contig_next_prefix"):
 		_begin_bracket_contig_action(1)
@@ -368,9 +376,12 @@ func _execute_colorscheme_command(command: String) -> void:
 
 
 func _execute_quit_command() -> void:
-	if host == null or host.get_tree() == null:
+	if host == null:
 		return
-	host.get_tree().quit()
+	if host.has_method("_quit_app"):
+		host._quit_app()
+	elif host.get_tree() != null:
+		host.get_tree().quit()
 
 
 func _execute_view_command(command: String) -> void:
@@ -1119,6 +1130,7 @@ func _begin_mark_action(action: String) -> void:
 	_pending_mark_action = action
 	_pending_go_start = false
 	_pending_bracket_contig_delta = 0
+	_pending_quit = false
 	_count_prefix = ""
 
 
@@ -1126,12 +1138,22 @@ func _begin_go_start_action() -> void:
 	_pending_go_start = true
 	_pending_mark_action = ""
 	_pending_bracket_contig_delta = 0
+	_pending_quit = false
 
 
 func _begin_bracket_contig_action(delta: int) -> void:
 	_pending_bracket_contig_delta = delta
 	_pending_go_start = false
 	_pending_mark_action = ""
+	_pending_quit = false
+
+
+func _begin_quit_action() -> void:
+	_pending_quit = true
+	_pending_go_start = false
+	_pending_bracket_contig_delta = 0
+	_pending_mark_action = ""
+	_clear_count_prefix()
 
 
 func _handle_pending_go_start(key_event: InputEventKey) -> bool:
@@ -1166,6 +1188,16 @@ func _handle_pending_bracket_contig(key_event: InputEventKey) -> bool:
 		_clear_count_prefix()
 		return false
 	_jump_relative_contig(delta, _consume_count())
+	return true
+
+
+func _handle_pending_quit(key_event: InputEventKey) -> bool:
+	if not _pending_quit:
+		return false
+	_pending_quit = false
+	if not _matches_key(key_event, KEY_Z, true):
+		return false
+	_execute_quit_command()
 	return true
 
 
