@@ -12,6 +12,7 @@ class FakeVimHost:
 	extends Node
 
 	const APP_MODE_BROWSER := 0
+	const APP_MODE_COMPARISON := 1
 	const SEQ_VIEW_CONCAT := 0
 
 	var _app_mode := APP_MODE_BROWSER
@@ -43,6 +44,16 @@ class FakeVimHost:
 
 	func _set_status(message: String, is_error: bool = false) -> void:
 		status_messages.append({"message": message, "is_error": is_error})
+
+	func _toggle_view_mode() -> bool:
+		_app_mode = APP_MODE_BROWSER if _app_mode == APP_MODE_COMPARISON else APP_MODE_COMPARISON
+		return true
+
+	func _set_view_mode(next_mode: int) -> bool:
+		if next_mode != APP_MODE_BROWSER and next_mode != APP_MODE_COMPARISON:
+			return false
+		_app_mode = next_mode
+		return true
 
 
 func test_vim_go_range_parser_accepts_points_and_ranges() -> void:
@@ -84,6 +95,62 @@ func test_vim_colorscheme_parser_rejects_set_theme_alias() -> void:
 func test_vim_colon_completion_includes_quit_commands() -> void:
 	var controller := VimModeControllerScript.new()
 	assert_eq(controller._colon_command_completion_matches("q"), PackedStringArray(["q", "quit"]))
+
+
+func test_vim_view_completion_includes_targets() -> void:
+	var edit := LineEdit.new()
+	var controller := VimModeControllerScript.new()
+	controller.command_edit = edit
+	controller._command_prefix_text = ":"
+	edit.text = "view c"
+	edit.caret_column = edit.text.length()
+
+	var context := controller._command_completion_context()
+	assert_eq(context.get("kind", ""), "view")
+	assert_eq(controller._completion_matches_for_context(context, str(context.get("token", ""))), PackedStringArray(["comparison"]))
+	edit.free()
+
+
+func test_vim_view_command_switches_modes() -> void:
+	var host := FakeVimHost.new()
+	var edit := LineEdit.new()
+	var controller := VimModeControllerScript.new()
+	controller.host = host
+	controller.command_edit = edit
+	controller._enabled = true
+
+	controller._execute_command("view comparison")
+	assert_eq(host._app_mode, host.APP_MODE_COMPARISON)
+	assert_eq(edit.text, "comparison view")
+	assert_eq(host.status_messages[-1], {"message": "Comparison view", "is_error": false})
+
+	controller._execute_command("view single")
+	assert_eq(host._app_mode, host.APP_MODE_BROWSER)
+	assert_eq(edit.text, "single genome view")
+	assert_eq(host.status_messages[-1], {"message": "Single genome view", "is_error": false})
+	edit.free()
+	host.free()
+
+
+func test_vim_gv_toggles_view_mode() -> void:
+	var host := FakeVimHost.new()
+	var edit := LineEdit.new()
+	var controller := VimModeControllerScript.new()
+	controller.host = host
+	controller.command_edit = edit
+	controller._enabled = true
+
+	assert_true(controller.handle_input(_vim_key(KEY_G, false, 103)))
+	assert_true(controller.handle_input(_vim_key(KEY_V, false, 118)))
+	assert_eq(host._app_mode, host.APP_MODE_COMPARISON)
+	assert_eq(edit.text, "comparison view")
+
+	assert_true(controller.handle_input(_vim_key(KEY_G, false, 103)))
+	assert_true(controller.handle_input(_vim_key(KEY_V, false, 118)))
+	assert_eq(host._app_mode, host.APP_MODE_BROWSER)
+	assert_eq(edit.text, "single genome view")
+	edit.free()
+	host.free()
 
 
 func test_vim_count_helpers_consume_and_clear_feedback() -> void:

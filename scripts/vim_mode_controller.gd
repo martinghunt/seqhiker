@@ -9,7 +9,8 @@ const VIM_MARK_ACTION_SAVE := "save"
 const VIM_MARK_ACTION_LOAD := "load"
 const VIM_COMMAND_PREFIX_COMMAND := ":"
 const VIM_COMMAND_PREFIX_SEARCH := "/"
-const VIM_COLON_COMMANDS := ["go", "colorscheme", "q", "quit"]
+const VIM_COLON_COMMANDS := ["go", "colorscheme", "q", "quit", "view"]
+const VIM_VIEW_TARGETS := ["comparison", "single"]
 const VIM_COMMAND_HISTORY_LIMIT := 100
 
 var host: Node = null
@@ -66,6 +67,10 @@ func setup(next_host: Node, next_mode_cb: CheckButton, next_command_bar: PanelCo
 
 func is_enabled() -> bool:
 	return _enabled
+
+
+func is_command_active() -> bool:
+	return _command_active
 
 
 func set_enabled(enabled: bool) -> void:
@@ -339,6 +344,8 @@ func _execute_command(command: String) -> void:
 		_execute_go_command(clean)
 	elif lower == VimCommandParserScript.COMMAND_COLORSCHEME or lower.begins_with("%s " % VimCommandParserScript.COMMAND_COLORSCHEME):
 		_execute_colorscheme_command(clean)
+	elif lower == "view" or lower.begins_with("view "):
+		_execute_view_command(clean)
 	elif lower == "q" or lower == "quit":
 		_execute_quit_command()
 
@@ -364,6 +371,39 @@ func _execute_quit_command() -> void:
 	if host == null or host.get_tree() == null:
 		return
 	host.get_tree().quit()
+
+
+func _execute_view_command(command: String) -> void:
+	var args := command.substr(4).strip_edges().to_lower()
+	if args.is_empty():
+		_show_bar_error("usage: view single|comparison")
+		return
+	var next_mode := -1
+	var status_message := ""
+	if args == "comparison":
+		next_mode = host.APP_MODE_COMPARISON
+		status_message = "Comparison view"
+	elif args == "single":
+		next_mode = host.APP_MODE_BROWSER
+		status_message = "Single genome view"
+	else:
+		_show_bar_error("usage: view single|comparison")
+		return
+	if not host._set_view_mode(next_mode):
+		_show_bar_error("view switch unavailable")
+		return
+	host._set_status(status_message)
+	show_message(status_message.to_lower())
+
+
+func _toggle_view_mode() -> void:
+	if not host._toggle_view_mode():
+		_show_bar_error("view switch unavailable")
+		return
+	var message := "comparison view" if host._app_mode == host.APP_MODE_COMPARISON else "single genome view"
+	var status_message := "Comparison view" if host._app_mode == host.APP_MODE_COMPARISON else "Single genome view"
+	host._set_status(status_message)
+	show_message(message)
 
 
 func _step_search_result(delta: int) -> void:
@@ -853,6 +893,9 @@ func _command_completion_context() -> Dictionary:
 	var theme_context := _colorscheme_completion_context()
 	if not theme_context.is_empty():
 		return theme_context
+	var view_context := _view_completion_context()
+	if not view_context.is_empty():
+		return view_context
 	return _go_completion_context()
 
 
@@ -862,6 +905,8 @@ func _completion_matches_for_context(context: Dictionary, prefix: String) -> Pac
 			return _colon_command_completion_matches(prefix)
 		"theme":
 			return _theme_completion_matches(prefix)
+		"view":
+			return _view_completion_matches(prefix)
 		_:
 			return _contig_completion_matches(prefix)
 
@@ -925,6 +970,23 @@ func _colorscheme_completion_context() -> Dictionary:
 		return {}
 	var token := before.substr(command.length() + 1) + after
 	return {"kind": "theme", "head": before.substr(0, command.length() + 1), "token": token, "tail": ""}
+
+
+func _view_completion_context() -> Dictionary:
+	var command := "view"
+	var text := command_edit.text
+	var caret := clampi(command_edit.caret_column, 0, text.length())
+	var before := text.substr(0, caret)
+	var after := text.substr(caret)
+	var lower_before := before.to_lower()
+	if lower_before == command:
+		return {"kind": "view", "head": "%s " % command, "token": after, "tail": ""}
+	if not lower_before.begins_with("%s " % command):
+		return {}
+	var token := before.substr(command.length() + 1) + after
+	if token.find(" ") >= 0 or token.find("\t") >= 0:
+		return {}
+	return {"kind": "view", "head": before.substr(0, command.length() + 1), "token": token, "tail": ""}
 
 
 func _search_completion_context() -> Dictionary:
@@ -994,6 +1056,17 @@ func _theme_completion_matches(prefix: String) -> PackedStringArray:
 			continue
 		if out.find(theme_name) < 0:
 			out.append(theme_name)
+	return out
+
+
+func _view_completion_matches(prefix: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	var lower_prefix := prefix.to_lower()
+	for target_any in VIM_VIEW_TARGETS:
+		var target := str(target_any)
+		if not lower_prefix.is_empty() and not target.begins_with(lower_prefix):
+			continue
+		out.append(target)
 	return out
 
 
@@ -1069,6 +1142,10 @@ func _handle_pending_go_start(key_event: InputEventKey) -> bool:
 		var has_count := not _count_prefix.is_empty()
 		var count := _consume_count()
 		_jump_current_sequence_boundary(false, count if has_count else -1)
+		return true
+	if _matches_key(key_event, KEY_V):
+		_clear_count_prefix()
+		_toggle_view_mode()
 		return true
 	if key_event.is_action_pressed("seqhiker_vim_contig_previous") or _matches_key(key_event, KEY_C, true):
 		_jump_relative_contig(-1, _consume_count())

@@ -575,11 +575,28 @@ func _refresh_settings_sections() -> void:
 		_comparison_controller.refresh_settings(_app_mode)
 
 func _toggle_comparison_mode() -> void:
+	_toggle_view_mode()
+
+func _toggle_view_mode() -> bool:
 	if _theme_editor_controller != null and _theme_editor_controller.is_open():
-		return
+		return false
+	var next_mode := APP_MODE_BROWSER if _app_mode == APP_MODE_COMPARISON else APP_MODE_COMPARISON
+	return _set_view_mode(next_mode)
+
+func _set_view_mode(next_mode: int) -> bool:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		return false
+	if next_mode != APP_MODE_BROWSER and next_mode != APP_MODE_COMPARISON:
+		return false
+	if _app_mode == next_mode:
+		return true
 	_play_ui_sound(SoundControllerScript.SOUND_CHANGE_VIEW)
-	if _top_bar_controller != null:
-		_top_bar_controller.toggle_comparison_mode()
+	_set_app_mode(next_mode)
+	if next_mode == APP_MODE_COMPARISON and _comparison_controller != null:
+		_comparison_controller.ensure_seed_genome_loaded(_loaded_file_paths)
+		_comparison_controller.refresh_view(theme_option.get_item_text(theme_option.selected))
+	_refresh_comparison_topbar_state()
+	return true
 
 func _set_app_mode(next_mode: int) -> void:
 	if _top_bar_controller != null:
@@ -3514,8 +3531,21 @@ func _handle_vim_input(event: InputEvent) -> bool:
 func _handle_vim_command_escape(event: InputEvent) -> bool:
 	return _vim_controller != null and _vim_controller.handle_escape(event)
 
+func _is_vim_command_active() -> bool:
+	return _vim_controller != null and _vim_controller.has_method("is_command_active") and _vim_controller.is_command_active()
+
+func _handle_view_mode_shortcut(event: InputEvent) -> bool:
+	if _is_vim_command_active():
+		return false
+	if event.is_action_pressed("seqhiker_toggle_view_mode"):
+		return _toggle_view_mode()
+	return false
+
 func _input(event: InputEvent) -> void:
 	if _handle_vim_command_escape(event):
+		get_viewport().set_input_as_handled()
+		return
+	if _handle_view_mode_shortcut(event):
 		get_viewport().set_input_as_handled()
 		return
 	if _handle_vim_input(event):
@@ -3523,6 +3553,9 @@ func _input(event: InputEvent) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _handle_vim_command_escape(event):
+		get_viewport().set_input_as_handled()
+		return
+	if _handle_view_mode_shortcut(event):
 		get_viewport().set_input_as_handled()
 		return
 	if _handle_vim_input(event):
