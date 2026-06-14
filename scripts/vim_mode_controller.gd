@@ -9,7 +9,7 @@ const VIM_MARK_ACTION_SAVE := "save"
 const VIM_MARK_ACTION_LOAD := "load"
 const VIM_COMMAND_PREFIX_COMMAND := ":"
 const VIM_COMMAND_PREFIX_SEARCH := "/"
-const VIM_COLON_COMMANDS := ["go", "colorscheme", "open", "q", "quit", "view"]
+const VIM_COLON_COMMANDS := ["go", "colorscheme", "download", "open", "q", "quit", "view"]
 const VIM_VIEW_TARGETS := ["comparison", "single"]
 const VIM_COMMAND_HISTORY_LIMIT := 100
 
@@ -360,6 +360,8 @@ func _execute_command(command: String) -> void:
 		_execute_go_command(clean)
 	elif lower == VimCommandParserScript.COMMAND_COLORSCHEME or lower.begins_with("%s " % VimCommandParserScript.COMMAND_COLORSCHEME):
 		_execute_colorscheme_command(clean)
+	elif lower == "download" or lower.begins_with("download "):
+		_execute_download_command(clean)
 	elif lower == "open" or lower.begins_with("open "):
 		_execute_open_command(clean)
 	elif lower == "view" or lower.begins_with("view "):
@@ -406,6 +408,25 @@ func _execute_open_command(command: String) -> void:
 	var message := str(result.get("message", "open files"))
 	if not message.is_empty():
 		if bool(result.get("set_status", true)):
+			host._set_status(message)
+		show_message(message)
+
+
+func _execute_download_command(command: String) -> void:
+	if host == null or not host.has_method("_vim_download_accession"):
+		_show_bar_error("download unavailable")
+		return
+	var accession := _strip_matching_quotes(command.substr(8).strip_edges())
+	if accession.is_empty():
+		_show_bar_error("usage: download <accession>")
+		return
+	var result: Dictionary = host._vim_download_accession(accession)
+	if not bool(result.get("ok", false)):
+		_show_bar_error(str(result.get("error", "download failed")))
+		return
+	var message := str(result.get("message", "downloading %s" % accession))
+	if not message.is_empty():
+		if bool(result.get("set_status", false)):
 			host._set_status(message)
 		show_message(message)
 

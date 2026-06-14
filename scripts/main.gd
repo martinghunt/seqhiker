@@ -677,6 +677,18 @@ func _expand_open_path(path: String) -> String:
 		return _user_home_dir().path_join(path.substr(2))
 	return path
 
+func _vim_download_accession(accession: String) -> Dictionary:
+	var clean := accession.strip_edges()
+	if clean.is_empty():
+		return {"ok": false, "error": "usage: download <accession>"}
+	if not _open_download_panel():
+		return {"ok": false, "error": "download unavailable"}
+	if _download_accession_edit == null:
+		return {"ok": false, "error": "download unavailable"}
+	_download_accession_edit.text = clean
+	_start_download_genome()
+	return {"ok": true, "message": "downloading %s" % clean}
+
 func _remember_open_file_dialog_dir() -> void:
 	if _open_file_dialog == null:
 		return
@@ -2267,6 +2279,21 @@ func _toggle_download_panel() -> void:
 	_play_ui_sound(SoundControllerScript.SOUND_DOWNLOAD)
 	if _context_panel_controller != null:
 		_context_panel_controller.toggle_download_panel()
+
+func _open_download_panel() -> bool:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		return false
+	if _context_panel_controller == null or _download_panel == null:
+		return false
+	_context_panel_controller.prepare_context_panel(CONTEXT_PANEL_DOWNLOAD, "Download Genome", false)
+	_download_panel.visible = true
+	if not _download_in_progress:
+		_set_download_status("")
+	_feature_panel_open = true
+	_slide_feature_panel(true, true)
+	if _download_accession_edit != null:
+		_download_accession_edit.grab_focus()
+	return true
 
 func _prepare_context_panel(mode: int, title: String, show_detail_labels: bool) -> void:
 	if _context_panel_controller != null:

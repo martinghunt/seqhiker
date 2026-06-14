@@ -35,6 +35,8 @@ class FakeVimHost:
 	var feature_step_results: Array[Dictionary] = []
 	var open_requests: Array[String] = []
 	var open_results: Array[Dictionary] = []
+	var download_requests: Array[String] = []
+	var download_results: Array[Dictionary] = []
 	var quit_requests := 0
 
 	func _go_get_browser_target_chr_id() -> int:
@@ -76,6 +78,13 @@ class FakeVimHost:
 			"ok": true,
 			"message": "open files" if path.is_empty() else "opening %s" % path.get_file()
 		}
+
+	func _vim_download_accession(accession: String) -> Dictionary:
+		download_requests.append(accession)
+		if not download_results.is_empty():
+			var result: Dictionary = download_results.pop_front()
+			return result
+		return {"ok": true, "message": "downloading %s" % accession}
 
 	func _quit_app() -> void:
 		quit_requests += 1
@@ -127,6 +136,11 @@ func test_vim_colon_completion_includes_open_command() -> void:
 	assert_eq(controller._colon_command_completion_matches("o"), PackedStringArray(["open"]))
 
 
+func test_vim_colon_completion_includes_download_command() -> void:
+	var controller := VimModeControllerScript.new()
+	assert_eq(controller._colon_command_completion_matches("d"), PackedStringArray(["download"]))
+
+
 func test_vim_open_command_opens_dialog_or_path() -> void:
 	var host := FakeVimHost.new()
 	var edit := LineEdit.new()
@@ -156,6 +170,33 @@ func test_vim_open_command_opens_dialog_or_path() -> void:
 	assert_eq(host.open_requests[-1], "/tmp/missing.fasta")
 	assert_eq(edit.text, "file not found: /tmp/missing.fasta")
 	assert_eq(host.status_messages[-1], {"message": "file not found: /tmp/missing.fasta", "is_error": true})
+	edit.free()
+	host.free()
+
+
+func test_vim_download_command_starts_download() -> void:
+	var host := FakeVimHost.new()
+	var edit := LineEdit.new()
+	var controller := VimModeControllerScript.new()
+	controller.host = host
+	controller.command_edit = edit
+	controller._enabled = true
+
+	controller._execute_command("download GCF_000005845.2")
+	assert_eq(host.download_requests[-1], "GCF_000005845.2")
+	assert_eq(edit.text, "downloading GCF_000005845.2")
+	assert_eq(host.status_messages.size(), 0)
+
+	controller._execute_command("download")
+	assert_eq(host.download_requests.size(), 1)
+	assert_eq(edit.text, "usage: download <accession>")
+	assert_eq(host.status_messages[-1], {"message": "usage: download <accession>", "is_error": true})
+
+	host.download_results.append({"ok": false, "error": "download unavailable"})
+	controller._execute_command("download ERR024604")
+	assert_eq(host.download_requests[-1], "ERR024604")
+	assert_eq(edit.text, "download unavailable")
+	assert_eq(host.status_messages[-1], {"message": "download unavailable", "is_error": true})
 	edit.free()
 	host.free()
 

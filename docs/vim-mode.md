@@ -128,6 +128,7 @@ Implemented commands:
 | `:go <sequence> <start>-<end>` | Space-separated range form for a named sequence. |
 | `:open` | Open the native file picker, like pressing the open file button. |
 | `:open <path>` | Open a file from a filesystem path. |
+| `:download <accession>` | Open the download panel, fill the accession box, and start download-and-load. |
 | `:colorscheme <theme>` | Switch to a theme. This uses standard Vim-style `colorscheme` syntax. |
 | `:view single` | Switch to single genome view. |
 | `:view comparison` | Switch to comparison view. |
@@ -155,6 +156,12 @@ Open examples:
 :open
 :open /path/to/foo.fasta
 :open "/path/to/foo bar.fasta"
+```
+
+Download example:
+
+```text
+:download GCF_000005845.2
 ```
 
 ## Search prompt
@@ -201,7 +208,7 @@ Press `Tab` in the command bar to cycle through available completions.
 
 Completion is implemented for:
 
-- `:` command names, such as `go`, `open`, `colorscheme`, `view`, `q`, and `quit`
+- `:` command names, such as `go`, `open`, `download`, `colorscheme`, `view`, `q`, and `quit`
 - sequence names after `:go`
 - theme names after `:colorscheme`
 - `single` and `comparison` after `:view`
