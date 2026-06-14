@@ -6,6 +6,7 @@ const LocalZemManagerScript = preload("res://scripts/local_zem_manager.gd")
 const TileControllerScript = preload("res://scripts/tile_controller.gd")
 const SearchControllerScript = preload("res://scripts/search_controller.gd")
 const GoControllerScript = preload("res://scripts/go_controller.gd")
+const VimModeControllerScript = preload("res://scripts/vim_mode_controller.gd")
 const TopBarControllerScript = preload("res://scripts/top_bar_controller.gd")
 const ContextPanelControllerScript = preload("res://scripts/context_panel_controller.gd")
 const TrackSettingsControllerScript = preload("res://scripts/track_settings_controller.gd")
@@ -13,6 +14,7 @@ const TrackControlsControllerScript = preload("res://scripts/track_controls_cont
 const SoundControllerScript = preload("res://scripts/sound_controller.gd")
 const AnnotationCacheControllerScript = preload("res://scripts/annotation_cache_controller.gd")
 const FeaturePanelControllerScript = preload("res://scripts/feature_panel_controller.gd")
+const AnnotationFeatureNavigationControllerScript = preload("res://scripts/annotation_feature_navigation_controller.gd")
 const VariantControllerScript = preload("res://scripts/variant_controller.gd")
 const SessionLoaderScript = preload("res://scripts/session_loader.gd")
 const ComparisonControllerScript = preload("res://scripts/comparison_controller.gd")
@@ -153,12 +155,16 @@ const READ_FILTER_FLAG_LABELS := [
 @onready var play_speed_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedSlider
 @onready var play_speed_value: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/PlaySpeedRow/PlaySpeedValue
 @onready var animate_pan_zoom_slider: HSlider = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/AnimatePanZoomSlider
+@onready var _vim_mode_cb: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/VimModeToggle
 @onready var _sounds_cb: CheckButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/SoundsToggle
 @onready var theme_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/ThemeOption
 @onready var ui_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/UIFontOption
 @onready var sequence_letter_font_option: OptionButton = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/SequenceLetterFontOption
 @onready var settings_scroll: ScrollContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll
 @onready var settings_content: VBoxContainer = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent
+@onready var _vim_command_bar: PanelContainer = $Root/VimCommandBar
+@onready var _vim_command_prefix: Label = $Root/VimCommandBar/VimCommandMargin/VimCommandRow/VimCommandPrefix
+@onready var _vim_command_edit: LineEdit = $Root/VimCommandBar/VimCommandMargin/VimCommandRow/VimCommandEdit
 # Owned here, used by TrackControlsController through its host reference.
 @warning_ignore("unused_private_class_variable")
 @onready var _track_order_label: Label = $Root/ContentMargin/ViewportLayer/SettingsPanel/SettingsMargin/SettingsLayout/SettingsScroll/SettingsPadding/SettingsContent/TrackVisibilityLabel
@@ -209,6 +215,7 @@ var _top_bar_controller: RefCounted
 var _context_panel_controller: RefCounted
 var _track_settings_controller: RefCounted
 var _annotation_cache_controller: RefCounted
+var _annotation_feature_navigation_controller: RefCounted
 var _feature_panel_controller: RefCounted
 var _variant_controller: RefCounted
 var _session_loader: RefCounted
@@ -345,6 +352,7 @@ var _settings_shared_label: Label
 var _settings_shared_box: VBoxContainer
 var _shared_colorize_nucleotides_cb: CheckButton
 var _sounds_enabled := false
+var _vim_controller: RefCounted
 var _sound_controller: RefCounted
 var _theme_editor_controller: RefCounted
 var _track_controls_controller: RefCounted
@@ -357,6 +365,8 @@ func _ready() -> void:
 	_search_controller = SearchControllerScript.new()
 	_annotation_cache_controller = AnnotationCacheControllerScript.new()
 	_annotation_cache_controller.configure(self)
+	_annotation_feature_navigation_controller = AnnotationFeatureNavigationControllerScript.new()
+	_annotation_feature_navigation_controller.configure(self)
 	_feature_panel_controller = FeaturePanelControllerScript.new()
 	_feature_panel_controller.configure(self)
 	_variant_controller = VariantControllerScript.new()
@@ -393,6 +403,7 @@ func _ready() -> void:
 	_setup_track_visibility_controls()
 	_sync_bam_read_tracks()
 	_setup_debug_controls()
+	_setup_vim_command_bar()
 	_setup_track_settings_panel()
 	_connect_ui()
 	_setup_settings_sections()
@@ -568,11 +579,31 @@ func _refresh_settings_sections() -> void:
 		_comparison_controller.refresh_settings(_app_mode)
 
 func _toggle_comparison_mode() -> void:
+	_toggle_view_mode()
+
+func _toggle_view_mode() -> bool:
 	if _theme_editor_controller != null and _theme_editor_controller.is_open():
-		return
+		return false
+	var next_mode := APP_MODE_BROWSER if _app_mode == APP_MODE_COMPARISON else APP_MODE_COMPARISON
+	return _set_view_mode(next_mode)
+
+func _set_view_mode(next_mode: int) -> bool:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		return false
+	if next_mode != APP_MODE_BROWSER and next_mode != APP_MODE_COMPARISON:
+		return false
+	if _app_mode == next_mode:
+		return true
 	_play_ui_sound(SoundControllerScript.SOUND_CHANGE_VIEW)
-	if _top_bar_controller != null:
-		_top_bar_controller.toggle_comparison_mode()
+	_set_app_mode(next_mode)
+	if next_mode == APP_MODE_COMPARISON and _comparison_controller != null:
+		_comparison_controller.ensure_seed_genome_loaded(_loaded_file_paths)
+		_comparison_controller.refresh_view(theme_option.get_item_text(theme_option.selected))
+	_refresh_comparison_topbar_state()
+	return true
+
+func _quit_app() -> void:
+	get_tree().quit()
 
 func _set_app_mode(next_mode: int) -> void:
 	if _top_bar_controller != null:
@@ -628,6 +659,35 @@ func _on_open_files_selected(paths: PackedStringArray) -> void:
 	if not first_path.is_empty():
 		_open_file_last_dir = first_path.get_base_dir()
 	_on_files_dropped(paths)
+
+func _vim_open_file(path: String = "") -> Dictionary:
+	var clean := _expand_open_path(path.strip_edges())
+	if clean.is_empty():
+		_on_open_file_pressed()
+		return {"ok": true, "message": "open files"}
+	if not FileAccess.file_exists(clean):
+		return {"ok": false, "error": "file not found: %s" % clean}
+	_on_open_files_selected(PackedStringArray([clean]))
+	return {"ok": true, "message": "opening %s" % clean.get_file(), "set_status": false}
+
+func _expand_open_path(path: String) -> String:
+	if path == "~":
+		return _user_home_dir()
+	if path.begins_with("~/") or path.begins_with("~\\"):
+		return _user_home_dir().path_join(path.substr(2))
+	return path
+
+func _vim_download_accession(accession: String) -> Dictionary:
+	var clean := accession.strip_edges()
+	if clean.is_empty():
+		return {"ok": false, "error": "usage: download <accession>"}
+	if not _open_download_panel():
+		return {"ok": false, "error": "download unavailable"}
+	if _download_accession_edit == null:
+		return {"ok": false, "error": "download unavailable"}
+	_download_accession_edit.text = clean
+	_start_download_genome()
+	return {"ok": true, "message": "downloading %s" % clean}
 
 func _remember_open_file_dialog_dir() -> void:
 	if _open_file_dialog == null:
@@ -780,18 +840,45 @@ func _setup_font_size_control() -> void:
 	if not _font_size_slider.drag_ended.is_connected(_on_font_size_drag_ended):
 		_font_size_slider.drag_ended.connect(_on_font_size_drag_ended)
 
+func _scroll_left_by_step(count: int = 1) -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_PAN_LEFT)
+	var steps := maxi(1, count)
+	if _app_mode == APP_MODE_COMPARISON:
+		if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
+			comparison_view.pan_all_by_fraction(-_pan_step_percent * float(steps) / 100.0)
+		return
+	_pan_view_by_fraction(-_pan_step_percent * float(steps) / 100.0)
+
+func _scroll_right_by_step(count: int = 1) -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_PAN_RIGHT)
+	var steps := maxi(1, count)
+	if _app_mode == APP_MODE_COMPARISON:
+		if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
+			comparison_view.pan_all_by_fraction(_pan_step_percent * float(steps) / 100.0)
+		return
+	_pan_view_by_fraction(_pan_step_percent * float(steps) / 100.0)
+
+func _zoom_in_by_step() -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_ZOOM_IN)
+	if _app_mode == APP_MODE_COMPARISON:
+		if comparison_view != null and comparison_view.has_method("zoom_by"):
+			comparison_view.zoom_by(0.78)
+		return
+	genome_view.zoom_by(0.78)
+
+func _zoom_out_by_step() -> void:
+	_play_ui_sound(SoundControllerScript.SOUND_ZOOM_OUT)
+	if _app_mode == APP_MODE_COMPARISON:
+		if comparison_view != null and comparison_view.has_method("zoom_by"):
+			comparison_view.zoom_by(1.28)
+		return
+	genome_view.zoom_by(1.28)
+
 func _connect_ui() -> void:
 	settings_toggle_button.pressed.connect(_toggle_settings)
 	close_settings_button.pressed.connect(_close_settings)
 	open_file_button.pressed.connect(_on_open_file_pressed)
-	pan_left_button.pressed.connect(func() -> void:
-		_play_ui_sound(SoundControllerScript.SOUND_PAN_LEFT)
-		if _app_mode == APP_MODE_COMPARISON:
-			if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
-				comparison_view.pan_all_by_fraction(-_pan_step_percent / 100.0)
-			return
-		_pan_view_by_fraction(-_pan_step_percent / 100.0)
-	)
+	pan_left_button.pressed.connect(_scroll_left_by_step)
 	jump_start_button.pressed.connect(func() -> void:
 		_play_ui_sound(SoundControllerScript.SOUND_JUMP)
 		if _app_mode == APP_MODE_COMPARISON:
@@ -800,14 +887,7 @@ func _connect_ui() -> void:
 			return
 		_navigate_to_boundary(false)
 	)
-	pan_right_button.pressed.connect(func() -> void:
-		_play_ui_sound(SoundControllerScript.SOUND_PAN_RIGHT)
-		if _app_mode == APP_MODE_COMPARISON:
-			if comparison_view != null and comparison_view.has_method("pan_all_by_fraction"):
-				comparison_view.pan_all_by_fraction(_pan_step_percent / 100.0)
-			return
-		_pan_view_by_fraction(_pan_step_percent / 100.0)
-	)
+	pan_right_button.pressed.connect(_scroll_right_by_step)
 	jump_end_button.pressed.connect(func() -> void:
 		_play_ui_sound(SoundControllerScript.SOUND_JUMP)
 		if _app_mode == APP_MODE_COMPARISON:
@@ -816,22 +896,8 @@ func _connect_ui() -> void:
 			return
 		_navigate_to_boundary(true)
 	)
-	zoom_in_button.pressed.connect(func() -> void:
-		_play_ui_sound(SoundControllerScript.SOUND_ZOOM_IN)
-		if _app_mode == APP_MODE_COMPARISON:
-			if comparison_view != null and comparison_view.has_method("zoom_by"):
-				comparison_view.zoom_by(0.78)
-			return
-		genome_view.zoom_by(0.78)
-	)
-	zoom_out_button.pressed.connect(func() -> void:
-		_play_ui_sound(SoundControllerScript.SOUND_ZOOM_OUT)
-		if _app_mode == APP_MODE_COMPARISON:
-			if comparison_view != null and comparison_view.has_method("zoom_by"):
-				comparison_view.zoom_by(1.28)
-			return
-		genome_view.zoom_by(1.28)
-	)
+	zoom_in_button.pressed.connect(_zoom_in_by_step)
+	zoom_out_button.pressed.connect(_zoom_out_by_step)
 	play_button.pressed.connect(_start_auto_play)
 	play_left_button.pressed.connect(_start_auto_play_left)
 	stop_button.pressed.connect(_stop_auto_play)
@@ -940,6 +1006,7 @@ func _disable_button_focus() -> void:
 		jump_end_button,
 		zoom_out_button,
 		zoom_in_button,
+		screenshot_button,
 		play_button,
 		play_left_button,
 		stop_button,
@@ -952,7 +1019,8 @@ func _disable_button_focus() -> void:
 		mouse_wheel_pan_slider,
 		pan_step_slider,
 		play_speed_slider,
-		animate_pan_zoom_slider
+		animate_pan_zoom_slider,
+		_vim_mode_cb
 	]
 	if _theme_editor_controller != null:
 		for control in _theme_editor_controller.focus_controls():
@@ -1166,6 +1234,8 @@ func _apply_palette(palette: Dictionary, theme_name: String = "") -> void:
 	feature_seq_label.add_theme_color_override("default_color", palette["text"])
 	_apply_panel_style(settings_panel, palette)
 	_apply_panel_style(feature_panel, palette)
+	_apply_panel_style(_vim_command_bar, palette)
+	_apply_vim_bar_theme(palette)
 	_apply_search_theme(palette)
 	if _debug_stats_label != null:
 		_debug_stats_label.add_theme_color_override("font_color", palette["text"])
@@ -1529,6 +1599,22 @@ func _setup_debug_controls() -> void:
 	_debug_loaded_files_label.text = ""
 	_update_loaded_files_debug_label()
 
+func _setup_vim_command_bar() -> void:
+	if _vim_controller == null:
+		_vim_controller = VimModeControllerScript.new()
+	_vim_controller.setup(self, _vim_mode_cb, _vim_command_bar, _vim_command_prefix, _vim_command_edit)
+
+func _set_vim_mode_enabled(enabled: bool) -> void:
+	if _vim_controller != null:
+		_vim_controller.set_enabled(enabled)
+
+func _is_vim_mode_enabled() -> bool:
+	return _vim_controller != null and _vim_controller.is_enabled()
+
+func _show_vim_bar_message(message: String) -> void:
+	if _vim_controller != null:
+		_vim_controller.show_message(message)
+
 func _on_bam_cov_cutoff_changed(value: float) -> void:
 	_bam_cov_precompute_cutoff_bp = maxi(0, int(round(value)))
 
@@ -1785,7 +1871,8 @@ func _setup_track_settings_panel() -> void:
 		"get_chromosomes": Callable(self, "_search_get_chromosomes"),
 		"get_comparison_genomes": Callable(self, "_search_get_comparison_genomes"),
 		"get_selected_seq_id": Callable(self, "_search_get_selected_seq_id"),
-		"on_hit_selected": Callable(self, "_jump_to_search_hit")
+		"on_hit_selected": Callable(self, "_jump_to_search_hit"),
+		"on_hit_position_changed": Callable(self, "_on_search_hit_position_changed")
 	})
 	_go_controller = GoControllerScript.new()
 	_go_controller.setup(feature_content, {
@@ -1917,7 +2004,10 @@ func _update_window_min_height() -> void:
 	var topbar_h := 0.0
 	if top_bar != null:
 		topbar_h = top_bar.get_combined_minimum_size().y
-	var min_h: float = topbar_h + ROOT_VERTICAL_GAP + CONTENT_MARGIN_BOTTOM + tracks_h
+	var vim_bar_h := 0.0
+	if _vim_command_bar != null and _vim_command_bar.visible:
+		vim_bar_h = ROOT_VERTICAL_GAP + _vim_command_bar.get_combined_minimum_size().y
+	var min_h: float = topbar_h + ROOT_VERTICAL_GAP + CONTENT_MARGIN_BOTTOM + tracks_h + vim_bar_h
 	var w := get_window()
 	if w != null:
 		w.min_size.y = maxi(200, ceili(min_h))
@@ -2190,6 +2280,21 @@ func _toggle_download_panel() -> void:
 	if _context_panel_controller != null:
 		_context_panel_controller.toggle_download_panel()
 
+func _open_download_panel() -> bool:
+	if _theme_editor_controller != null and _theme_editor_controller.is_open():
+		return false
+	if _context_panel_controller == null or _download_panel == null:
+		return false
+	_context_panel_controller.prepare_context_panel(CONTEXT_PANEL_DOWNLOAD, "Download Genome", false)
+	_download_panel.visible = true
+	if not _download_in_progress:
+		_set_download_status("")
+	_feature_panel_open = true
+	_slide_feature_panel(true, true)
+	if _download_accession_edit != null:
+		_download_accession_edit.grab_focus()
+	return true
+
 func _prepare_context_panel(mode: int, title: String, show_detail_labels: bool) -> void:
 	if _context_panel_controller != null:
 		_context_panel_controller.prepare_context_panel(mode, title, show_detail_labels)
@@ -2210,24 +2315,87 @@ func _jump_to_search_hit(hit_any: Dictionary) -> void:
 	var chr_id := int(hit.get("chr_id", -1))
 	var start_bp := int(hit.get("start", 0))
 	var end_bp := int(hit.get("end", start_bp + 1))
-	if _seq_view_mode != SEQ_VIEW_SINGLE:
-		_seq_view_option.select(SEQ_VIEW_SINGLE)
-		_on_seq_view_selected(SEQ_VIEW_SINGLE)
+	var display_range := _search_hit_display_range(chr_id, start_bp, end_bp)
+	if display_range.is_empty():
+		_set_status("Search hit sequence unavailable.", true)
+		return
+	var display_start_bp := int(display_range.get("start", start_bp))
+	var display_end_bp := int(display_range.get("end", end_bp))
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
+	_navigate_to_centered_range(display_start_bp, display_end_bp, current_bp_per_px)
+	if hit_kind == "dna":
+		_pending_annotation_highlight = {}
+		_clear_selected_annotation_feature()
+		genome_view.clear_selected_feature()
+		genome_view.set_region_selection(display_start_bp, maxi(display_start_bp, display_end_bp - 1))
+	else:
+		var display_hit := hit.duplicate(true)
+		display_hit["start"] = display_start_bp
+		display_hit["end"] = display_end_bp
+		_pending_annotation_highlight = display_hit
+		genome_view.clear_region_selection()
+
+
+func _set_selected_annotation_feature(feature: Dictionary) -> void:
+	if _annotation_feature_navigation_controller != null:
+		_annotation_feature_navigation_controller.set_selected_feature(feature)
+
+
+func _clear_selected_annotation_feature() -> void:
+	if _annotation_feature_navigation_controller != null:
+		_annotation_feature_navigation_controller.clear_selected_feature()
+
+
+func _step_annotation_feature(delta: int) -> Dictionary:
+	if _annotation_feature_navigation_controller == null:
+		return {"ok": false, "error": "feature navigation unavailable"}
+	return _annotation_feature_navigation_controller.step_feature(delta)
+
+
+func _jump_to_annotation_feature(feature: Dictionary) -> void:
+	var start_bp := int(feature.get("start", 0))
+	var end_bp := maxi(start_bp + 1, int(feature.get("end", start_bp + 1)))
+	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
+	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
+	_navigate_to_centered_range(start_bp, end_bp, current_bp_per_px)
+	_pending_annotation_highlight = {}
+	genome_view.clear_region_selection()
+	genome_view.clear_selected_read()
+	genome_view.clear_selected_variant()
+	genome_view.set_selected_feature(feature, false)
+	_set_selected_annotation_feature(feature)
+	if _feature_panel_controller != null:
+		_feature_panel_controller.on_feature_selected(feature)
+
+
+func _search_hit_display_range(chr_id: int, start_bp: int, end_bp: int) -> Dictionary:
+	if chr_id < 0:
+		return {}
+	if _seq_view_mode == SEQ_VIEW_CONCAT:
+		for seg in _concat_segments:
+			if int(seg.get("id", -1)) != chr_id:
+				continue
+			var offset := int(seg.get("start", 0))
+			return {
+				"start": offset + start_bp,
+				"end": offset + end_bp
+			}
+		return {}
 	for i in range(_seq_option.item_count):
 		if int(_seq_option.get_item_id(i)) == chr_id:
 			_seq_option.select(i)
 			_on_seq_selected(i)
-			break
-	var current_bp_per_px := clampf(_last_bp_per_px, genome_view.min_bp_per_px, genome_view.max_bp_per_px)
-	_play_ui_sound(SoundControllerScript.SOUND_JUMP)
-	_navigate_to_centered_range(start_bp, end_bp, current_bp_per_px)
-	if hit_kind == "dna":
-		_pending_annotation_highlight = {}
-		genome_view.clear_selected_feature()
-		genome_view.set_region_selection(start_bp, maxi(start_bp, end_bp - 1))
-	else:
-		_pending_annotation_highlight = hit.duplicate(true)
-		genome_view.clear_region_selection()
+			return {
+				"start": start_bp,
+				"end": end_bp
+			}
+	return {}
+
+
+func _on_search_hit_position_changed(index: int, count: int) -> void:
+	if _vim_controller != null:
+		_vim_controller.show_search_hit_position(index, count)
 
 
 func _on_map_jump_requested(bp_center: float) -> void:
@@ -2554,6 +2722,10 @@ func _apply_panel_style(panel: PanelContainer, palette: Dictionary) -> void:
 	panel_sb.set_corner_radius_all(10)
 	panel.add_theme_stylebox_override("panel", panel_sb)
 
+func _apply_vim_bar_theme(palette: Dictionary) -> void:
+	if _vim_controller != null:
+		_vim_controller.apply_theme(palette)
+
 func _apply_search_theme(palette: Dictionary) -> void:
 	if _search_controller != null:
 		_search_controller.apply_theme(palette)
@@ -2650,6 +2822,9 @@ func _refresh_sequence_options() -> void:
 	_session_loader.refresh_sequence_options()
 
 func _apply_sequence_view(reset_viewport: bool) -> void:
+	_clear_selected_annotation_feature()
+	if genome_view != null:
+		genome_view.clear_selected_feature()
 	_session_loader.apply_sequence_view(reset_viewport)
 
 func _ensure_browser_contig_context_menu() -> void:
@@ -2737,6 +2912,7 @@ func _refresh_browser_after_contig_layout_change() -> void:
 	if _annotation_cache_controller != null:
 		_annotation_cache_controller.cancel_all_requests()
 	genome_view.clear_selected_variant()
+	_clear_selected_annotation_feature()
 	genome_view.clear_selected_feature()
 	genome_view.set_reference_slice(_last_start, "")
 	genome_view.set_features(empty_dicts)
@@ -2790,6 +2966,7 @@ func _apply_pending_annotation_highlight(features: Array[Dictionary]) -> void:
 			if hit_label != fname and hit_label != ftype:
 				continue
 		genome_view.set_selected_feature(f, false)
+		_set_selected_annotation_feature(f)
 		return
 
 func _collapse_gene_cds_features(features_in: Array[Dictionary]) -> Array[Dictionary]:
@@ -2995,6 +3172,7 @@ func _reset_loaded_state() -> void:
 	_auto_play_enabled = false
 	_feature_panel_open = false
 	_slide_feature_panel(false, false)
+	_clear_selected_annotation_feature()
 	genome_view.clear_all_data()
 	_sync_bam_read_tracks()
 	_sync_variant_track()
@@ -3027,25 +3205,42 @@ func _make_view_slot_button(action_name: String, callback: Callable) -> Button:
 	add_child(b)
 	return b
 
+func _view_mark_slot_key(mark_letter: String) -> String:
+	return "mark:%s" % mark_letter
+
 func _save_view_slot(slot_idx: int) -> void:
+	_save_view_state(slot_idx, "view slot %d" % slot_idx, "view slot")
+
+func _load_view_slot(slot_idx: int) -> void:
+	_load_view_state(slot_idx, "view slot %d" % slot_idx, "View slot %d" % slot_idx, "view slot")
+
+func _save_view_mark(mark_letter: String) -> void:
+	if _save_view_state(_view_mark_slot_key(mark_letter), "mark %s" % mark_letter, "mark"):
+		_show_vim_bar_message("mark %s set" % mark_letter)
+
+func _load_view_mark(mark_letter: String) -> void:
+	if _load_view_state(_view_mark_slot_key(mark_letter), "mark %s" % mark_letter, "Mark %s" % mark_letter, "mark"):
+		_show_vim_bar_message("jumped to mark %s" % mark_letter)
+
+func _save_view_state(slot_key: Variant, status_label: String, error_label: String) -> bool:
 	var slot_bank: Dictionary = _view_slots.get(_app_mode, {})
 	if _app_mode == APP_MODE_COMPARISON:
 		if _comparison_controller == null or not _comparison_controller.has_genomes():
-			_set_status("No comparison genomes loaded: cannot save view slot.", true)
-			return
-		slot_bank[slot_idx] = {
+			_set_status("No comparison genomes loaded: cannot save %s." % error_label, true)
+			return false
+		slot_bank[slot_key] = {
 			"app_mode": APP_MODE_COMPARISON,
 			"scope_key": _comparison_controller.get_view_slot_scope_key(),
 			"comparison_state": _comparison_controller.get_view_slot_state()
 		}
 		_view_slots[_app_mode] = slot_bank
-		_set_status("Saved view slot %d." % slot_idx)
-		return
+		_set_status("Saved %s." % status_label)
+		return true
 	if _current_chr_len <= 0:
-		_set_status("No genome loaded: cannot save view slot.", true)
-		return
+		_set_status("No genome loaded: cannot save %s." % error_label, true)
+		return false
 	var state: Dictionary = genome_view.get_view_state()
-	slot_bank[slot_idx] = {
+	slot_bank[slot_key] = {
 		"scope_key": _scope_cache_key(),
 		"seq_view_mode": _seq_view_mode,
 		"seq_id": _selected_seq_id,
@@ -3053,41 +3248,42 @@ func _save_view_slot(slot_idx: int) -> void:
 		"bp_per_px": float(state.get("bp_per_px", _last_bp_per_px))
 	}
 	_view_slots[_app_mode] = slot_bank
-	_set_status("Saved view slot %d." % slot_idx)
+	_set_status("Saved %s." % status_label)
+	return true
 
-func _load_view_slot(slot_idx: int) -> void:
+func _load_view_state(slot_key: Variant, status_label: String, sentence_label: String, error_label: String) -> bool:
 	var slot_bank: Dictionary = _view_slots.get(_app_mode, {})
-	if not slot_bank.has(slot_idx):
-		_set_status("View slot %d is empty." % slot_idx, true)
-		return
-	var slot_any = slot_bank[slot_idx]
+	if not slot_bank.has(slot_key):
+		_set_status("%s is empty." % sentence_label, true)
+		return false
+	var slot_any = slot_bank[slot_key]
 	if typeof(slot_any) != TYPE_DICTIONARY:
-		_set_status("View slot %d is invalid." % slot_idx, true)
-		return
+		_set_status("%s is invalid." % sentence_label, true)
+		return false
 	var slot: Dictionary = slot_any
 	var slot_mode := int(slot.get("app_mode", APP_MODE_BROWSER))
 	if slot_mode == APP_MODE_COMPARISON:
 		if _comparison_controller == null or not _comparison_controller.has_genomes():
-			_set_status("No comparison genomes loaded: cannot load view slot.", true)
-			return
+			_set_status("No comparison genomes loaded: cannot load %s." % error_label, true)
+			return false
 		var slot_scope_cmp := str(slot.get("scope_key", ""))
 		if slot_scope_cmp != _comparison_controller.get_view_slot_scope_key():
-			_set_status("View slot %d is from a different comparison scope." % slot_idx, true)
-			return
+			_set_status("%s is from a different comparison scope." % sentence_label, true)
+			return false
 		var cmp_state_any: Variant = slot.get("comparison_state", {})
 		if typeof(cmp_state_any) != TYPE_DICTIONARY:
-			_set_status("View slot %d is invalid." % slot_idx, true)
-			return
+			_set_status("%s is invalid." % sentence_label, true)
+			return false
 		_comparison_controller.apply_view_slot_state(cmp_state_any)
-		_set_status("Loaded view slot %d." % slot_idx)
-		return
+		_set_status("Loaded %s." % status_label)
+		return true
 	if _current_chr_len <= 0:
-		_set_status("No genome loaded: cannot load view slot.", true)
-		return
+		_set_status("No genome loaded: cannot load %s." % error_label, true)
+		return false
 	var slot_scope := str(slot.get("scope_key", ""))
 	if slot_scope != _scope_cache_key():
-		_set_status("View slot %d is from a different genome/session scope." % slot_idx, true)
-		return
+		_set_status("%s is from a different genome/session scope." % sentence_label, true)
+		return false
 	var seq_slot_mode := int(slot.get("seq_view_mode", _seq_view_mode))
 	if seq_slot_mode != _seq_view_mode:
 		_seq_view_option.select(seq_slot_mode)
@@ -3100,7 +3296,8 @@ func _load_view_slot(slot_idx: int) -> void:
 				_on_seq_selected(i)
 				break
 	_navigate_to_view(float(slot.get("start_bp", _last_start)), float(slot.get("bp_per_px", _last_bp_per_px)))
-	_set_status("Loaded view slot %d." % slot_idx)
+	_set_status("Loaded %s." % status_label)
+	return true
 
 func _is_viewport_cached(start_bp: int, end_bp: int, zoom: int, mode: int, need_reference: bool, scope_key: String) -> bool:
 	if _cache_start < 0 || _cache_end < 0:
@@ -3154,6 +3351,7 @@ func _load_or_init_config() -> void:
 	mouse_wheel_pan_slider.value = float(cfg.get_value("input", "mouse_wheel_pan_sensitivity", mouse_wheel_pan_slider.value))
 	pan_step_slider.value = clampf(float(cfg.get_value("input", "pan_step_percent", 75.0)), 1.0, 100.0)
 	_on_pan_step_changed(pan_step_slider.value)
+	_set_vim_mode_enabled(bool(cfg.get_value("input", "vim_mode_enabled", false)))
 	_ui_font_size = clampi(int(cfg.get_value("ui", "font_size", DEFAULT_UI_FONT_SIZE)), MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
 	if _font_size_slider != null:
 		_font_size_slider.value = _ui_font_size
@@ -3279,27 +3477,34 @@ func _save_config() -> void:
 	cfg.set_value("input", "invert_mouse_wheel_zoom", invert_mouse_wheel_zoom_button.button_pressed)
 	cfg.set_value("input", "mouse_wheel_pan_sensitivity", mouse_wheel_pan_slider.value)
 	cfg.set_value("input", "pan_step_percent", _pan_step_percent)
+	cfg.set_value("input", "vim_mode_enabled", _is_vim_mode_enabled())
 	cfg.save(CONFIG_PATH)
 
 func _on_feature_clicked(feature: Dictionary) -> void:
+	_set_selected_annotation_feature(feature)
 	_feature_panel_controller.on_feature_clicked(feature)
 
 func _on_feature_selected(feature: Dictionary) -> void:
+	_set_selected_annotation_feature(feature)
 	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_feature_panel_controller.on_feature_selected(feature)
 
 func _on_read_clicked(read: Dictionary) -> void:
+	_clear_selected_annotation_feature()
 	_feature_panel_controller.on_read_clicked(read)
 
 func _on_read_selected(read: Dictionary) -> void:
+	_clear_selected_annotation_feature()
 	_play_ui_sound(SoundControllerScript.SOUND_BLIP)
 	_feature_panel_controller.on_read_selected(read)
 
 func _on_variant_clicked(variant: Dictionary) -> void:
+	_clear_selected_annotation_feature()
 	if _variant_controller != null:
 		_variant_controller.on_variant_clicked(variant)
 
 func _on_variant_selected(variant: Dictionary) -> void:
+	_clear_selected_annotation_feature()
 	if _variant_controller != null:
 		_variant_controller.on_variant_selected(variant)
 
@@ -3416,7 +3621,42 @@ func _process(_delta: float) -> void:
 		return
 	_start_next_auto_play_segment()
 
+func _handle_vim_input(event: InputEvent) -> bool:
+	return _vim_controller != null and _vim_controller.handle_input(event)
+
+func _handle_vim_command_escape(event: InputEvent) -> bool:
+	return _vim_controller != null and _vim_controller.handle_escape(event)
+
+func _is_vim_command_active() -> bool:
+	return _vim_controller != null and _vim_controller.has_method("is_command_active") and _vim_controller.is_command_active()
+
+func _handle_view_mode_shortcut(event: InputEvent) -> bool:
+	if _is_vim_command_active():
+		return false
+	if event.is_action_pressed("seqhiker_toggle_view_mode"):
+		return _toggle_view_mode()
+	return false
+
+func _input(event: InputEvent) -> void:
+	if _handle_vim_command_escape(event):
+		get_viewport().set_input_as_handled()
+		return
+	if _handle_view_mode_shortcut(event):
+		get_viewport().set_input_as_handled()
+		return
+	if _handle_vim_input(event):
+		get_viewport().set_input_as_handled()
+
 func _unhandled_input(event: InputEvent) -> void:
+	if _handle_vim_command_escape(event):
+		get_viewport().set_input_as_handled()
+		return
+	if _handle_view_mode_shortcut(event):
+		get_viewport().set_input_as_handled()
+		return
+	if _handle_vim_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("seqhiker_close_right_panel"):
 		if _feature_panel_open:
 			_close_feature_panel()

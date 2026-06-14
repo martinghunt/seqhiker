@@ -99,6 +99,42 @@ func focus_query() -> void:
 	if _search_query_edit != null:
 		_search_query_edit.grab_focus()
 
+func run_browser_search(mode: int, query: String, chr_filter: PackedInt32Array, scope_label: String = "") -> void:
+	if _search_box == null or _search_query_edit == null:
+		return
+	show_panel()
+	_select_search_mode(mode)
+	_search_query_edit.text = query
+	if mode == SEARCH_MODE_DNA_EXACT and _search_min_len_spin != null:
+		var clean := query.to_upper().replace(" ", "").replace("\n", "").replace("\t", "")
+		var supported_min := maxi(1, int(_search_min_len_spin.min_value))
+		if clean.length() >= supported_min and clean.length() < int(_search_min_len_spin.value):
+			_search_min_len_spin.value = clean.length()
+	_select_browser_chr_filter(chr_filter, scope_label)
+	_run_search(false)
+
+func step_result(delta: int) -> Dictionary:
+	if _search_running:
+		return {"ok": false, "error": "search still running"}
+	if _search_hits.is_empty() or _search_results_list == null:
+		return {"ok": false, "error": "no search results"}
+	var selected := _search_results_list.get_selected_items()
+	var current := -1
+	if not selected.is_empty():
+		current = int(selected[0])
+	var next_idx := current + delta
+	if current < 0:
+		next_idx = 0 if delta >= 0 else _search_hits.size() - 1
+	next_idx = posmod(next_idx, _search_hits.size())
+	_search_results_list.select(next_idx)
+	_search_results_list.ensure_current_is_visible()
+	_on_search_result_selected(next_idx)
+	return {
+		"ok": true,
+		"index": next_idx,
+		"count": _search_hits.size()
+	}
+
 func refresh_context() -> void:
 	_refresh_scope_options()
 
@@ -141,7 +177,84 @@ func _on_search_mode_changed(index: int) -> void:
 	if _search_query_edit != null:
 		_search_query_edit.placeholder_text = "ATGC..." if show_dna else "Name, ID, type, source..."
 
-func _run_search() -> void:
+func _select_search_mode(mode: int) -> void:
+	if _search_mode_option == null:
+		return
+	for i in range(_search_mode_option.item_count):
+		if int(_search_mode_option.get_item_id(i)) != mode:
+			continue
+		_search_mode_option.select(i)
+		_on_search_mode_changed(i)
+		return
+
+func _select_browser_chr_filter(chr_filter: PackedInt32Array, scope_label: String) -> void:
+	if _search_scope_option == null or _is_comparison_mode():
+		return
+	if chr_filter.is_empty():
+		return
+	var all_chr_ids := _search_chr_ids_for_scope(SEARCH_SCOPE_ALL)
+	if _same_chr_filter(chr_filter, all_chr_ids):
+		_select_browser_single_scope(SEARCH_SCOPE_ALL)
+		return
+	var label := scope_label.strip_edges()
+	if label.is_empty():
+		label = "Selected sequence"
+	var idx := _search_scope_option.item_count
+	_search_scope_option.add_item(label)
+	_search_scope_option.set_item_metadata(idx, {"chr_ids": chr_filter})
+	_search_scope_option.select(idx)
+
+func _select_browser_single_scope(scope: int) -> void:
+	if _search_scope_option == null:
+		return
+	for i in range(_search_scope_option.item_count):
+		var meta = _search_scope_option.get_item_metadata(i)
+		if typeof(meta) != TYPE_DICTIONARY:
+			continue
+		var data: Dictionary = meta
+		if int(data.get("single_scope", -1)) == scope:
+			_search_scope_option.select(i)
+			return
+
+func _selected_browser_scope_has_chr_filter() -> bool:
+	if _search_scope_option == null or _is_comparison_mode():
+		return false
+	var idx := _search_scope_option.selected
+	if idx < 0:
+		return false
+	var meta = _search_scope_option.get_item_metadata(idx)
+	return typeof(meta) == TYPE_DICTIONARY and (meta as Dictionary).has("chr_ids")
+
+func _browser_scope_chr_ids() -> PackedInt32Array:
+	if _search_scope_option != null:
+		var idx := _search_scope_option.selected
+		if idx >= 0:
+			var meta = _search_scope_option.get_item_metadata(idx)
+			if typeof(meta) == TYPE_DICTIONARY:
+				var data: Dictionary = meta
+				if data.has("chr_ids"):
+					return _packed_ints_from_variant(data.get("chr_ids", PackedInt32Array()))
+				return _search_chr_ids_for_scope(int(data.get("single_scope", SEARCH_SCOPE_CURRENT)))
+	return _search_chr_ids_for_scope(SEARCH_SCOPE_CURRENT)
+
+func _packed_ints_from_variant(value: Variant) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	if value is PackedInt32Array:
+		return value
+	if value is Array:
+		for id_any in value:
+			out.append(int(id_any))
+	return out
+
+func _same_chr_filter(a: PackedInt32Array, b: PackedInt32Array) -> bool:
+	if a.size() != b.size():
+		return false
+	for id in a:
+		if b.find(id) < 0:
+			return false
+	return true
+
+func _run_search(refresh_scope_options: bool = true) -> void:
 	if _search_running:
 		return
 	if _search_query_edit == null or _search_status_label == null or _search_results_list == null:
@@ -154,7 +267,8 @@ func _run_search() -> void:
 	if zem == null:
 		_search_status_label.text = "Not connected."
 		return
-	_refresh_scope_options()
+	if refresh_scope_options and not _selected_browser_scope_has_chr_filter():
+		_refresh_scope_options()
 	_search_running = true
 	_search_hits.clear()
 	_search_results_list.clear()
@@ -176,7 +290,7 @@ func _run_search() -> void:
 		if is_comparison:
 			dna_res = await _search_comparison_dna_exact(clean, include_revcomp)
 		else:
-			dna_res = await _search_dna_exact(clean, _search_chr_ids_for_scope(_single_scope_value()), include_revcomp)
+			dna_res = await _search_dna_exact(clean, _browser_scope_chr_ids(), include_revcomp)
 		ok = bool(dna_res.get("ok", false))
 		truncated = bool(dna_res.get("truncated", false))
 	else:
@@ -185,7 +299,7 @@ func _run_search() -> void:
 		if is_comparison:
 			ann_res = await _search_comparison_annotations_text(q, case_sensitive)
 		else:
-			ann_res = await _search_annotations_text(q, _search_chr_ids_for_scope(_single_scope_value()), case_sensitive)
+			ann_res = await _search_annotations_text(q, _browser_scope_chr_ids(), case_sensitive)
 		ok = bool(ann_res.get("ok", false))
 		truncated = bool(ann_res.get("truncated", false))
 	if not ok:
@@ -470,6 +584,9 @@ func _on_search_result_selected(index: int) -> void:
 	var callback: Callable = _callbacks.get("on_hit_selected", Callable())
 	if callback.is_valid():
 		callback.call(_search_hits[index])
+	var position_callback: Callable = _callbacks.get("on_hit_position_changed", Callable())
+	if position_callback.is_valid():
+		position_callback.call(index, _search_hits.size())
 
 func _call0(name: String):
 	var callback: Callable = _callbacks.get(name, Callable())
