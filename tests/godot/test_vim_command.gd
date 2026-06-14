@@ -33,6 +33,8 @@ class FakeVimHost:
 	var status_messages: Array[Dictionary] = []
 	var feature_steps: Array[int] = []
 	var feature_step_results: Array[Dictionary] = []
+	var open_requests: Array[String] = []
+	var open_results: Array[Dictionary] = []
 	var quit_requests := 0
 
 	func _go_get_browser_target_chr_id() -> int:
@@ -64,6 +66,16 @@ class FakeVimHost:
 			return {"ok": false, "error": "no annotation feature selected"}
 		var result: Dictionary = feature_step_results.pop_front()
 		return result
+
+	func _vim_open_file(path: String = "") -> Dictionary:
+		open_requests.append(path)
+		if not open_results.is_empty():
+			var result: Dictionary = open_results.pop_front()
+			return result
+		return {
+			"ok": true,
+			"message": "open files" if path.is_empty() else "opening %s" % path.get_file()
+		}
 
 	func _quit_app() -> void:
 		quit_requests += 1
@@ -108,6 +120,44 @@ func test_vim_colorscheme_parser_rejects_set_theme_alias() -> void:
 func test_vim_colon_completion_includes_quit_commands() -> void:
 	var controller := VimModeControllerScript.new()
 	assert_eq(controller._colon_command_completion_matches("q"), PackedStringArray(["q", "quit"]))
+
+
+func test_vim_colon_completion_includes_open_command() -> void:
+	var controller := VimModeControllerScript.new()
+	assert_eq(controller._colon_command_completion_matches("o"), PackedStringArray(["open"]))
+
+
+func test_vim_open_command_opens_dialog_or_path() -> void:
+	var host := FakeVimHost.new()
+	var edit := LineEdit.new()
+	var controller := VimModeControllerScript.new()
+	controller.host = host
+	controller.command_edit = edit
+	controller._enabled = true
+
+	controller._execute_command("open")
+	assert_eq(host.open_requests[-1], "")
+	assert_eq(edit.text, "open files")
+	assert_eq(host.status_messages[-1], {"message": "open files", "is_error": false})
+
+	controller._execute_command("open \"/tmp/foo bar.fasta\"")
+	assert_eq(host.open_requests[-1], "/tmp/foo bar.fasta")
+	assert_eq(edit.text, "opening foo bar.fasta")
+
+	host.open_results.append({"ok": true, "message": "opening silent.fasta", "set_status": false})
+	var previous_status: Dictionary = host.status_messages[-1]
+	controller._execute_command("open /tmp/silent.fasta")
+	assert_eq(host.open_requests[-1], "/tmp/silent.fasta")
+	assert_eq(edit.text, "opening silent.fasta")
+	assert_eq(host.status_messages[-1], previous_status)
+
+	host.open_results.append({"ok": false, "error": "file not found: /tmp/missing.fasta"})
+	controller._execute_command("open /tmp/missing.fasta")
+	assert_eq(host.open_requests[-1], "/tmp/missing.fasta")
+	assert_eq(edit.text, "file not found: /tmp/missing.fasta")
+	assert_eq(host.status_messages[-1], {"message": "file not found: /tmp/missing.fasta", "is_error": true})
+	edit.free()
+	host.free()
 
 
 func test_vim_view_completion_includes_targets() -> void:

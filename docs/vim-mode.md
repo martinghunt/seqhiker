@@ -126,6 +126,8 @@ Implemented commands:
 | `:go <sequence>:<start>-<end>` | Jump to a range in a named sequence. |
 | `:go <sequence> <position>` | Space-separated form for a named sequence. |
 | `:go <sequence> <start>-<end>` | Space-separated range form for a named sequence. |
+| `:open` | Open the native file picker, like pressing the open file button. |
+| `:open <path>` | Open a file from a filesystem path. |
 | `:colorscheme <theme>` | Switch to a theme. This uses standard Vim-style `colorscheme` syntax. |
 | `:view single` | Switch to single genome view. |
 | `:view comparison` | Switch to comparison view. |
@@ -146,6 +148,14 @@ Position and range examples:
 The colon form is the preferred sequence syntax. The space-separated sequence
 form is also available when it is clearer for sequence names that contain
 colons.
+
+Open examples:
+
+```text
+:open
+:open /path/to/foo.fasta
+:open "/path/to/foo bar.fasta"
+```
 
 ## Search prompt
 
@@ -191,7 +201,7 @@ Press `Tab` in the command bar to cycle through available completions.
 
 Completion is implemented for:
 
-- `:` command names, such as `go`, `colorscheme`, `view`, `q`, and `quit`
+- `:` command names, such as `go`, `open`, `colorscheme`, `view`, `q`, and `quit`
 - sequence names after `:go`
 - theme names after `:colorscheme`
 - `single` and `comparison` after `:view`

@@ -9,7 +9,7 @@ const VIM_MARK_ACTION_SAVE := "save"
 const VIM_MARK_ACTION_LOAD := "load"
 const VIM_COMMAND_PREFIX_COMMAND := ":"
 const VIM_COMMAND_PREFIX_SEARCH := "/"
-const VIM_COLON_COMMANDS := ["go", "colorscheme", "q", "quit", "view"]
+const VIM_COLON_COMMANDS := ["go", "colorscheme", "open", "q", "quit", "view"]
 const VIM_VIEW_TARGETS := ["comparison", "single"]
 const VIM_COMMAND_HISTORY_LIMIT := 100
 
@@ -360,6 +360,8 @@ func _execute_command(command: String) -> void:
 		_execute_go_command(clean)
 	elif lower == VimCommandParserScript.COMMAND_COLORSCHEME or lower.begins_with("%s " % VimCommandParserScript.COMMAND_COLORSCHEME):
 		_execute_colorscheme_command(clean)
+	elif lower == "open" or lower.begins_with("open "):
+		_execute_open_command(clean)
 	elif lower == "view" or lower.begins_with("view "):
 		_execute_view_command(clean)
 	elif lower == "q" or lower == "quit":
@@ -390,6 +392,32 @@ func _execute_quit_command() -> void:
 		host._quit_app()
 	elif host.get_tree() != null:
 		host.get_tree().quit()
+
+
+func _execute_open_command(command: String) -> void:
+	if host == null or not host.has_method("_vim_open_file"):
+		_show_bar_error("open unavailable")
+		return
+	var path := _strip_matching_quotes(command.substr(4).strip_edges())
+	var result: Dictionary = host._vim_open_file(path)
+	if not bool(result.get("ok", false)):
+		_show_bar_error(str(result.get("error", "open failed")))
+		return
+	var message := str(result.get("message", "open files"))
+	if not message.is_empty():
+		if bool(result.get("set_status", true)):
+			host._set_status(message)
+		show_message(message)
+
+
+static func _strip_matching_quotes(text: String) -> String:
+	if text.length() < 2:
+		return text
+	var first := text.unicode_at(0)
+	var last := text.unicode_at(text.length() - 1)
+	if (first == 34 and last == 34) or (first == 39 and last == 39):
+		return text.substr(1, text.length() - 2)
+	return text
 
 
 func _execute_view_command(command: String) -> void:

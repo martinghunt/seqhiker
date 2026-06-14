@@ -660,6 +660,23 @@ func _on_open_files_selected(paths: PackedStringArray) -> void:
 		_open_file_last_dir = first_path.get_base_dir()
 	_on_files_dropped(paths)
 
+func _vim_open_file(path: String = "") -> Dictionary:
+	var clean := _expand_open_path(path.strip_edges())
+	if clean.is_empty():
+		_on_open_file_pressed()
+		return {"ok": true, "message": "open files"}
+	if not FileAccess.file_exists(clean):
+		return {"ok": false, "error": "file not found: %s" % clean}
+	_on_open_files_selected(PackedStringArray([clean]))
+	return {"ok": true, "message": "opening %s" % clean.get_file(), "set_status": false}
+
+func _expand_open_path(path: String) -> String:
+	if path == "~":
+		return _user_home_dir()
+	if path.begins_with("~/") or path.begins_with("~\\"):
+		return _user_home_dir().path_join(path.substr(2))
+	return path
+
 func _remember_open_file_dialog_dir() -> void:
 	if _open_file_dialog == null:
 		return
