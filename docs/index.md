@@ -62,6 +62,7 @@ For more detail, see:
 install
 supported-files
 navigation
+vim-mode
 contig-actions
 theme-editor
 comparison-view
