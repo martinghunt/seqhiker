@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-14
+
 ### Added
 - Vim mode: keyboard navigation controls, :commands, and / for search
 - Open File button, as alternative to drag and drop to load a file
@@ -89,7 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Release `v0.42.0` ("Mostly Harmless"), before changelog tracking started in this file.
 
-[Unreleased]: https://github.com/martinghunt/seqhiker/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/martinghunt/seqhiker/compare/v1.3.0...HEAD
+[1.2.0]: https://github.com/martinghunt/seqhiker/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/martinghunt/seqhiker/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/martinghunt/seqhiker/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/martinghunt/seqhiker/compare/v0.42.0...v1.0.0
