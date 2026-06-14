@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Vim mode: keyboard navigation controls, :commands, and / for search
+- Open File button, as alternative to drag and drop to load a file
+
 ### Fixed
 - Comparison mode no longer drops large high-identity matches when the anchored chain has a small leading or trailing overhang.
 - Comparison mode no longer drops high-identity matches that contain long but narrow anchor-sparse gaps.
