@@ -11,7 +11,7 @@ Choose the build that matches your operating system and architecture.
 macOS Gatekeeper will probably block it from running. If this happens, you have two options:
 
 - Go to "Privacy & Security" in the Settings app. Scroll to the bottom and `seqhiker` should be there for you to allow it
-- In a terminal, run this command: `xattr -d com.apple.quarantine -r seqhiker.app`
+- In a terminal, run this command: `xattr -rd com.apple.quarantine seqhiker.app` (you will need to fix the path to wherever you put the app `seqhiker.app`)
 
 Then `seqhiker` should just work. We apologise for the inconvenience, but this process is standard for apps that have not been ["notarized" by Apple](https://www.youtube.com/watch?v=X6HZlpPGFf0) (which means paying an annual fee).
 
