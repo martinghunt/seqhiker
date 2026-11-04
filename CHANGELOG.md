@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Use faqt v0.12.0 for genome comparisons, recovering missed matches and retaining repeat placements. Alignment details use the computed path, including after contig reversal and reordering.
+- Comparison mode no longer shows duplicate matches nested inside a longer match, such as alternative routes through tandem repeats or a long match split at its end. Distinct repeat copies are still shown. Cached comparisons are recomputed.
+- Enable NEON/AVX2 alignment acceleration in builds, with scalar fallback on unsupported x86 CPUs. Building now requires Go 1.27.2 or later.
+- Save compressed alignment paths in comparison sessions. Older sessions still load and recompute their comparisons; new sessions require this version of Seqhiker.
+
 ## [1.3.0] - 2026-06-14
 
 ### Added

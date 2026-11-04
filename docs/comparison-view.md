@@ -84,7 +84,9 @@ Indels appear as non-parallel lines in the alignment.
 
 Comparison mode can save the current comparison session to a custom file.
 These files can be dropped back into the app later to restore the comparison
-genomes.
+genomes and computed alignment paths. Sessions from older versions still load;
+their comparisons are recomputed. Newly saved sessions require this version of
+Seqhiker or later.
 
 ## Temporary view slots
 

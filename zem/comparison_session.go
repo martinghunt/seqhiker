@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/martinghunt/faqt/align"
 )
 
 var comparisonSessionMagicV1 = []byte{'S', 'H', 'C', 'M', 'P', 0x01}
 var comparisonSessionMagicV2 = []byte{'S', 'H', 'C', 'M', 'P', 0x02}
 var comparisonSessionMagicV3 = []byte{'S', 'H', 'C', 'M', 'P', 0x03}
-var comparisonSessionMagic = []byte{'S', 'H', 'C', 'M', 'P', 0x04}
+var comparisonSessionMagicV4 = []byte{'S', 'H', 'C', 'M', 'P', 0x04}
+var comparisonSessionMagic = []byte{'S', 'H', 'C', 'M', 'P', 0x05}
 
 func isComparisonSessionFile(path string) (bool, error) {
 	f, err := os.Open(path)
@@ -28,7 +31,7 @@ func isComparisonSessionFile(path string) (bool, error) {
 		}
 		return false, err
 	}
-	return n == len(comparisonSessionMagic) && (bytes.Equal(header, comparisonSessionMagic) || bytes.Equal(header, comparisonSessionMagicV3) || bytes.Equal(header, comparisonSessionMagicV2) || bytes.Equal(header, comparisonSessionMagicV1)), nil
+	return n == len(comparisonSessionMagic) && (bytes.Equal(header, comparisonSessionMagic) || bytes.Equal(header, comparisonSessionMagicV4) || bytes.Equal(header, comparisonSessionMagicV3) || bytes.Equal(header, comparisonSessionMagicV2) || bytes.Equal(header, comparisonSessionMagicV1)), nil
 }
 
 func (e *Engine) SaveComparisonSession(path string) error {
@@ -75,6 +78,8 @@ func (e *Engine) LoadComparisonSession(path string) error {
 	sessionVersion := 0
 	switch {
 	case bytes.Equal(header, comparisonSessionMagic):
+		sessionVersion = 5
+	case bytes.Equal(header, comparisonSessionMagicV4):
 		sessionVersion = 4
 	case bytes.Equal(header, comparisonSessionMagicV3):
 		sessionVersion = 3
@@ -355,6 +360,11 @@ func writeComparisonPair(w io.Writer, pair *comparisonPair) {
 	writeU32(w, uint32(len(pair.CanonicalBlocks)))
 	for _, block := range pair.CanonicalBlocks {
 		writeComparisonCanonicalBlock(w, block)
+		writeU32(w, uint32(len(block.Ops)))
+		for _, op := range block.Ops {
+			writeU8(w, op.Code)
+			writeU32(w, uint32(op.Length))
+		}
 	}
 }
 
@@ -386,9 +396,14 @@ func readComparisonPair(r io.Reader, sessionVersion int) (*comparisonPair, error
 			if err != nil {
 				return nil, err
 			}
+			if sessionVersion >= 5 {
+				if err := readComparisonCanonicalOps(r, &block); err != nil {
+					return nil, err
+				}
+			}
 			canonicalBlocks = append(canonicalBlocks, block)
 		}
-		if sessionVersion < 4 {
+		if sessionVersion < 5 {
 			canonicalBlocks = nil
 			status = comparisonStatusPending
 		}
@@ -407,6 +422,50 @@ func readComparisonPair(r io.Reader, sessionVersion int) (*comparisonPair, error
 		Status:          status,
 		CanonicalBlocks: canonicalBlocks,
 	}, nil
+}
+
+func readComparisonCanonicalOps(r io.Reader, block *comparisonCanonicalBlock) error {
+	n, err := readU32(r)
+	if err != nil {
+		return err
+	}
+	qSpan, tSpan := block.QueryEnd-block.QueryStart, block.TargetEnd-block.TargetStart
+	if qSpan < 0 || tSpan < 0 || uint64(n) > uint64(qSpan)+uint64(tSpan) {
+		return fmt.Errorf("invalid comparison alignment operation count")
+	}
+	q, t := 0, 0
+	for i := uint32(0); i < n; i++ {
+		code, err := readU8(r)
+		if err != nil {
+			return err
+		}
+		length, err := readU32(r)
+		if err != nil {
+			return err
+		}
+		if length == 0 {
+			return fmt.Errorf("invalid zero-length alignment operation")
+		}
+		switch code {
+		case '=', 'X':
+			q += int(length)
+			t += int(length)
+		case 'I':
+			q += int(length)
+		case 'D':
+			t += int(length)
+		default:
+			return fmt.Errorf("invalid alignment operation %q", code)
+		}
+		if q > qSpan || t > tSpan {
+			return fmt.Errorf("alignment operations exceed comparison block")
+		}
+		block.Ops = append(block.Ops, align.Op{Code: code, Length: int(length)})
+	}
+	if n > 0 && (q != qSpan || t != tSpan) {
+		return fmt.Errorf("alignment operations do not cover comparison block")
+	}
+	return nil
 }
 
 func writeComparisonCanonicalBlock(w io.Writer, block comparisonCanonicalBlock) {

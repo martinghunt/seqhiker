@@ -30,7 +30,9 @@ jobs:
 
       - name: Run zem tests
         working-directory: zem
-        run: go test ./...
+        run: |
+          go test ./...
+          GOEXPERIMENT=simd go test ./...
 
       - name: Install Godot headless
         run: |

@@ -13,7 +13,7 @@ import (
 
 var comparisonDetailCacheMagic = [8]byte{'Z', 'C', 'M', 'P', 'D', 'T', 'L', '1'}
 
-const comparisonDetailCacheVersion = 4
+const comparisonDetailCacheVersion = 5
 
 type comparisonDetailIndexEntry struct {
 	Offset int64
@@ -38,17 +38,7 @@ func comparisonDetailCachePath(cacheDir string, query, target *comparisonGenome)
 	h := sha256.New()
 	io.WriteString(h, ZemVersion)
 	h.Write([]byte{0})
-	io.WriteString(h, fmt.Sprintf("%d:%d:%d:%d:%d:%d:%d:%d:%d\n",
-		comparisonDetailCacheVersion,
-		comparisonMinimizerK,
-		comparisonMinimizerWindow,
-		comparisonMaxSeedHits,
-		comparisonMaxAnchorGap,
-		comparisonMaxDiagonalDrift,
-		comparisonChainMergeGapMaxSpan,
-		comparisonChainMergeOverlapMaxSpan,
-		comparisonRefineGapMaxSpan,
-	))
+	io.WriteString(h, fmt.Sprintf("%d:faqt-v0.12.0:k15:w10:%+v\n", comparisonDetailCacheVersion, comparisonAlignOptions()))
 	h.Write([]byte{0})
 	io.WriteString(h, query.Name)
 	h.Write([]byte{0})
@@ -70,6 +60,9 @@ func (e *Engine) ensureComparisonPairDetailCacheLocked(pair *comparisonPair, que
 		return nil
 	}
 	cachePath := comparisonDetailCachePath(e.comparisonCacheDir, query, target)
+	if pair.DetailPath == cachePath && pair.DetailIndex != nil {
+		return nil
+	}
 	pair.DetailPath = cachePath
 	if idx, err := loadComparisonDetailIndex(cachePath); err == nil {
 		pair.DetailIndex = idx
@@ -77,46 +70,6 @@ func (e *Engine) ensureComparisonPairDetailCacheLocked(pair *comparisonPair, que
 	}
 	pair.DetailIndex = map[string]comparisonDetailIndexEntry{}
 	return nil
-}
-
-func writeComparisonDetailCache(path string, details []comparisonBlockDetail) (map[string]comparisonDetailIndexEntry, error) {
-	tmpPath := path + ".tmp"
-	f, err := os.Create(tmpPath)
-	if err != nil {
-		return nil, err
-	}
-	w := bufio.NewWriter(f)
-	if _, err := w.Write(comparisonDetailCacheMagic[:]); err != nil {
-		f.Close()
-		_ = os.Remove(tmpPath)
-		return nil, err
-	}
-	index := make(map[string]comparisonDetailIndexEntry, len(details))
-	offset := int64(len(comparisonDetailCacheMagic))
-	for _, detail := range details {
-		index[comparisonBlockKey(detail.Summary)] = comparisonDetailIndexEntry{Offset: offset}
-		n, err := writeComparisonDetailRecord(w, detail.info())
-		if err != nil {
-			f.Close()
-			_ = os.Remove(tmpPath)
-			return nil, err
-		}
-		offset += int64(n)
-	}
-	if err := w.Flush(); err != nil {
-		f.Close()
-		_ = os.Remove(tmpPath)
-		return nil, err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return nil, err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return nil, err
-	}
-	return index, nil
 }
 
 func loadComparisonDetailIndex(path string) (map[string]comparisonDetailIndexEntry, error) {
@@ -274,7 +227,7 @@ func readComparisonDetailRecordAt(r io.ReaderAt, offset int64) (ComparisonBlockD
 			return ComparisonBlockDetail{}, 0, err
 		}
 	}
-	variants := affineAlignment{Ops: opsBytes}.variantsForBlock(block)
+	variants := comparisonAlignmentOps{Ops: opsBytes}.variantsForBlock(block)
 	return ComparisonBlockDetail{
 		Block:    block,
 		Ops:      string(opsBytes),
@@ -298,6 +251,11 @@ func variantsToInfo(vars []comparisonVariant) []ComparisonVariantInfo {
 
 func swappedComparisonBlockDetail(detail ComparisonBlockDetail) ComparisonBlockDetail {
 	ops := []byte(detail.Ops)
+	if !detail.Block.SameStrand {
+		for i, j := 0, len(ops)-1; i < j; i, j = i+1, j-1 {
+			ops[i], ops[j] = ops[j], ops[i]
+		}
+	}
 	for i, op := range ops {
 		switch op {
 		case 'I':
@@ -306,23 +264,7 @@ func swappedComparisonBlockDetail(detail ComparisonBlockDetail) ComparisonBlockD
 			ops[i] = 'I'
 		}
 	}
-	variants := make([]ComparisonVariantInfo, 0, len(detail.Variants))
-	for _, v := range detail.Variants {
-		kind := v.Kind
-		switch kind {
-		case 'I':
-			kind = 'D'
-		case 'D':
-			kind = 'I'
-		}
-		variants = append(variants, ComparisonVariantInfo{
-			Kind:      kind,
-			QueryPos:  v.TargetPos,
-			TargetPos: v.QueryPos,
-			RefBases:  v.AltBases,
-			AltBases:  v.RefBases,
-		})
-	}
+	variants := variantsToInfo(comparisonAlignmentOps{Ops: ops}.variantsForBlock(swappedComparisonBlock(detail.Block)))
 	return ComparisonBlockDetail{
 		Block:    swappedComparisonBlock(detail.Block),
 		Ops:      string(ops),

@@ -29,6 +29,8 @@ Examples:
   ./build_zem_bins.sh --all
 
 Notes:
+  - Requires Go 1.27.2 or later. SIMD is enabled by default; unsupported x86 CPUs
+    select scalar alignment at runtime. GOEXPERIMENT=nosimd builds scalar only.
   - Default version source is project.godot application/config/version.
   - Default (no args) builds for current host and writes:
       bin/seqhiker-zem
@@ -110,7 +112,7 @@ build_one() {
 	echo "Building zem ${VERSION} for ${goos}/${goarch} -> ${out}"
 	(
 		cd "${ZEM_DIR}"
-		GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.ZemVersion=${VERSION}" -o "${out}" .
+		GOOS="${goos}" GOARCH="${goarch}" GOAMD64=v1 CGO_ENABLED=0 GOEXPERIMENT="${GOEXPERIMENT:-simd}" go build -trimpath -ldflags="-s -w -X main.ZemVersion=${VERSION}" -o "${out}" .
 	)
 }
 
