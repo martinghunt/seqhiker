@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-05
+
 ### Changed
 - Use faqt v0.12.0 for genome comparisons, recovering missed matches and retaining repeat placements. Alignment details use the computed path, including after contig reversal and reordering.
 - Comparison mode no longer shows duplicate matches nested inside a longer match, such as alternative routes through tandem repeats or a long match split at its end. Distinct repeat copies are still shown. Cached comparisons are recomputed.
@@ -97,8 +99,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Release `v0.42.0` ("Mostly Harmless"), before changelog tracking started in this file.
 
-[Unreleased]: https://github.com/martinghunt/seqhiker/compare/v1.3.0...HEAD
-[1.2.0]: https://github.com/martinghunt/seqhiker/compare/v1.2.0...v1.3.0
+[Unreleased]: https://github.com/martinghunt/seqhiker/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/martinghunt/seqhiker/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/martinghunt/seqhiker/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/martinghunt/seqhiker/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/martinghunt/seqhiker/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/martinghunt/seqhiker/compare/v0.42.0...v1.0.0
